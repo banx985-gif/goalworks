@@ -5,8 +5,14 @@
 // station opens its bottom sheet (header + what is happening now). A temporary Training Pitch shortcut opens the same
 // sheet as tapping the pitch. A long press on empty grass enters a placeholder Build Mode (banner + Done). ‹ Menu (or
 // Back) returns to the Main Menu.
+// Milestone 2: under the top row, the calendar in simple code text (date + speed) until the real top bar arrives, the
+// speed buttons (Pause · 1× · 2× only while a valid fixture is pending · 4× locked) and "Next match: … in N days". The
+// Founder walks at the calendar's speed (and stands still while it is paused). On match day the shortcut becomes
+// Match Setup. The Manager Office sheet gets the temporary Fixtures row (extraSections).
 // Plan space lives in the world; only drawing and tapping go through the IsoProjection here.
-//   createClubScreen({ renderer, layout, assets, bus, sheet, club, onMenu, debug })   club() → { n, data } or null
+//   createClubScreen({ renderer, layout, assets, bus, sheet, club, onMenu, debug, calendar, onMatchSetup, extraSections })
+//     club() → { n, data } or null     calendar() → the open club's calendar (src/systems/calendar.js) or null
+//     onMatchSetup() opens Match Setup     extraSections(stationId) → more sheet sections for that station
 import { THEME, font } from '../../../../core/Theme.js';
 import { IsoProjection } from '../../../../core/IsoProjection.js';
 import { Camera } from '../../../../core/Camera.js';
@@ -28,7 +34,7 @@ const DETAIL_STEPS = [0.5, 0.7, 1.0, 1.4];
 const detailFor = (zoom) => DETAIL_STEPS.find((d) => d >= zoom - 1e-3) ?? DETAIL_STEPS[DETAIL_STEPS.length - 1];
 const TOP_OVERHANG = 360; // room above the grid's back corner for the pitch's floodlights
 
-export function createClubScreen({ renderer, layout, assets, bus, sheet, club, onMenu, debug = null }) {
+export function createClubScreen({ renderer, layout, assets, bus, sheet, club, onMenu, debug = null, calendar = () => null, onMatchSetup = () => {}, extraSections = () => [] }) {
   const W = renderer.width;
   const { cols, rows, cellSize: CELL, margin, fenceH } = COMPLEX;
   const { halfW: HW, halfH: HH } = COMPLEX.view;
@@ -102,6 +108,21 @@ export function createClubScreen({ renderer, layout, assets, bus, sheet, club, o
     const w = Math.min(560, sr.w - 48);
     return { x: sr.x + (sr.w - w) / 2, y: sr.y + sr.h - 24 - 130, w, h: 130 };
   };
+  // The calendar strip (Milestone 2): date + speed text, the four speed buttons, the next-match line.
+  const calRect = () => {
+    const m = menuRect();
+    const sr = layout.safeRect;
+    return { x: sr.x + 24, y: m.y + m.h + 16, w: sr.w - 48, h: 256 };
+  };
+  const SPEEDS = [0, 1, 2, 4];
+  const speedRect = (s) => {
+    const r = calRect();
+    const gap = 14;
+    const w = (r.w - 32 - gap * 3) / 4;
+    const i = SPEEDS.indexOf(s);
+    return { x: r.x + 16 + i * (w + gap), y: r.y + 72, w, h: THEME.button.minH };
+  };
+  let note = null; // { text, t } — why a speed tap was refused, shown for a moment on the next-match line
   const bannerRect = () => {
     const sr = layout.safeRect;
     return { x: sr.x + 24, y: sr.y + 24, w: sr.w - 48, h: 190 };
@@ -110,12 +131,12 @@ export function createClubScreen({ renderer, layout, assets, bus, sheet, club, o
     const b = bannerRect();
     return { x: b.x + b.w - 250, y: b.y + (b.h - 120) / 2, w: 226, h: 120 };
   };
-  const onUi = (p) => (buildMode ? hitRect(p, bannerRect()) : hitRect(p, menuRect()) || hitRect(p, plateRect()) || hitRect(p, shortcutRect()));
+  const onUi = (p) => (buildMode ? hitRect(p, bannerRect()) : hitRect(p, menuRect()) || hitRect(p, plateRect()) || hitRect(p, calRect()) || hitRect(p, shortcutRect()));
   const overSheet = (p) => sheet.active && p.y >= sheet.rect().y;
 
-  // The camera sees the ground between the top row (‹ Menu, club name) and the shortcut; grass fills the rest.
+  // The camera sees the ground between the calendar strip and the shortcut; grass fills the rest.
   function fitView() {
-    const top = menuRect();
+    const top = calRect();
     const bottom = shortcutRect();
     camera.viewX = 0;
     camera.viewY = top.y + top.h + 12;
@@ -163,7 +184,7 @@ export function createClubScreen({ renderer, layout, assets, bus, sheet, club, o
       art: it.def.art,
       accent: C.progress,
       tag: { text: it.def.role.toUpperCase() },
-      sections: [{ title: 'Now', lines: [world.stateOf(it)] }],
+      sections: [{ title: 'Now', lines: [world.stateOf(it)] }, ...extraSections(it.id)],
     };
   }
   function openSheet(id) {
@@ -191,7 +212,11 @@ export function createClubScreen({ renderer, layout, assets, bus, sheet, club, o
     openSheet,
     // Tests: 'menu', 'plate', 'shortcut', 'done', 'banner'.
     rectOf(id) {
-      return { menu: menuRect(), plate: plateRect(), shortcut: shortcutRect(), done: doneRect(), banner: bannerRect() }[id] ?? null;
+      return { menu: menuRect(), plate: plateRect(), shortcut: shortcutRect(), done: doneRect(), banner: bannerRect(), calendar: calRect(), speed0: speedRect(0), speed1: speedRect(1), speed2: speedRect(2), speed4: speedRect(4) }[id] ?? null;
+    },
+    // The words on the calendar strip (tests): { date, speed, next }.
+    calendarText() {
+      return calendarLines();
     },
     // Screen point on the Founder's body or a station's art (tests): the visible middle of what a finger would tap.
     screenPointOf(id) {
@@ -255,7 +280,8 @@ export function createClubScreen({ renderer, layout, assets, bus, sheet, club, o
       camera.centerOn(cx, cy);
     },
     update(dt) {
-      world?.update(dt);
+      world?.update(dt * (calendar()?.clock.speed ?? 1)); // the Founder keeps the calendar's pace; still while paused
+      if (note && (note.t -= dt) <= 0) note = null;
       if (!sheet.active && selection.selected) selection.clear();
     },
     onBack() {
@@ -298,10 +324,23 @@ export function createClubScreen({ renderer, layout, assets, bus, sheet, club, o
         return log('menu');
       }
       if (hitRect(p, shortcutRect())) {
+        if (calendar()?.atKickoff) {
+          onMatchSetup();
+          return log('matchSetup');
+        }
         openSheet('pitch');
         return log('shortcut');
       }
       if (hitRect(p, plateRect())) return log(null);
+      if (hitRect(p, calRect())) {
+        const s = SPEEDS.find((sp) => hitRect(p, speedRect(sp)));
+        const cal = calendar();
+        if (s == null || !cal) return log(null);
+        const r = cal.setSpeed(s);
+        note = r.ok ? null : { text: r.why, t: 2.5 };
+        debug?.log(r.ok ? `speed ${s}×` : `speed ${s}× refused: ${r.why}`);
+        return log(`speed${s}`);
+      }
       const picked = pickAt(p.x, p.y);
       if (picked) openSheet(picked.id);
       else selection.clear();
@@ -345,7 +384,9 @@ export function createClubScreen({ renderer, layout, assets, bus, sheet, club, o
       else {
         drawButton(ctx, menuRect(), '‹ Menu', { accent: C.progress });
         drawPlate(ctx);
-        drawButton(ctx, shortcutRect(), 'Training Pitch', { accent: C.action });
+        drawCalendar(ctx);
+        if (calendar()?.atKickoff) drawButton(ctx, shortcutRect(), 'Match Setup', { accent: C.good });
+        else drawButton(ctx, shortcutRect(), 'Training Pitch', { accent: C.action });
       }
     },
   };
@@ -531,6 +572,43 @@ export function createClubScreen({ renderer, layout, assets, bus, sheet, club, o
     ctx.stroke();
     ctx.restore();
     text(ctx, c.name, r.x + r.w / 2, r.y + r.h / 2, { size: S.body, bold: true, color: prim.ink, align: 'center', baseline: 'middle', maxWidth: r.w - 40 });
+  }
+  // The calendar strip's words: the date, the speed, and the next match (or why a speed was refused).
+  function calendarLines() {
+    const cal = calendar();
+    if (!cal) return null;
+    const c = cal.clock;
+    const f = cal.fixture;
+    let next = 'No match scheduled';
+    if (f && cal.atKickoff) next = `Match day: ${f.opponent.name}`;
+    else if (f) next = `Next match: ${f.opponent.name} in ${cal.daysToMatch} day${cal.daysToMatch === 1 ? '' : 's'}`;
+    return { date: `Year ${c.year} · Month ${c.month} · Day ${c.day}`, speed: c.paused ? 'Paused' : `${c.speed}×`, next, note: note?.text ?? null };
+  }
+  function drawCalendar(ctx) {
+    const t = calendarLines();
+    if (!t) return;
+    const cal = calendar();
+    const r = calRect();
+    ctx.save();
+    ctx.fillStyle = C.panel;
+    ctx.strokeStyle = C.outline;
+    ctx.lineWidth = THEME.panel.line;
+    ctx.beginPath();
+    ctx.roundRect(r.x, r.y, r.w, r.h, THEME.panel.radius);
+    ctx.fill();
+    ctx.stroke();
+    ctx.restore();
+    text(ctx, t.date, r.x + 28, r.y + 38, { size: S.body, bold: true, baseline: 'middle', maxWidth: r.w - 260 });
+    text(ctx, t.speed, r.x + r.w - 28, r.y + 38, { size: S.body, bold: true, color: cal.clock.paused ? C.bad : C.progress, align: 'right', baseline: 'middle' });
+    for (const s of SPEEDS) {
+      const label = s === 0 ? 'Pause' : `${s}×`;
+      const locked = s !== 0 && !cal.clock.canUseSpeed(s);
+      const temp = s === 2 && cal.temporary2x && !locked;
+      drawButton(ctx, speedRect(s), label, { accent: temp ? C.good : C.progress, selected: cal.clock.speed === s, locked });
+    }
+    const lineY = r.y + 72 + THEME.button.minH + 38;
+    if (t.note) text(ctx, t.note, r.x + 28, lineY, { size: S.small, bold: true, color: C.bad, baseline: 'middle', maxWidth: r.w - 56 });
+    else text(ctx, t.next + (cal.temporary2x && !cal.atKickoff ? '  ·  2× open until kickoff' : ''), r.x + 28, lineY, { size: S.small, bold: !!cal.fixture, color: cal.fixture ? C.text : C.textFaint, baseline: 'middle', maxWidth: r.w - 56 });
   }
   function drawBanner(ctx) {
     const b = bannerRect();

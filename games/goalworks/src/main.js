@@ -7,6 +7,11 @@
 // complex. Starting into an occupied slot asks first, naming that slot's club and year.
 // Milestone 1: the club screen is the real Club Complex (src/screens/ClubScreen.js): a small ground in the 3/4 view, the
 // Training Pitch, Manager Office and Scout Desk, and the Founder walking between them; tap for their sheets.
+// Milestone 2: each open club has a calendar (src/systems/calendar.js, on core/Clock): 2.5 s a day at 1×, Pause / 1× /
+// 2× only while a valid fixture is pending / 4× locked; the temporary Test Challenge in the Manager Office sheet commits a
+// fixture 7 days ahead; on kickoff day the calendar pauses and Match Setup opens (also after a reload). Saved by
+// core/Autosave each day (so a reload resumes the same day), at each week, commit, kickoff and result, and when the app
+// goes to the background. The account speed unlocks (permanent 2× / 4×) live in the account store; ?debug=1 can flip them.
 // Add ?debug=1 for the FPS/state overlay, ?screen=test for the scaling / tap / asset-loader test screen.
 import { THEME, font } from '../../../core/Theme.js';
 import { EventBus } from '../../../core/EventBus.js';
@@ -21,6 +26,7 @@ import { DebugOverlay } from '../../../core/DebugOverlay.js';
 import { SystemBack } from '../../../core/SystemBack.js';
 import { createStorageAdapter } from '../../../core/StorageAdapter.js';
 import { DataValidator } from '../../../core/DataValidator.js';
+import { Autosave } from '../../../core/Autosave.js';
 import { TextPrompt } from '../../../core/ui/TextPrompt.js';
 import { BottomSheet } from '../../../core/ui/BottomSheet.js';
 import { Dialog } from '../../../core/ui/Modal.js';
@@ -35,6 +41,8 @@ import { createSlotsScreen } from './screens/SlotsScreen.js';
 import { createSetupScreen } from './screens/SetupScreen.js';
 import { createClubScreen } from './screens/ClubScreen.js';
 import { createTestScreen } from './screens/TestScreen.js';
+import { fixturesSheet, matchSetupSheet } from './screens/fixtureSheets.js';
+import { createCalendar } from './systems/calendar.js';
 const COL = THEME.color;
 
 const W = 1080;
@@ -75,6 +83,12 @@ const loop = new FixedStepLoop({
   stepHz: 60,
   bus,
   update: (dt) => {
+    if (open && router.currentName === 'club') {
+      open.calendar.update(dt); // the club calendar only runs while the club is on screen
+      open.data.playSec = (open.data.playSec ?? 0) + dt;
+      if (open.calendar.atKickoff && !open.setupShown && !clubScreen.buildMode) openMatchSetup(); // kickoff day (also right after a reload)
+    }
+    autosave.tick(dt);
     router.update(dt);
     dialog.update(dt);
     sheet.update(dt);
@@ -164,13 +178,45 @@ const systemBack = new SystemBack({ onBack: back });
 bus.on('input:up', () => systemBack.rearm()); // re-arm after any tap, in case a Back at the menu let it go
 
 let campaigns = null;
-let open = null; // { n, data } — the campaign on screen
+let open = null; // { n, data, calendar, setupShown } — the campaign on screen
+let account = {}; // the account store (core/CampaignSlots): speedUnlocks { perm2x, perm4x } for now
+const speedFlags = () => (account.speedUnlocks ??= { perm2x: false, perm4x: false });
+
+// A campaign's calendar from its save (a save from before Milestone 2 starts on Year 1 · Month 1 · Day 1).
+function openRun(n, data) {
+  open = { n, data, calendar: createCalendar({ bus, saved: data.calendar ?? null, flags: speedFlags() }), setupShown: false };
+}
+// The run save: the calendar written into the campaign data (and the date on the slot card).
+function saveRun() {
+  const o = open;
+  if (!o) return Promise.resolve();
+  const c = o.calendar.clock;
+  o.data = { ...o.data, calendar: o.calendar.serialize(), date: { year: c.year, month: c.month, day: c.day } };
+  return campaigns.save(o.n, o.data);
+}
+// Autosave (core/Autosave) at the bible §36 boundaries that exist now: each in-game week, match commitment, pre-kickoff,
+// match result — plus each day and the app going to the background, so a reload comes back on the same day.
+const autosave = new Autosave({
+  bus,
+  triggers: ['clock:day', 'calendar:week', 'fixture:committed', 'fixture:kickoff', 'fixture:result'],
+  save: () => saveRun(),
+  stamp: () => (open ? JSON.stringify(open.calendar.serialize()) : null),
+  running: () => !!open && router.currentName === 'club' && !open.calendar.clock.paused,
+  enabled: () => !!open,
+});
+autosave.installBackground();
+bus.on('autosave:failed', ({ error }) => debug.log(`save failed: ${error?.message ?? error}`));
+bus.on('fixture:committed', ({ fixture }) => debug.log(`fixture: ${fixture.opponent.name} on day ${fixture.matchDay}`));
+bus.on('fixture:kickoff', ({ fixture }) => debug.log(`kickoff: ${fixture.opponent.name}`));
+bus.on('fixture:result', ({ fixture }) => debug.log(`result: ${fixture.opponent.name} — Match played`));
 
 async function prepareSaves() {
   const adapter = await createStorageAdapter({ dbName: SAVE.dbName, prefix: SAVE.localPrefix });
   campaigns = createCampaigns({ adapter, save: SAVE, bus });
   if (debug.enabled && PARAMS.get('reset') === '1') for (const n of campaigns.slots.numbers()) await campaigns.slots.remove(n);
   await campaigns.refresh();
+  account = await campaigns.slots.loadAccount();
+  speedFlags();
   if (debug.enabled) {
     const r = validateSetup(new DataValidator()).report();
     debug.log(r.ok ? `setup lists: ${r.counts.checks} checks passed` : `setup data: ${r.errors.join('; ')}`);
@@ -209,7 +255,7 @@ async function playSlot(n) {
     router.go('slots', { mode: 'browse' });
     return;
   }
-  open = { n, data };
+  openRun(n, data);
   debug.log(`slot ${n} opened: ${data.club.name}`);
   rememberClub(n);
   router.go('club');
@@ -220,7 +266,7 @@ async function startClub(n, setup) {
   const old = campaigns.card(n);
   const write = async () => {
     const data = await campaigns.start(n, setup);
-    open = { n, data };
+    openRun(n, data);
     debug.log(`new club in slot ${n}: ${setup.club}, founder ${setup.founder}`);
     rememberClub(n);
     router.go('club');
@@ -298,12 +344,60 @@ function leaveSetup() {
 }
 const setupScreen = createSetupScreen({ layout, assets, textPrompt, onBack: () => leaveSetup(), onStart: (n, setup) => startClub(n, setup) });
 async function leaveClub() {
+  if (open) await autosave.flush().catch(() => {});
   rememberClub(null);
   router.go('menu');
   await campaigns.refresh();
   open = null;
 }
-const clubScreen = createClubScreen({ renderer, layout, assets, bus, sheet, club: () => open, onMenu: () => leaveClub(), debug });
+// Milestone 2 sheets: the Manager Office's temporary Fixtures row, and Match Setup on kickoff day.
+let fixtureMsg = null; // the last commit's answer, shown in the Fixtures sheet
+const calendar = () => open?.calendar ?? null;
+function openFixtures() {
+  fixtureMsg = null;
+  sheet.open(
+    fixturesSheet({
+      calendar,
+      message: () => fixtureMsg,
+      onCommit: (offer) => {
+        const r = open.calendar.commit(offer);
+        fixtureMsg = r.ok ? null : r.why; // (on success the sheet shows the scheduled match itself)
+      },
+      debugFlags: debug.enabled ? (id) => toggleSpeedFlag(id) : null,
+    }),
+  );
+}
+async function toggleSpeedFlag(id) {
+  const f = speedFlags();
+  f[id] = !f[id];
+  if (open) open.calendar.flags = f;
+  debug.log(`account ${id}: ${f[id]}`);
+  await campaigns.slots.saveAccount(account);
+}
+function openMatchSetup() {
+  if (!open?.calendar.atKickoff) return;
+  open.setupShown = true;
+  sheet.open(matchSetupSheet({ calendar, clubName: () => open?.data.club.name ?? '', onPlayed: () => playPlaceholder() }));
+}
+function playPlaceholder() {
+  const r = open?.calendar.playResult();
+  if (!r?.ok) return;
+  open.setupShown = false;
+  sheet.close();
+}
+const clubScreen = createClubScreen({
+  renderer,
+  layout,
+  assets,
+  bus,
+  sheet,
+  club: () => open,
+  onMenu: () => leaveClub(),
+  debug,
+  calendar,
+  onMatchSetup: () => openMatchSetup(),
+  extraSections: (id) => (id === 'office' ? [{ title: 'Fixtures', lines: ['Temporary Test Challenge until the league arrives.'], buttons: [{ id: 'fixtures', label: 'Fixtures (test)', accent: COL.action, onTap: () => openFixtures() }] }] : []),
+});
 
 // ---------------------------------------------------------------------------
 // Splash (the boot screen): the studio logo while the images and the saves load, then the Main Menu (or the club a
@@ -349,7 +443,7 @@ router
 
 // ?debug=1: a test hook for automated checks.
 if (debug.enabled) {
-  window.__gw = { renderer, layout, input, loop, router, assets, sheet, dialog, systemBack, textPrompt, splashScreen, menuScreen, slotsScreen, setupScreen, clubScreen, playSlot, startClub, deleteSlot, newGame, taps: [], get campaigns() { return campaigns; }, get open() { return open; } };
+  window.__gw = { renderer, layout, input, loop, router, assets, sheet, dialog, systemBack, textPrompt, splashScreen, menuScreen, slotsScreen, setupScreen, clubScreen, playSlot, startClub, deleteSlot, newGame, openFixtures, openMatchSetup, playPlaceholder, toggleSpeedFlag, autosave, saveRun, get account() { return account; }, taps: [], get campaigns() { return campaigns; }, get open() { return open; } };
 }
 
 router.go('boot');

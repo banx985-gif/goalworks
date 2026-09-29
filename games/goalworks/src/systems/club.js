@@ -1,5 +1,5 @@
 // A new GOALWORKS campaign and its slot summary (Milestone 0). The campaign save holds the club identity chosen in
-// Club Setup and the date; the calendar, squad, league and the rest join it milestone by milestone (bible §36).
+// Club Setup and the date; Milestone 2 adds the calendar (src/systems/calendar.js serialize(), written by the autosave).
 import { founderById, colourById, areaById, shapeById, symbolById, POSITIONS, FOUNDER_FLAG } from '../../data/setup.js';
 
 export function newCampaign(setup, now = Date.now()) {
