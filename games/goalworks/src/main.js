@@ -12,7 +12,11 @@
 // fixture 7 days ahead; on kickoff day the calendar pauses and Match Setup opens (also after a reload). Saved by
 // core/Autosave each day (so a reload resumes the same day), at each week, commit, kickoff and result, and when the app
 // goes to the background. The account speed unlocks (permanent 2× / 4×) live in the account store; ?debug=1 can flip them.
-// Add ?debug=1 for the FPS/state overlay, ?screen=test for the scaling / tap / asset-loader test screen.
+// Milestone 3: Match Setup's Kick off opens the 11 v 11 match (src/match/, src/screens/MatchScreen.js), Watch only. The
+// match seed and both line-ups are fixed when it is created and saved in the campaign (data.match = { fixtureId, setup,
+// steps }); a reload replays it to the same step. At full time Continue sends the score back to the calendar.
+// Add ?debug=1 for the FPS/state overlay, ?screen=test for the scaling / tap / asset-loader test screen, ?screen=match
+// (&seed=…) for a test match between two test teams (never saved).
 import { THEME, font } from '../../../core/Theme.js';
 import { EventBus } from '../../../core/EventBus.js';
 import { Rng } from '../../../core/Rng.js';
@@ -43,13 +47,18 @@ import { createClubScreen } from './screens/ClubScreen.js';
 import { createTestScreen } from './screens/TestScreen.js';
 import { fixturesSheet, matchSetupSheet } from './screens/fixtureSheets.js';
 import { createCalendar } from './systems/calendar.js';
+import { createMatchScreen } from './screens/MatchScreen.js';
+import { createMatchSetup } from './match/lineups.js';
+import { createMatchWorld, restoreMatchWorld, matchResult } from './match/matchWorld.js';
+import { REGIONAL_CLUBS } from '../data/fixtures.js';
+import { COLOURS, colourById } from '../data/setup.js';
 const COL = THEME.color;
 
 const W = 1080;
 const BASE_H = 1920; // 9:16; taller phones grow the height (see Renderer)
 const MAX_H = 2640; // up to 9:22 fills edge to edge; taller still gets thin bars top and bottom
 const PARAMS = new URLSearchParams(window.location.search);
-const START_SCREEN = PARAMS.get('screen') === 'test' ? 'test' : 'menu';
+const START_SCREEN = ['test', 'match'].includes(PARAMS.get('screen')) ? PARAMS.get('screen') : 'menu';
 
 const bus = new EventBus();
 const rng = new Rng('goalworks-m0');
@@ -58,7 +67,7 @@ const layout = new UiLayout(renderer);
 bus.on('renderer:resize', () => layout.refresh());
 const input = new Input(renderer, bus);
 const assets = new AssetManager({ bus });
-const router = new ScreenRouter(bus, { roots: ['menu', 'test', 'club'] });
+const router = new ScreenRouter(bus, { roots: ['menu', 'test', 'club', 'match'] });
 const dialog = new Dialog({ layout, assets }); // confirm boxes (delete / replace a slot)
 const sheet = new BottomSheet({ layout, assets });
 const textPrompt = new TextPrompt({ renderer });
@@ -258,6 +267,7 @@ async function playSlot(n) {
   openRun(n, data);
   debug.log(`slot ${n} opened: ${data.club.name}`);
   rememberClub(n);
+  if (data.match && resumeMatch()) return;
   router.go('club');
 }
 
@@ -377,8 +387,87 @@ async function toggleSpeedFlag(id) {
 function openMatchSetup() {
   if (!open?.calendar.atKickoff) return;
   open.setupShown = true;
-  sheet.open(matchSetupSheet({ calendar, clubName: () => open?.data.club.name ?? '', onPlayed: () => playPlaceholder() }));
+  sheet.open(matchSetupSheet({ calendar, clubName: () => open?.data.club.name ?? '', onKickOff: () => kickOff(), onPlayed: debug.enabled ? () => playPlaceholder() : null, resuming: () => !!open?.data.match }));
 }
+
+// --- Milestone 3: the match -------------------------------------------------------------------------------------
+let match = null; // { world, mode: 'fixture'|'test', speed } — the match on screen
+// An opponent's colours for the match (until real opponents have kits): from its id, never the club's own colour.
+function opponentColour(oppId, avoid) {
+  const list = COLOURS.filter((c) => c.id !== avoid && c.id !== 'white');
+  let h = 0;
+  for (const ch of String(oppId)) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+  return list[h % list.length];
+}
+// Kick off: the seed and line-ups are fixed now and saved with the campaign; reopening resumes the same match.
+function kickOff() {
+  const f = open?.calendar.fixture;
+  if (!f || !open.calendar.atKickoff) return;
+  if (!open.data.match || open.data.match.fixtureId !== f.id) {
+    const club = open.data.club;
+    const mine = colourById(club.colours.primary);
+    const theirs = opponentColour(f.opponent.id, mine.id);
+    const setup = createMatchSetup({ seed: `${open.data.seed}:${f.id}`, home: { name: club.name, colour: mine }, away: { name: f.opponent.name, colour: theirs } });
+    open.data.match = { fixtureId: f.id, setup, steps: 0 };
+    autosave.request('match:kickoff');
+  }
+  resumeMatch();
+}
+function resumeMatch() {
+  const m = open?.data.match;
+  if (!m || m.fixtureId !== open.calendar.fixture?.id) {
+    if (open) open.data.match = null; // a match for a fixture that no longer exists
+    return false;
+  }
+  const t0 = performance.now();
+  match = { world: restoreMatchWorld(m), mode: 'fixture', speed: 1 };
+  debug.log(`match ${m.fixtureId}: resumed at step ${m.steps} (${Math.round(performance.now() - t0)} ms)`);
+  sheet.close();
+  router.go('match');
+  return true;
+}
+function startTestMatch(seed = PARAMS.get('seed') ?? `test-${Date.now()}`) {
+  const [a, b] = [REGIONAL_CLUBS[0], REGIONAL_CLUBS[1]];
+  const setup = createMatchSetup({ seed, home: { name: a.name, colour: colourById('royal') }, away: { name: b.name, colour: colourById('red') } });
+  match = { world: createMatchWorld(setup), mode: 'test', speed: 1 };
+  debug.log(`test match, seed ${seed}`);
+  router.go('match');
+}
+function matchProgress(world, reason) {
+  if (match?.mode !== 'fixture' || !open?.data.match) return;
+  open.data.match.steps = world.steps;
+  autosave.request(reason);
+}
+function matchFinished(world) {
+  if (match?.mode !== 'fixture' || !open) return;
+  const r = matchResult(world);
+  open.data.match = null;
+  match = null;
+  open.setupShown = false;
+  open.calendar.playResult({ score: r.score, scorers: r.scorers });
+  debug.log(`full time: ${r.score.join('–')}`);
+  router.go('club');
+}
+async function leaveMatch() {
+  if (match?.mode === 'fixture') {
+    matchProgress(match.world, 'match:leave');
+    match = null;
+    await leaveClub();
+  } else {
+    match = null;
+    router.go('menu');
+  }
+}
+const matchScreen = createMatchScreen({
+  renderer,
+  layout,
+  assets,
+  live: () => match,
+  onMenu: () => leaveMatch(),
+  onContinue: (world) => matchFinished(world),
+  onReplay: () => startTestMatch(`test-${Date.now()}`),
+  onProgress: (world, reason) => matchProgress(world, reason),
+});
 function playPlaceholder() {
   const r = open?.calendar.playResult();
   if (!r?.ok) return;
@@ -413,6 +502,7 @@ const splashScreen = createSplashScreen({
   done: () => {
     const n = START_SCREEN === 'menu' ? clubToResume() : null;
     if (n) playSlot(n);
+    else if (START_SCREEN === 'match') startTestMatch();
     else router.go(START_SCREEN);
   },
 });
@@ -439,11 +529,12 @@ router
   .register('slots', slotsScreen)
   .register('setup', setupScreen)
   .register('club', clubScreen)
+  .register('match', matchScreen)
   .register('test', createTestScreen({ renderer, layout, assets, openSheet: () => sheet.open(testSheet), onTapLogged: (p) => window.__gw?.taps.push({ x: p.x, y: p.y }) }));
 
 // ?debug=1: a test hook for automated checks.
 if (debug.enabled) {
-  window.__gw = { renderer, layout, input, loop, router, assets, sheet, dialog, systemBack, textPrompt, splashScreen, menuScreen, slotsScreen, setupScreen, clubScreen, playSlot, startClub, deleteSlot, newGame, openFixtures, openMatchSetup, playPlaceholder, toggleSpeedFlag, autosave, saveRun, get account() { return account; }, taps: [], get campaigns() { return campaigns; }, get open() { return open; } };
+  window.__gw = { renderer, layout, input, loop, router, assets, sheet, dialog, systemBack, textPrompt, splashScreen, menuScreen, slotsScreen, setupScreen, clubScreen, playSlot, startClub, deleteSlot, newGame, openFixtures, openMatchSetup, playPlaceholder, kickOff, startTestMatch, matchScreen, restoreMatchWorld, get match() { return match; }, toggleSpeedFlag, autosave, saveRun, get account() { return account; }, taps: [], get campaigns() { return campaigns; }, get open() { return open; } };
 }
 
 router.go('boot');

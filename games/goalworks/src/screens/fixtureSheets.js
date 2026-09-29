@@ -1,8 +1,8 @@
 // The Milestone 2 placeholder sheets (standard bottom sheets, style guide §3):
 //   fixturesSheet — from the Manager Office: the temporary "Test Challenge" row (the league stands in until Milestone 10)
 //                   with Commit; the refusal reason while a match is pending. ?debug=1 adds the account speed toggles.
-//   matchSetupSheet — opens by itself on kickoff day: the opponent, "Match engine comes in Milestone 3" and a button that
-//                   commits the placeholder result ("Match played").
+//   matchSetupSheet — opens by itself on kickoff day: the opponent and Kick off (Milestone 3: the 11 v 11 match; its
+//                   score goes back to the calendar at full time). ?debug=1 keeps the Milestone 2 "Match played" skip.
 // Both are builder functions for sheet.open(), rebuilt every frame so the countdown stays live.
 import { THEME } from '../../../../core/Theme.js';
 import { sourceById, SPEED_FLAGS } from '../../data/fixtures.js';
@@ -45,7 +45,7 @@ export function fixturesSheet({ calendar, onCommit, debugFlags = null, message =
   };
 }
 
-export function matchSetupSheet({ calendar, clubName, onPlayed }) {
+export function matchSetupSheet({ calendar, clubName, onKickOff, onPlayed = null, resuming = () => false }) {
   return () => {
     const cal = calendar();
     const f = cal?.fixture;
@@ -59,7 +59,15 @@ export function matchSetupSheet({ calendar, clubName, onPlayed }) {
       tag: { text: 'MATCH DAY', color: C.action },
       sections: [
         { title: 'Fixture', lines: [`Opponent: ${f.opponent.name}`, `Kickoff: ${dateText(cal, f.matchDay)}`, `From: ${src?.name ?? f.source}${src?.temporary ? ' (temporary)' : ''}`] },
-        { title: 'Match', lines: ['Match engine comes in Milestone 3.', 'The calendar waits here until the result is in.'], buttons: [{ id: 'played', label: 'Match played', sub: 'Commit the placeholder result', accent: C.good, onTap: () => onPlayed() }], columns: 1 },
+        {
+          title: 'Match',
+          lines: ['Watch the match: 11 v 11, about 5 minutes.', 'The calendar waits here until the result is in.'],
+          buttons: [
+            { id: 'kickoff', label: resuming() ? 'Resume match' : 'Kick off', sub: 'Watch · 1× / 2×', accent: C.good, onTap: () => onKickOff() },
+            ...(onPlayed ? [{ id: 'played', label: 'Match played (debug)', sub: 'Skip: commit a placeholder result', accent: C.progress, onTap: () => onPlayed() }] : []),
+          ],
+          columns: 1,
+        },
       ],
     };
   };

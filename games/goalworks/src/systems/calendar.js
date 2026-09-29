@@ -132,13 +132,19 @@ export function createCalendar({ bus = null, saved = null, flags = {}, sources =
       return { ok: true, why: null, fixture };
     },
 
-    // Kickoff day only: record the placeholder result ("Match played"; tests may pass { won } for a tournament chain).
+    // Kickoff day only: record the result. Milestone 3 passes the match's score ([ours, theirs]) and scorers; with no
+    // score it is the Milestone 2 placeholder "Match played" (tests may pass { won } for a tournament chain).
     // The calendar then runs again; temporary 2× closes unless another valid fixture was scheduled.
-    playResult({ won = true } = {}) {
+    playResult({ won = null, score = null, scorers = null } = {}) {
       if (!atKickoff()) return { ok: false, why: 'No match today.' };
       const played = fixture;
-      const result = { text: 'Match played', won };
-      history.push({ id: played.id, source: played.source, opponent: played.opponent, matchDay: played.matchDay, playedDay: clock.totalDays, result: result.text });
+      if (score) won = score[0] > score[1];
+      if (won == null) won = true;
+      const text = score ? `${score[0] > score[1] ? 'Won' : score[0] < score[1] ? 'Lost' : 'Drew'} ${score[0]}–${score[1]}` : 'Match played';
+      const result = { text, won, ...(score ? { score: [...score] } : {}) };
+      const entry = { id: played.id, source: played.source, opponent: played.opponent, matchDay: played.matchDay, playedDay: clock.totalDays, result: result.text };
+      if (score) Object.assign(entry, { score: [...score], scorers: (scorers ?? []).map((s) => ({ ...s })) });
+      history.push(entry);
       if (history.length > HISTORY_KEEP) history = history.slice(-HISTORY_KEEP);
       fixture = null;
       if (played.chain && chain?.id === played.chain.id) {
