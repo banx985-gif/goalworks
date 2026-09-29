@@ -5,6 +5,8 @@
 // New Game / an empty slot → Club Setup → START CLUB writes the slot's summary record and an empty campaign save
 // (core/CampaignSlots, keys campaign_1 … campaign_4, account store goalworks:account) and opens the placeholder club
 // complex. Starting into an occupied slot asks first, naming that slot's club and year.
+// Milestone 1: the club screen is the real Club Complex (src/screens/ClubScreen.js): a small ground in the 3/4 view, the
+// Training Pitch, Manager Office and Scout Desk, and the Founder walking between them; tap for their sheets.
 // Add ?debug=1 for the FPS/state overlay, ?screen=test for the scaling / tap / asset-loader test screen.
 import { THEME, font } from '../../../core/Theme.js';
 import { EventBus } from '../../../core/EventBus.js';
@@ -301,7 +303,7 @@ async function leaveClub() {
   await campaigns.refresh();
   open = null;
 }
-const clubScreen = createClubScreen({ renderer, layout, assets, club: () => open, onMenu: () => leaveClub() });
+const clubScreen = createClubScreen({ renderer, layout, assets, bus, sheet, club: () => open, onMenu: () => leaveClub(), debug });
 
 // ---------------------------------------------------------------------------
 // Splash (the boot screen): the studio logo while the images and the saves load, then the Main Menu (or the club a
