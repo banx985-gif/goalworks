@@ -2,11 +2,14 @@
 // Club Setup and the date; Milestone 2 adds the calendar (src/systems/calendar.js serialize(), written by the autosave).
 import { founderById, colourById, areaById, shapeById, symbolById, POSITIONS, FOUNDER_FLAG } from '../../data/setup.js';
 import { patternById } from '../../data/kits.js';
+import { createStartingSquad } from './squad.js';
 
+// Milestone 7: the run also gets its starting squad (squad: { players, watch, nextId }).
 export function newCampaign(setup, now = Date.now()) {
   const founder = founderById(setup.founder);
   if (!founder) throw new Error(`Unknown founder ${setup.founder}`);
   if (setup.primary === setup.secondary) throw new Error('Club colours must differ');
+  const seed = `goalworks-${now}`;
   return {
     club: {
       name: setup.club,
@@ -18,7 +21,8 @@ export function newCampaign(setup, now = Date.now()) {
       founder: { id: founder.id, [FOUNDER_FLAG]: true }, // history counters join in later milestones
       createdAt: now,
     },
-    seed: `goalworks-${now}`,
+    seed,
+    squad: createStartingSquad({ founderId: founder.id, seed, area: areaById(setup.area).id }),
     date: { year: 1, month: 1, day: 1 },
     playSec: 0,
     ngPlus: 0,

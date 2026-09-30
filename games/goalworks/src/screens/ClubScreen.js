@@ -13,8 +13,9 @@
 // laptop by the Scout Desk, a contract folder by the Office; data/complex.js PROPS), the club flag by the gate in the
 // club colour with the badge on it, fence rails in the club colours, and the Founder walks with a gentle bob and breathes
 // while standing (core/CharacterMotion; the bob only while actually walking, so they never glide).
+// Milestone 7: a temporary Team button beside the shortcut opens the Squad screen (the five-button bar comes later).
 // Plan space lives in the world; only drawing and tapping go through the IsoProjection here.
-//   createClubScreen({ renderer, layout, assets, bus, sheet, club, onMenu, debug, calendar, onMatchSetup, extraSections })
+//   createClubScreen({ renderer, layout, assets, bus, sheet, club, onMenu, debug, calendar, onMatchSetup, extraSections, onTeam })
 //     club() → { n, data } or null     calendar() → the open club's calendar (src/systems/calendar.js) or null
 //     onMatchSetup() opens Match Setup     extraSections(stationId) → more sheet sections for that station
 import { THEME, font } from '../../../../core/Theme.js';
@@ -41,7 +42,7 @@ const DETAIL_STEPS = [0.5, 0.7, 1.0, 1.4];
 const detailFor = (zoom) => DETAIL_STEPS.find((d) => d >= zoom - 1e-3) ?? DETAIL_STEPS[DETAIL_STEPS.length - 1];
 const TOP_OVERHANG = 360; // room above the grid's back corner for the pitch's floodlights
 
-export function createClubScreen({ renderer, layout, assets, bus, sheet, club, onMenu, debug = null, calendar = () => null, onMatchSetup = () => {}, extraSections = () => [] }) {
+export function createClubScreen({ renderer, layout, assets, bus, sheet, club, onMenu, debug = null, calendar = () => null, onMatchSetup = () => {}, extraSections = () => [], onTeam = () => {} }) {
   const W = renderer.width;
   const { cols, rows, cellSize: CELL, margin, fenceH } = COMPLEX;
   const { halfW: HW, halfH: HH } = COMPLEX.view;
@@ -114,10 +115,17 @@ export function createClubScreen({ renderer, layout, assets, bus, sheet, club, o
   };
   // The temporary shortcut (Milestone 1): opens the Training Pitch sheet, like tapping the pitch. The five-button bar
   // replaces it later.
+  // Milestone 7: the bottom row is Team (left) and the shortcut (right).
+  const bottomW = () => Math.min(500, (layout.safeRect.w - 48 - 20) / 2);
   const shortcutRect = () => {
     const sr = layout.safeRect;
-    const w = Math.min(560, sr.w - 48);
-    return { x: sr.x + (sr.w - w) / 2, y: sr.y + sr.h - 24 - 130, w, h: 130 };
+    const w = bottomW();
+    return { x: sr.x + sr.w / 2 + 10, y: sr.y + sr.h - 24 - 130, w, h: 130 };
+  };
+  const teamRect = () => {
+    const sr = layout.safeRect;
+    const w = bottomW();
+    return { x: sr.x + sr.w / 2 - 10 - w, y: sr.y + sr.h - 24 - 130, w, h: 130 };
   };
   // The calendar strip (Milestone 2): date + speed text, the four speed buttons, the next-match line.
   const calRect = () => {
@@ -142,7 +150,7 @@ export function createClubScreen({ renderer, layout, assets, bus, sheet, club, o
     const b = bannerRect();
     return { x: b.x + b.w - 250, y: b.y + (b.h - 120) / 2, w: 226, h: 120 };
   };
-  const onUi = (p) => (buildMode ? hitRect(p, bannerRect()) : hitRect(p, menuRect()) || hitRect(p, plateRect()) || hitRect(p, calRect()) || hitRect(p, shortcutRect()));
+  const onUi = (p) => (buildMode ? hitRect(p, bannerRect()) : hitRect(p, menuRect()) || hitRect(p, plateRect()) || hitRect(p, calRect()) || hitRect(p, shortcutRect()) || hitRect(p, teamRect()));
   const overSheet = (p) => sheet.active && p.y >= sheet.rect().y;
 
   // The camera sees the ground between the calendar strip and the shortcut; grass fills the rest.
@@ -228,7 +236,7 @@ export function createClubScreen({ renderer, layout, assets, bus, sheet, club, o
     openSheet,
     // Tests: 'menu', 'plate', 'shortcut', 'done', 'banner'.
     rectOf(id) {
-      return { menu: menuRect(), plate: plateRect(), shortcut: shortcutRect(), done: doneRect(), banner: bannerRect(), calendar: calRect(), speed0: speedRect(0), speed1: speedRect(1), speed2: speedRect(2), speed4: speedRect(4) }[id] ?? null;
+      return { menu: menuRect(), plate: plateRect(), shortcut: shortcutRect(), team: teamRect(), done: doneRect(), banner: bannerRect(), calendar: calRect(), speed0: speedRect(0), speed1: speedRect(1), speed2: speedRect(2), speed4: speedRect(4) }[id] ?? null;
     },
     // The words on the calendar strip (tests): { date, speed, next }.
     calendarText() {
@@ -345,6 +353,10 @@ export function createClubScreen({ renderer, layout, assets, bus, sheet, club, o
         onMenu();
         return log('menu');
       }
+      if (hitRect(p, teamRect())) {
+        onTeam();
+        return log('team');
+      }
       if (hitRect(p, shortcutRect())) {
         if (calendar()?.atKickoff) {
           onMatchSetup();
@@ -408,6 +420,7 @@ export function createClubScreen({ renderer, layout, assets, bus, sheet, club, o
         drawButton(ctx, menuRect(), '‹ Menu', { accent: C.progress });
         drawPlate(ctx);
         drawCalendar(ctx);
+        drawButton(ctx, teamRect(), 'Team', { accent: C.purple });
         if (calendar()?.atKickoff) drawButton(ctx, shortcutRect(), 'Match Setup', { accent: C.good });
         else drawButton(ctx, shortcutRect(), 'Training Pitch', { accent: C.action });
       }

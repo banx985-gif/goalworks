@@ -12,7 +12,7 @@
 import { createRecolor } from '../../../../core/ArtRecolor.js';
 import { BODY_ART, HEADS, patternById } from '../../data/kits.js';
 import { colourById } from '../../data/setup.js';
-import { drawBadge, drawKit } from './clubArt.js';
+import { drawBadge, drawKit, drawSilhouette } from './clubArt.js';
 
 const MAX = 256; // recolour on a half-size copy: bodies and previews never draw bigger than this on screen
 const recolors = new Map(); // art key → createRecolor(...) (measured once per picture)
@@ -71,4 +71,16 @@ export function headOf(team, player) {
   let hsh = 0;
   for (const ch of String(team.name)) hsh = (hsh * 31 + ch.charCodeAt(0)) >>> 0;
   return HEADS[(hsh + player.shirt * 3) % HEADS.length];
+}
+
+// A generated player's silhouette as an image (for the Player Detail sheet's picture), made once per club colours.
+export function silhouetteKey(assets, primary, secondary) {
+  const key = `silhouette~${primary}~${secondary}`;
+  if (assets.images.has(key) || typeof document === 'undefined') return key;
+  const c = document.createElement('canvas');
+  c.width = c.height = 256;
+  drawSilhouette(c.getContext('2d'), { x: 8, y: 8, w: 240, h: 240 }, primary, secondary);
+  c.naturalWidth = c.naturalHeight = 256;
+  assets.images.set(key, c);
+  return key;
 }

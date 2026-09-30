@@ -16,8 +16,9 @@
 // heads spread across each side; a player running up the pitch shows a back-view body. The keepers wear their own
 // colours. A stand band runs round the pitch with the crowd in the clubs' colours (matchCrowd.js: a painted strip + 80
 // fans who jump when a goal goes in). The referee follows play, the two assistants run their touchlines, and the
-// dugouts, tunnel and fourth official's sub board stand by the left touchline. The goal picture is sized so its posts
-// span the goal mouth. The scoreboard and the result panel carry both badges (our code-drawn badge, the opponent's
+// dugouts, tunnel and fourth official's sub board stand by the left touchline.
+// Milestone 7: the goals are drawn in code, square on each goal line (the angled goal picture match_15 looked crooked on
+// the flat pitch and is kept for menus only): posts on the line, the crossbar raised by the tilt, a mesh net behind. The scoreboard and the result panel carry both badges (our code-drawn badge, the opponent's
 // crest) and the kit colours; a goal pops a short banner in the scorer's colours and a little confetti (core/VfxSystem,
 // 120 particles at most).
 //   createMatchScreen({ renderer, layout, assets, bus, input, live, onMenu, onContinue, onReplay, onProgress })
@@ -45,8 +46,8 @@ const CX = 2.6; // the stand band beyond the grass at the sides (Milestone 6 cro
 const CY = 3.2; // … and at the ends
 const KY = 0.94; // the slight tilt: lengths look a touch shorter than widths
 const BODY_M = 5.0; // how tall a body is drawn, in metres (bigger than life so it reads on a phone)
-const GOAL_POSTS = 0.615; // the goal picture's front posts span this share of its width…
-const GOAL_MID = 0.396; // … centred this far across it
+const NET_D = 2.0; // how deep the goal net runs behind the line (m)
+const RISE = 0.5; // the tilt: a height of h metres draws h × RISE metres up the screen (the crossbar)
 const MAX_CONFETTI = 120;
 // Scenery by the left touchline in the bottom half (the left assistant runs the top half): pitch metres x, foot y, size.
 const MID = PITCH.h / 2;
@@ -182,7 +183,7 @@ export function createMatchScreen({ renderer, layout, assets, bus = null, input 
     if (scroll) {
       const top = scoreRect().y + scoreRect().h + 20;
       const viewH = area.bottom - top;
-      const lo = Math.min(0, ly(0) - (PITCH.goalW / GOAL_POSTS) * k * 0.85); // the top goal's picture stands above the line
+      const lo = Math.min(0, ly(-NET_D) - PITCH.goalH * RISE * k); // (the top goal's net and crossbar stand above the line)
       const want = Math.max(lo, Math.min(pitchH - viewH, ly(w.ball.y) - viewH / 2));
       camY += (want - camY) * t;
       oy = top - camY;
@@ -275,14 +276,78 @@ export function createMatchScreen({ renderer, layout, assets, bus = null, input 
   }
 
   // --- drawing the play ----------------------------------------------------------------------------------------------
+  // A goal square on its line: the net behind (a mesh box NET_D deep), then the frame — two posts on the line and the
+  // crossbar raised by the tilt. The top goal is drawn before the players (they stand in front of it); the bottom one after
+  // them (its frame is nearer the camera than anyone on the pitch).
   function drawGoal(ctx, end) {
-    // sized so the picture's front posts span the goal mouth (GOAL_POSTS of its width, centred GOAL_MID across it); its
-    // goal line is ~85% down it
-    const w = (PITCH.goalW / GOAL_POSTS) * k;
-    const h = w;
-    const x = sx(PITCH.w / 2) - w * GOAL_MID;
-    if (end) assets.draw(ctx, MATCH_ART.goal, x, sy(PITCH.h) - h * 0.2, w, h); // behind the bottom line, in front of play
-    else assets.draw(ctx, MATCH_ART.goal, x, sy(0) - h * 0.85, w, h);
+    const y0 = end ? PITCH.h : 0;
+    const back = end ? PITCH.h + NET_D : -NET_D;
+    const xl = sx(PITCH.w / 2 - PITCH.goalW / 2);
+    const xr = sx(PITCH.w / 2 + PITCH.goalW / 2);
+    const up = PITCH.goalH * RISE * k; // screen px the crossbar stands above the posts' feet
+    const gy = sy(y0);
+    const by = sy(back);
+    const top = (y) => y - up;
+    // the net: the back and the two sides, filled faintly, then a mesh
+    ctx.save();
+    ctx.lineJoin = 'round';
+    const box = new Path2D();
+    box.moveTo(xl, gy);
+    box.lineTo(xl, top(gy));
+    box.lineTo(xr, top(gy));
+    box.lineTo(xr, gy);
+    box.lineTo(xr, by);
+    box.lineTo(xr, top(by) + up * 0.35); // the back of the net droops a little
+    box.lineTo(xl, top(by) + up * 0.35);
+    box.lineTo(xl, by);
+    box.closePath();
+    ctx.fillStyle = 'rgba(255,255,255,0.16)';
+    ctx.fill(box);
+    ctx.save();
+    ctx.clip(box);
+    ctx.strokeStyle = 'rgba(255,255,255,0.55)';
+    ctx.lineWidth = Math.max(1, 0.05 * k);
+    const step = 0.5 * k;
+    const y1 = Math.min(top(gy), top(by)) - 2;
+    const y2 = Math.max(gy, by) + 2;
+    ctx.beginPath();
+    for (let x = xl; x <= xr + 0.5; x += step) {
+      ctx.moveTo(x, y1);
+      ctx.lineTo(x, y2);
+    }
+    for (let y = y1; y <= y2; y += step * 0.8) {
+      ctx.moveTo(xl, y);
+      ctx.lineTo(xr, y);
+    }
+    ctx.stroke();
+    ctx.restore();
+    // the net's frame lines at the back
+    ctx.strokeStyle = 'rgba(235,240,232,0.9)';
+    ctx.lineWidth = Math.max(1.5, 0.08 * k);
+    ctx.beginPath();
+    ctx.moveTo(xl, by);
+    ctx.lineTo(xr, by);
+    ctx.moveTo(xl, top(by) + up * 0.35);
+    ctx.lineTo(xr, top(by) + up * 0.35);
+    ctx.moveTo(xl, top(gy));
+    ctx.lineTo(xl, top(by) + up * 0.35);
+    ctx.moveTo(xr, top(gy));
+    ctx.lineTo(xr, top(by) + up * 0.35);
+    ctx.stroke();
+    // the frame: posts and crossbar, white with a dark edge
+    const frame = new Path2D();
+    frame.moveTo(xl, gy);
+    frame.lineTo(xl, top(gy));
+    frame.lineTo(xr, top(gy));
+    frame.lineTo(xr, gy);
+    ctx.lineCap = 'round';
+    ctx.strokeStyle = C.outline;
+    ctx.lineWidth = Math.max(4, 0.3 * k);
+    ctx.stroke(frame);
+    ctx.strokeStyle = '#FFFFFF';
+    ctx.lineWidth = Math.max(2.5, 0.2 * k);
+    ctx.stroke(frame);
+    ctx.restore();
   }
   function drawFlags(ctx, end) {
     const h = 2.4 * k;

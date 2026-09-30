@@ -8,6 +8,8 @@
 //     wears; badge (the club's code-drawn badge) and crest (an opponent's crest art) ride along for the screens. Every
 //     team gets kit = { shirt, shorts, keeper, change } (hexes; from colour alone when there are no palette colours).
 //     None of this touches the seeded draws, so the same seed still gives the same match.
+//   Milestone 7: a side may carry players: its XI from the squad (11, in the 4-4-2's slot order, stats = the engine's six
+//     numbers from the players' ratings) — then no test players are made for it.
 import { Rng } from '../../../../core/Rng.js';
 import { FORMATION_442, FIRST_NAMES, SURNAMES, TEST_STAT, MATCH_ART } from '../../data/match.js';
 import { COLOURS, colourById } from '../../data/setup.js';
@@ -31,7 +33,9 @@ function bodyFor(hex, not = null) {
 }
 
 function makeTeam(rng, side, used) {
-  const players = FORMATION_442.map((slot, i) => {
+  // Milestone 7: a real XI (src/systems/squad.js xiForMatch — 11 in slot order, keeper first) plays as it is; otherwise
+  // test players with plain generated names and flat stats (Milestone 3)
+  const players = side.players?.length === 11 ? side.players.map((pl, i) => ({ shirt: pl.shirt ?? i + 1, name: pl.name, role: FORMATION_442[i].role, stats: { ...pl.stats }, ...(pl.id ? { id: pl.id } : {}), ...(pl.position ? { position: pl.position } : {}) })) : FORMATION_442.map((slot, i) => {
     let name;
     do name = `${rng.pick(FIRST_NAMES)} ${rng.pick(SURNAMES)}`;
     while (used.has(name));

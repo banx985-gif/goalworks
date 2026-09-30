@@ -65,7 +65,10 @@ export const TUNING = {
   control: {
     dead: 0.15, // stick dead zone (0–1): inside it the AI moves the player (a pass on its way to them is met by the AI too)
     holdSteps: 15, // Pass held this long (0.25 s) then released = a lofted through ball / cross
-    firstTouch: 5, // steps after taking the ball before the carrier can pass or shoot (a press this early waits)
+    // steps after taking the ball before the carrier can pass or shoot (a press this early waits). Milestone 7: 5 → 8 —
+    // with real squad ratings a perfect-input player gained +20.6% points a match at 5 (over the §17 ~15% ceiling); at 8
+    // it gains +9.6% (960 matches each, real squads v generated opponents; 7 gave +15.6%, 10 gave −10%)
+    firstTouch: 8,
     buffer: 18, // … how long such an early press is remembered
     coneDeg: 50, // a pass goes to the team-mate nearest the stick direction inside this cone (else the best angle)
     throughLead: 4, // metres ahead of the receiver (towards goal) a through ball is played
@@ -164,7 +167,7 @@ export const MATCH_ART = {
   outfield: ['match_01', 'match_02', 'match_03', 'match_04'], // red / blue / yellow / green runners (front view)
   keepers: ['match_07', 'match_08'], // purple / cyan
   ball: 'match_13',
-  goal: 'match_15',
+  goal: 'match_15', // (menus only: the match draws its goals in code, square on the goal line — Milestone 7)
   flag: 'match_16',
   kitHex: { match_01: '#D0322B', match_02: '#2154B8', match_03: '#F2C230', match_04: '#2E8B3E' },
 };

@@ -519,3 +519,46 @@ export function drawPitch(ctx, x, y, w, h, band = 120) {
   ctx.fillStyle = '#43A653';
   for (let sy = Math.floor(y / band) * band; sy < y + h; sy += band * 2) ctx.fillRect(x, sy, w, band);
 }
+
+// A generated player's portrait (Milestone 7): generated players have no art, so a head-and-shoulders silhouette in the
+// club's kit — shirt in the first colour, collar in the second, a plain dark head. Never a Featured Player's picture.
+export function drawSilhouette(ctx, r, primary, secondary) {
+  const p1 = colourById(primary).hex;
+  const p2 = colourById(secondary).hex;
+  const k = Math.min(r.w, r.h) / 100;
+  ctx.save();
+  ctx.translate(r.x + (r.w - 100 * k) / 2, r.y + (r.h - 100 * k) / 2);
+  ctx.scale(k, k);
+  ctx.lineJoin = 'round';
+  ctx.strokeStyle = C.outline;
+  ctx.lineWidth = 3;
+  // shoulders and shirt
+  ctx.fillStyle = p1;
+  ctx.beginPath();
+  ctx.moveTo(10, 100);
+  ctx.quadraticCurveTo(10, 66, 34, 60);
+  ctx.lineTo(66, 60);
+  ctx.quadraticCurveTo(90, 66, 90, 100);
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
+  // collar
+  ctx.fillStyle = p2;
+  ctx.beginPath();
+  ctx.moveTo(38, 60);
+  ctx.lineTo(50, 74);
+  ctx.lineTo(62, 60);
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
+  // neck and head
+  ctx.fillStyle = '#4A4F5C';
+  ctx.beginPath();
+  ctx.roundRect(43, 48, 14, 14, 4);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.ellipse(50, 34, 19, 22, 0, 0, TAU);
+  ctx.fill();
+  ctx.stroke();
+  ctx.restore();
+}

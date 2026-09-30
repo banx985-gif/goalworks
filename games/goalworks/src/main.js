@@ -27,6 +27,10 @@
 // Milestone 6: kits and club colours. Kick off hands both clubs' colours (the opponent's from data/fixtures.js), our
 // badge and their crest to the match set-up, which runs the kit clash check (src/match/kits.js); Match Setup shows both
 // kits before kickoff. Club Setup gains the kit pattern (saved as data.club.kit). The Club Complex flies the club flag.
+// Milestone 7: every run has its squad (src/systems/squad.js: the Founder + 17 generated players, a 3-person watch list,
+// basic contracts) in data.squad — a save from before gets one generated once from its Founder. The Club Complex's
+// temporary Team button opens the Squad screen (src/screens/SquadScreen.js). Kick off plays the best XI by position
+// against a generated opponent side of the same level; the match reads the players' real ratings.
 // Add ?debug=1 for the FPS/state overlay, ?screen=test for the scaling / tap / asset-loader test screen, ?screen=match
 // (&seed=…, &mode=watch|manage|play, &km=1 for Key Moment prompts, &stats=35,70 for flat home,away test stats) for a
 // test match between two test teams (never saved). With ?debug=1, &safe=phone|tablet stands in a notch and home bar (safe-area insets) on any screen.
@@ -61,6 +65,8 @@ import { createTestScreen } from './screens/TestScreen.js';
 import { fixturesSheet, matchSetupSheet } from './screens/fixtureSheets.js';
 import { createCalendar } from './systems/calendar.js';
 import { createMatchScreen } from './screens/MatchScreen.js';
+import { createSquadScreen } from './screens/SquadScreen.js';
+import { ensureSquad, validateSquad, xiForMatch, opponentSquad } from './systems/squad.js';
 import { createMatchSetup } from './match/lineups.js';
 import { createMatchWorld, restoreMatchWorld, matchResult, MODES } from './match/matchWorld.js';
 import { createMatchDirector } from './match/matchDirector.js';
@@ -210,6 +216,12 @@ const speedFlags = () => (account.speedUnlocks ??= { perm2x: false, perm4x: fals
 
 // A campaign's calendar from its save (a save from before Milestone 2 starts on Year 1 · Month 1 · Day 1).
 function openRun(n, data) {
+  // (a save from before Milestone 7: its squad is generated once, from its Founder, and saved)
+  if (ensureSquad(data)) setTimeout(() => autosave.request('squad:generated'), 0);
+  if (debug.enabled) {
+    const errs = validateSquad(data.squad, data.club.founder.id);
+    debug.log(errs.length ? `squad: ${errs.join('; ')}` : `squad: ${data.squad.players.length} + ${data.squad.watch.length} ok`);
+  }
   open = { n, data, calendar: createCalendar({ bus, saved: data.calendar ?? null, flags: speedFlags() }), setupShown: false };
 }
 // The run save: the calendar written into the campaign data (and the date on the slot card).
@@ -469,6 +481,14 @@ function fixtureSides(club, opp) {
     away: { name: opp.name, colours: { ...colours }, crest: reg?.crest },
   };
 }
+// Milestone 7: both XIs for a fixture — ours from the squad, theirs generated at the same level (the same every time
+// for this fixture).
+function fixtureXIs(data, fixture) {
+  return {
+    home: xiForMatch(data.squad.players),
+    away: xiForMatch(opponentSquad({ seed: `${data.seed}:${fixture.id}`, clubId: fixture.opponent.id }).players),
+  };
+}
 // Kick off: the seed and line-ups are fixed now and saved with the campaign; reopening resumes the same match.
 // mode: 'watch' (the AI plays both sides), 'manage' (the AI plays to your team commands) or 'play' (you control our side;
 // the input log is saved with the match). The club's last team commands carry into the new match.
@@ -477,7 +497,9 @@ function kickOff(mode = 'watch') {
   const f = open?.calendar.fixture;
   if (!f || !open.calendar.atKickoff) return;
   if (!open.data.match || open.data.match.fixtureId !== f.id) {
-    const setup = createMatchSetup({ seed: `${open.data.seed}:${f.id}`, ...fixtureSides(open.data.club, f.opponent) });
+    const sides = fixtureSides(open.data.club, f.opponent);
+    const xi = fixtureXIs(open.data, f);
+    const setup = createMatchSetup({ seed: `${open.data.seed}:${f.id}`, home: { ...sides.home, players: xi.home }, away: { ...sides.away, players: xi.away } });
     if (open.data.tactics) setup.tactics = [{ ...open.data.tactics }, {}];
     const world = createMatchWorld(setup, { start: mode });
     open.data.match = { fixtureId: f.id, ...world.serialize(), director: createMatchDirector(world, { prompts: prefs().keyMoments !== false }).serialize() };
@@ -550,6 +572,7 @@ function playPlaceholder() {
   open.setupShown = false;
   sheet.close();
 }
+const squadScreen = createSquadScreen({ layout, assets, sheet, club: () => open, onBack: () => router.go('club') });
 const clubScreen = createClubScreen({
   renderer,
   layout,
@@ -561,6 +584,7 @@ const clubScreen = createClubScreen({
   debug,
   calendar,
   onMatchSetup: () => openMatchSetup(),
+  onTeam: () => router.go('squad'),
   extraSections: (id) => (id === 'office' ? [{ title: 'Fixtures', lines: ['Temporary Test Challenge until the league arrives.'], buttons: [{ id: 'fixtures', label: 'Fixtures (test)', accent: COL.action, onTap: () => openFixtures() }] }] : []),
 });
 
@@ -606,11 +630,12 @@ router
   .register('setup', setupScreen)
   .register('club', clubScreen)
   .register('match', matchScreen)
+  .register('squad', squadScreen)
   .register('test', createTestScreen({ renderer, layout, assets, openSheet: () => sheet.open(testSheet), onTapLogged: (p) => window.__gw?.taps.push({ x: p.x, y: p.y }) }));
 
 // ?debug=1: a test hook for automated checks.
 if (debug.enabled) {
-  window.__gw = { renderer, layout, input, loop, router, assets, sheet, dialog, systemBack, textPrompt, splashScreen, menuScreen, slotsScreen, setupScreen, clubScreen, playSlot, startClub, deleteSlot, newGame, openFixtures, openMatchSetup, playPlaceholder, kickOff, startTestMatch, matchScreen, restoreMatchWorld, get match() { return match; }, toggleSpeedFlag, autosave, saveRun, get account() { return account; }, taps: [], get campaigns() { return campaigns; }, get open() { return open; } };
+  window.__gw = { renderer, layout, input, loop, router, assets, sheet, dialog, systemBack, textPrompt, splashScreen, menuScreen, slotsScreen, setupScreen, clubScreen, squadScreen, playSlot, startClub, deleteSlot, newGame, openFixtures, openMatchSetup, playPlaceholder, kickOff, startTestMatch, matchScreen, restoreMatchWorld, get match() { return match; }, toggleSpeedFlag, autosave, saveRun, get account() { return account; }, taps: [], get campaigns() { return campaigns; }, get open() { return open; } };
 }
 
 router.go('boot');
