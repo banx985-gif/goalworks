@@ -99,42 +99,42 @@ export const POSITIONS = {
 };
 
 // Choose Founding Player (bible §5): the five Standard featured players. art = their Batch 1 picture; face = the head
-// and shoulders crop of it (fractions of the picture) used for portraits. Perks are text until Milestone 7: effects
-// hold the numbers for then (live: false = its system is not built yet).
+// and shoulders crop of it (fractions of the picture) used for portraits. effects hold the perk's numbers; Milestone 8
+// switches on the development and clean-sheet parts (src/systems/training.js); live: false = its system is not built yet.
 export const FOUNDERS = [
   {
     id: 'GK01', name: 'Eli Mercer', position: 'GK', trait: 'Safe Hands', art: 'player_gk01', face: { x: 0.21, y: 0.02, w: 0.5, h: 0.5 },
     perk: {
       name: 'Founder Keeper', text: '+5% GK development; +3% team confidence after a clean sheet',
-      effects: [{ key: 'devGK', value: 5, live: false }, { key: 'cleanSheetConfidencePct', value: 3, live: false }],
+      effects: [{ key: 'devGK', value: 5, live: true }, { key: 'cleanSheetConfidencePct', value: 3, live: true }],
     },
   },
   {
     id: 'DF01', name: 'Mason Hale', position: 'DF', trait: 'Hard Tackler', art: 'player_df01', face: { x: 0.32, y: 0.02, w: 0.5, h: 0.5 },
     perk: {
       name: 'Founder Defender', text: '+5% defending development; Familiar Back Line grows 5% faster',
-      effects: [{ key: 'devDEF', value: 5, live: false }, { key: 'familiarBackLinePct', value: 5, live: false }],
+      effects: [{ key: 'devDEF', value: 5, live: true }, { key: 'familiarBackLinePct', value: 5, live: false }],
     },
   },
   {
     id: 'MF01', name: 'Milo Hart', position: 'MF', trait: 'Simple Passer', art: 'player_mf01', face: { x: 0.27, y: 0.02, w: 0.5, h: 0.5 },
     perk: {
       name: 'Founder Playmaker', text: '+5% passing/technique development; tactical familiarity +3%',
-      effects: [{ key: 'devPAS', value: 5, live: false }, { key: 'tacticalFamiliarityPct', value: 3, live: false }],
+      effects: [{ key: 'devPAS', value: 5, live: true }, { key: 'tacticalFamiliarityPct', value: 3, live: false }],
     },
   },
   {
     id: 'WG01', name: 'Zoe Lane', position: 'WG', trait: 'Quick Feet', art: 'player_wg01', face: { x: 0.26, y: 0.02, w: 0.52, h: 0.52 },
     perk: {
       name: 'Founder Winger', text: '+5% pace/technique development; fan excitement +3% after wins',
-      effects: [{ key: 'devPAC', value: 5, live: false }, { key: 'winExcitementPct', value: 3, live: false }],
+      effects: [{ key: 'devPAC', value: 5, live: true }, { key: 'winExcitementPct', value: 3, live: false }],
     },
   },
   {
     id: 'FW01', name: 'Leo Mercer', position: 'FW', trait: 'Poacher', art: 'player_fw01', face: { x: 0.36, y: 0.02, w: 0.5, h: 0.5 },
     perk: {
       name: 'Founder Striker', text: '+5% attack development; finishing drill XP +5%',
-      effects: [{ key: 'devATT', value: 5, live: false }, { key: 'finishingDrillXpPct', value: 5, live: false }],
+      effects: [{ key: 'devATT', value: 5, live: true }, { key: 'finishingDrillXpPct', value: 5, live: true }],
     },
   },
 ];

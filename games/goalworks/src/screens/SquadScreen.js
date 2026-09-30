@@ -3,7 +3,9 @@
 // art; a generated player's code-drawn silhouette in the kit colours), name, position, age, squad role and the
 // positional overall. Tap a row → the Player Detail sheet: the five core stats as bars, the ten derived ratings, trait,
 // contract, and the Founder tag. Drag scrolls. ‹ Club (or Back) returns to the Club Complex.
-//   createSquadScreen({ layout, assets, sheet, club, onBack })   club() → the open campaign { data } or null
+// Milestone 8: a Training button (top right) opens the Training screen; each row shows fatigue; Player Detail gains a
+// Condition section (fatigue, form, morale, injury risk stored for later) and the player's training.
+//   createSquadScreen({ layout, assets, sheet, club, onBack, onTraining })   club() → the open campaign { data } or null
 import { THEME } from '../../../../core/Theme.js';
 import { ScrollPanel } from '../../../../core/ui/ScrollPanel.js';
 import { drawButton, hitRect, isPressed } from '../../../../core/ui/Button.js';
@@ -11,6 +13,8 @@ import { card, text } from '../../../../core/ui/Kit.js';
 import { POSITIONS, founderById, colourById } from '../../data/setup.js';
 import { CORE, CORE_NAMES, DERIVED_KEYS, POSITION_ORDER } from '../../data/players.js';
 import { derived, overall } from '../systems/players.js';
+import { focusById, FATIGUE, FORM } from '../../data/training.js';
+import { normaliseTraining } from '../systems/training.js';
 import { drawSilhouette } from '../ui/clubArt.js';
 import { silhouetteKey } from '../ui/kitArt.js';
 
@@ -20,7 +24,11 @@ const PAD = 24;
 const ROW_H = 150;
 const GAP = 14;
 
-export function createSquadScreen({ layout, assets, sheet, club, onBack }) {
+export function createSquadScreen({ layout, assets, sheet, club, onBack, onTraining = () => {} }) {
+  const trainingRect = () => {
+    const sr = layout.safeRect;
+    return { x: sr.x + sr.w - 24 - 250, y: sr.y + 24, w: 250, h: THEME.button.minH };
+  };
   const headerRect = () => {
     const sr = layout.safeRect;
     return { x: sr.x + 24, y: sr.y + 24, w: 220, h: THEME.button.minH };
@@ -79,7 +87,8 @@ export function createSquadScreen({ layout, assets, sheet, club, onBack }) {
     ctx.restore();
     text(ctx, p.position, tx + 38, r.y + 101, { size: S.small, bold: true, color: '#FFFFFF', align: 'center', baseline: 'middle' });
     const role = p.founder ? `Founder · ${p.contract.role}` : p.contract.role;
-    text(ctx, `Age ${p.age} · ${role}`, tx + 92, r.y + 101, { size: S.small, color: C.textMuted, baseline: 'middle', maxWidth: tw - 92 });
+    const tired = p.fatigue > FATIGUE.riskFrom ? ' · tired' : '';
+    text(ctx, `Age ${p.age} · ${role}${tired}`, tx + 92, r.y + 101, { size: S.small, color: tired ? C.bad : C.textMuted, baseline: 'middle', maxWidth: tw - 92 });
     // the overall
     const o = { x: r.x + r.w - ovrW - 18, y: r.y + 20, w: ovrW, h: r.h - 40 };
     ctx.save();
@@ -141,11 +150,27 @@ export function createSquadScreen({ layout, assets, sheet, club, onBack }) {
         { title: 'Ratings', bars: DERIVED_KEYS.map((k) => ({ label: k, value: d[k], max: 100, color: C.progress })) },
         { title: 'Trait', lines: [p.trait, ...(p.founder ? [`Founder Perk: ${founderById(p.featuredId).perk.name} — ${founderById(p.featuredId).perk.text}`] : [])] },
         {
+          title: 'Condition',
+          bars: [
+            { label: 'Fatigue', value: Math.round(p.fatigue ?? 0), max: 100, color: (p.fatigue ?? 0) > FATIGUE.riskFrom ? C.bad : C.good },
+            { label: 'Form', value: (p.form ?? 0) - FORM.min, max: FORM.max - FORM.min, color: (p.form ?? 0) >= 0 ? C.good : C.bad, text: `${(p.form ?? 0) > 0 ? '+' : ''}${(p.form ?? 0).toFixed(1)}` },
+            { label: 'Morale', value: Math.round(p.morale ?? 50), max: 100, color: C.progress },
+          ],
+          lines: p.watch ? ['On the watch list: not training with the squad.'] : [trainingLine(p), ...((p.risk ?? 0) > 0 ? [`Injury risk: ${Math.round(p.risk * 100)}% (injuries arrive later)`] : [])],
+        },
+        {
           title: 'Contract',
           lines: [`${c.role} · ${c.years} year${c.years === 1 ? '' : 's'} left · ${c.salary.toLocaleString('en-GB')} a week`, 'Potential: not scouted yet'],
         },
       ],
     };
+  }
+  function trainingLine(p) {
+    const tr = club()?.data ? normaliseTraining(club().data) : null;
+    const team = tr ? focusById(tr.focus).name : '—';
+    const ind = p.focus ? ` + ${focusById(p.focus).name}` : '';
+    const today = p.today?.kind === 'train' ? ` · +${Math.round(p.today.xp)} XP today` : p.today?.kind === 'match' ? ' · match day' : p.today?.kind === 'dayoff' ? ' · day off' : '';
+    return `Training: ${team}${ind}${today}`;
   }
   function openDetail(p) {
     sheet.open(() => detail(p));
@@ -157,9 +182,10 @@ export function createSquadScreen({ layout, assets, sheet, club, onBack }) {
       const p = [...(sq?.players ?? []), ...(sq?.watch ?? [])].find((x) => x.id === id);
       if (p) openDetail(p);
     },
-    // Tests: 'back', or a player id → that row's screen rect (null while it is scrolled out of the panel).
+    // Tests: 'back', 'training', or a player id → that row's screen rect (null while it is scrolled out of the panel).
     rectOf(id) {
       if (id === 'back') return headerRect();
+      if (id === 'training') return trainingRect();
       const rects = {};
       scroll.contentHeight = pass(null, null, rects).height;
       const r = rects[id];
@@ -193,6 +219,7 @@ export function createSquadScreen({ layout, assets, sheet, club, onBack }) {
     },
     onTap(p) {
       if (hitRect(p, headerRect())) return void onBack();
+      if (hitRect(p, trainingRect())) return void onTraining();
       if (!scroll.contains(p)) return;
       const hit = pass(null, scroll.toContent(p)).hit;
       if (hit) openDetail(hit);
@@ -201,10 +228,11 @@ export function createSquadScreen({ layout, assets, sheet, club, onBack }) {
       const hr = headerRect();
       const sr = layout.safeRect;
       drawButton(ctx, hr, '‹ Club', { accent: C.progress });
+      drawButton(ctx, trainingRect(), 'Training', { accent: C.action });
       const sq = squad();
       const cl = club()?.data.club;
-      text(ctx, 'Squad', sr.x + sr.w / 2 + 60, hr.y + hr.h / 2 - 20, { size: S.title, bold: true, align: 'center', baseline: 'middle' });
-      text(ctx, cl ? `${cl.name} · ${sq?.players.length ?? 0} + ${sq?.watch.length ?? 0} on the watch list` : '', sr.x + sr.w / 2 + 60, hr.y + hr.h / 2 + 34, { size: S.small, color: C.textMuted, align: 'center', baseline: 'middle', maxWidth: sr.w - 320 });
+      text(ctx, 'Squad', sr.x + sr.w / 2, hr.y + hr.h / 2 - 20, { size: S.title, bold: true, align: 'center', baseline: 'middle' });
+      text(ctx, cl ? `${sq?.players.length ?? 0} + ${sq?.watch.length ?? 0} on the watch list` : '', sr.x + sr.w / 2, hr.y + hr.h / 2 + 34, { size: S.small, color: C.textMuted, align: 'center', baseline: 'middle', maxWidth: sr.w - 560 });
       const r = panelRect();
       ctx.fillStyle = C.panel;
       ctx.strokeStyle = cl ? colourById(cl.colours.primary).hex : C.outline;

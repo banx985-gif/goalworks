@@ -115,3 +115,35 @@ export const LOOK = {
   buildTint: 'rgba(255, 255, 255, 0.22)',
   buildLine: 'rgba(255, 255, 255, 0.7)',
 };
+
+// Milestone 8: the Clubhouse (facility_f02) as scenery — not a station yet, never tapped — where resting players stand;
+// col / row / w / h = the plan footprint it covers (drawn like a station, foot = where its front corner sits in the art).
+export const CLUBHOUSE = { art: 'facility_f02', col: 9.3, row: 10.4, w: 2.6, h: 2.6, look: { width: 1.1, foot: 0.88 } };
+export const REST_SPOTS = [
+  { col: 9.4, row: 13.35 },
+  { col: 10.2, row: 13.5 },
+  { col: 11.0, row: 13.4 },
+  { col: 9.8, row: 14.1 },
+  { col: 10.7, row: 14.2 },
+];
+// Players training on the pitch (plan tiles inside the Starter Training Pitch) by the kind of session:
+//   shuttle: runs between two cones along a lane (Attack, Technique, Physical, Set Pieces, the placeholders)
+//   pairs:   partners facing each other, a slight lean (Passing, Defence)
+//   keeper:  keepers in front of the goal, the rest lined up to shoot (Goalkeeping)
+export const DRILL = {
+  maxOnPitch: 6,
+  maxResting: 5,
+  lanes: [3.0, 4.1, 5.2, 6.3], // shuttle lanes (rows)
+  laneFrom: 2.7,
+  laneTo: 6.3, // (cols)
+  pairs: [
+    [{ col: 3.0, row: 3.3 }, { col: 5.9, row: 3.3 }],
+    [{ col: 3.0, row: 4.8 }, { col: 5.9, row: 4.8 }],
+    [{ col: 3.0, row: 6.3 }, { col: 5.9, row: 6.3 }],
+  ],
+  keeper: { col: 4.5, row: 2.2 },
+  shooters: [{ col: 3.6, row: 4.6 }, { col: 4.5, row: 5.0 }, { col: 5.4, row: 4.6 }, { col: 4.0, row: 5.8 }, { col: 5.0, row: 5.8 }],
+  kindOf: { passing: 'pairs', defence: 'pairs', goalkeeping: 'keeper' }, // everything else (not Rest) is a shuttle
+  runSpeed: 1.1, // tiles a second at 1×
+  height: 120, // drawn height of a figure at zoom 1 (logical px)
+};

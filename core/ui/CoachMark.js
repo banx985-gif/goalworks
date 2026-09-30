@@ -19,6 +19,7 @@ const TITLE = THEME.size.heading;
 const BODY = THEME.size.body;
 const LINE = 44;
 const ART_H = 250;
+const TOUR_DIM = 'rgba(28,20,12,0.55)';
 
 export class CoachMark {
   constructor({ layout, assets, face = null, font = THEME.family, labels = { next: 'Got it', skip: 'Skip', off: 'Guide off', skipTour: 'Skip tour', tapHere: 'Tap the glowing spot' } }) {
@@ -77,7 +78,22 @@ export class CoachMark {
 
     // Dim everything except the hole (a tip dims nothing).
     ctx.save();
-    if (!tip) {
+    if (tour) {
+      // The tour dims clearly (M26b: "the rest of the screen is dimmed so it's obvious where to look"): four rects
+      // round the hole, so nothing depends on the path fill rule.
+      ctx.fillStyle = TOUR_DIM;
+      if (!hole) ctx.fillRect(0, 0, W, H);
+      else {
+        const hx = Math.max(0, hole.x);
+        const hy = Math.max(0, hole.y);
+        const hr = Math.min(W, hole.x + hole.w);
+        const hb = Math.min(H, hole.y + hole.h);
+        ctx.fillRect(0, 0, W, hy);
+        ctx.fillRect(0, hb, W, H - hb);
+        ctx.fillRect(0, hy, hx, hb - hy);
+        ctx.fillRect(hr, hy, W - hr, hb - hy);
+      }
+    } else if (!tip) {
       ctx.fillStyle = block ? COL.overlay : COL.overlay;
       ctx.beginPath();
       ctx.rect(0, 0, W, H);
@@ -102,7 +118,7 @@ export class CoachMark {
     const boxW = Math.min(sr.w - 48, 900);
     const textX = PAD + FACE + 22;
     const textW = boxW - textX - PAD;
-    const lines = this.lines(ctx, step.text, textW);
+    const lines = this.lines(ctx, step.text, tip ? textW - BTN_H + 10 : textW); // a tip keeps its text clear of the ✕
     const artH = step.art && !tip ? ART_H + 16 : 0;
     const bodyH = Math.max(FACE, TITLE + 14 + lines.length * LINE);
     const boxH = PAD + artH + bodyH + (tip ? 0 : 20 + BTN_H) + PAD;

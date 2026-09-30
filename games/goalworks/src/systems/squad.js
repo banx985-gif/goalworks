@@ -11,6 +11,7 @@ import { Rng } from '../../../../core/Rng.js';
 import { SQUAD, GEN, CONTRACT, ROLES, POSITION_ORDER, CLUB_AREAS, FEATURED_NAMES } from '../../data/players.js';
 import { FORMATION_442 } from '../../data/match.js';
 import { founderPlayer, generatePlayer, overall, matchStats } from './players.js';
+import { conditionFactor, normaliseSquad } from './training.js';
 
 // The 4-4-2's slots as positions to rate at: the wide midfield slots want wingers.
 const SLOT_POS = FORMATION_442.map((s) => (s.role === 'MF' && (s.fx < 0.2 || s.fx > 0.8) ? 'WG' : s.role));
@@ -31,7 +32,7 @@ export function bestXI(players) {
       let bestR = -Infinity;
       left.forEach((p, j) => {
         if (!ok(p)) return;
-        const r = overall(p, at);
+        const r = overall(p, at) * conditionFactor(p); // (Milestone 8: a tired or low player may sit out)
         if (r > bestR) [best, bestR] = [j, r];
       });
       return best;
@@ -44,7 +45,14 @@ export function bestXI(players) {
   return xi;
 }
 
-export const xiForMatch = (players) => bestXI(players).map((p) => ({ id: p.id, name: p.name, shirt: p.shirt, position: p.position, stats: matchStats(p) }));
+// Milestone 8: each player's six numbers × his condition (fatigue, form, morale — exactly 1 at neutral).
+export const xiForMatch = (players) =>
+  bestXI(players).map((p) => {
+    const k = conditionFactor(p);
+    const stats = matchStats(p);
+    for (const key of Object.keys(stats)) stats[key] = Math.round(stats[key] * k);
+    return { id: p.id, name: p.name, shirt: p.shirt, position: p.position, stats };
+  });
 
 function contractFor(rng, p, role) {
   const s = CONTRACT.salary[p.tier] ?? CONTRACT.salary.Standard;
@@ -99,7 +107,7 @@ export function createStartingSquad({ founderId, seed, area = 'fen' }) {
     watch.push(p);
   }
   assignRoles(rng, players, watch);
-  return { players, watch, nextId: next };
+  return normaliseSquad({ players, watch, nextId: next });
 }
 
 export function opponentSquad({ seed, clubId }) {
@@ -140,7 +148,10 @@ export function validateSquad(squad, founderId = null) {
 }
 
 export function ensureSquad(data) {
-  if (data.squad?.players?.length) return false;
+  if (data.squad?.players?.length) {
+    normaliseSquad(data.squad); // (an M7 save: everyone starts at neutral fatigue / form / morale)
+    return false;
+  }
   data.squad = createStartingSquad({ founderId: data.club.founder.id, seed: data.seed, area: data.club.area });
   return true;
 }

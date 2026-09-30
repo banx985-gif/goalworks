@@ -19,6 +19,9 @@ export const ASSETS = {
   ...Object.fromEntries(['custom_13', 'custom_14', 'custom_15', 'custom_16', 'custom_17', 'custom_18', 'custom_19', 'custom_20'].map((k) => art('custom', k))),
   ...Object.fromEntries(REGIONAL_CLUBS.map((c) => art('crests', c.crest))),
   ...Object.fromEntries(['prop_01', 'prop_02', 'prop_03', 'prop_11', 'prop_12', 'prop_25'].map((k) => art('props', k))),
+  // Milestone 8: the training focus icons (Batch 5) and the Clubhouse (resting players stand by it on the Club Complex).
+  ...Object.fromEntries(['training_tactic_01', 'training_tactic_02', 'training_tactic_03', 'training_tactic_04', 'training_tactic_05', 'training_tactic_06', 'training_tactic_07', 'training_tactic_08', 'training_tactic_09', 'training_tactic_10'].map((k) => art('training', k))),
+  ...Object.fromEntries(['facility_f02'].map((k) => art('facilities', k))),
   // Milestone 0 loader test (?screen=test): the placeholder PWA icon as a real image, and one deliberately missing file.
   m0Real: 'assets/branding/pwa/icon-192.png',
   m0Missing: 'assets/m0-missing-test.png',

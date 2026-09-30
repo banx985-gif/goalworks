@@ -14,6 +14,9 @@
 // club colour with the badge on it, fence rails in the club colours, and the Founder walks with a gentle bob and breathes
 // while standing (core/CharacterMotion; the bob only while actually walking, so they never glide).
 // Milestone 7: a temporary Team button beside the shortcut opens the Squad screen (the five-button bar comes later).
+// Milestone 8: squad players train on the pitch in a drill that follows today's team focus (shuttle runs between
+// cones, passing / marking pairs, keepers in front of goal — data/complex.js DRILL), with core/CharacterMotion's bob; the
+// players resting today (their own Rest focus, a Rest day, the day off) stand by the Clubhouse (facility_f02, scenery).
 // Plan space lives in the world; only drawing and tapping go through the IsoProjection here.
 //   createClubScreen({ renderer, layout, assets, bus, sheet, club, onMenu, debug, calendar, onMatchSetup, extraSections, onTeam })
 //     club() → { n, data } or null     calendar() → the open club's calendar (src/systems/calendar.js) or null
@@ -31,7 +34,11 @@ import { characterPose, drawCharacter } from '../../../../core/CharacterMotion.j
 import { drawClubFlag } from '../ui/kitArt.js';
 import { drawBadge } from '../ui/clubArt.js';
 import { founderById, colourById, POSITIONS } from '../../data/setup.js';
-import { COMPLEX, STATIONS, PATHS, TREES, PROPS, GATE_COL, PERSON, LOOK as L } from '../../data/complex.js';
+import { COMPLEX, STATIONS, PATHS, TREES, PROPS, GATE_COL, PERSON, LOOK as L, CLUBHOUSE, REST_SPOTS, DRILL } from '../../data/complex.js';
+import { FRONT_BODIES, KEEPER_BODIES, BODY_ART } from '../../data/kits.js';
+import { focusById } from '../../data/training.js';
+import { bodyKey, headOf } from '../ui/kitArt.js';
+import { kitFromColour } from '../match/kits.js';
 import { createComplexWorld } from '../systems/complexWorld.js';
 
 const C = THEME.color;
@@ -93,6 +100,8 @@ export function createClubScreen({ renderer, layout, assets, bus, sheet, club, o
   const depthOf = (it) => {
     if (it.kind === 'player') return it.agent.x + it.agent.y;
     if (it.kind === 'tree' || it.kind === 'prop') return (it.col + it.row) * CELL;
+    if (it.kind === 'drill') return it.depth;
+    if (it.kind === 'clubhouse') return (CLUBHOUSE.col + CLUBHOUSE.w / 2 + CLUBHOUSE.row + CLUBHOUSE.h / 2) * CELL;
     return (it.fp.col + it.fp.w / 2 + it.fp.row + it.fp.h / 2) * CELL;
   };
   const selection = new Selection(bus, { boundsOf: tapRect, depthOf: (it) => depthOf(it) + (it.kind === 'player' ? 100000 : 0), minHitSize: 90 });
@@ -101,6 +110,8 @@ export function createClubScreen({ renderer, layout, assets, bus, sheet, club, o
   let fenceFor = ''; // the club colours the cached back fence was drawn in
   let time = 0;
   const pose = { bob: 0, tilt: 0, flip: 1 };
+  let drillTime = 0;
+  const drillPose = { bob: 0, tilt: 0, flip: 1 };
 
   // --- UI rects (screen) -----------------------------------------------------------------------------------------
   let buildMode = false;
@@ -222,6 +233,11 @@ export function createClubScreen({ renderer, layout, assets, bus, sheet, club, o
     get world() {
       return world;
     },
+    // Tests: who is drilling / resting now ({ kind, focus, pitch: [ids], resting: [ids] }).
+    drillState() {
+      const items = drillItems();
+      return { kind: drillKind(), focus: club()?.data.training?.focus ?? null, pitch: items.filter((i) => !i.resting && !i.cone).map((i) => i.id), resting: items.filter((i) => i.resting).map((i) => i.id) };
+    },
     // Tests: the Founder's pose this frame ({ bob, tilt, flip }) and the props.
     get founderPose() {
       return { ...pose };
@@ -311,6 +327,7 @@ export function createClubScreen({ renderer, layout, assets, bus, sheet, club, o
     update(dt) {
       world?.update(dt * (calendar()?.clock.speed ?? 1)); // the Founder keeps the calendar's pace; still while paused
       time += dt;
+      drillTime += dt * (calendar()?.clock.paused ? 0 : calendar()?.clock.speed ?? 1); // the drill runs with the calendar
       if (note && (note.t -= dt) <= 0) note = null;
       if (!sheet.active && selection.selected) selection.clear();
     },
@@ -402,13 +419,15 @@ export function createClubScreen({ renderer, layout, assets, bus, sheet, club, o
       assets.detail = detailFor(camera.zoom);
       if (buildMode) drawBuildGrass(ctx);
       drawSelectionMark(ctx);
-      const items = [...world.stations, ...trees, ...props, ...world.people].sort((a, b) => depthOf(a) - depthOf(b));
+      const items = [...world.stations, ...trees, ...props, { kind: 'clubhouse' }, ...drillItems(), ...world.people].sort((a, b) => depthOf(a) - depthOf(b));
       for (const it of items) {
         if (it.kind === 'station') {
           const r = artRect(it);
           assets.draw(ctx, it.def.art, r.x, r.y, r.w, r.h);
         } else if (it.kind === 'tree') drawTree(ctx, it);
         else if (it.kind === 'prop') drawProp(ctx, it);
+        else if (it.kind === 'clubhouse') drawClubhouse(ctx);
+        else if (it.kind === 'drill') drawDrill(ctx, it);
         else drawPlayer(ctx, it);
       }
       drawFrontFence(ctx);
@@ -548,6 +567,115 @@ export function createClubScreen({ renderer, layout, assets, bus, sheet, club, o
     characterPose({ state: walking ? 'walking' : 'idle', facing: sx }, time, 1, pose);
     drawCharacter(ctx, assets, p.art, r.x + r.w / 2, r.y + r.h, r.w, r.h, pose);
   }
+  // --- Milestone 8: the drill and the Clubhouse -------------------------------------------------------------------------
+  const PITCH_DEPTH = (STATIONS[0].fp.col + STATIONS[0].fp.w / 2 + STATIONS[0].fp.row + STATIONS[0].fp.h / 2) * CELL;
+  // Is the whole squad off today (a Rest session, the day off or match day)?
+  function drillKind() {
+    const d = club()?.data;
+    const tr = d?.training;
+    if (!d?.squad || !tr) return 'none';
+    const today = d.squad.players[0]?.today?.kind;
+    if (today === 'dayoff' || today === 'match' || focusById(tr.focus).rest) return 'rest';
+    return DRILL.kindOf[tr.focus] ?? 'shuttle';
+  }
+  // The figures now: up to DRILL.maxOnPitch training (the XI first, the Founder walks on his own) and up to
+  // DRILL.maxResting by the Clubhouse. Positions are plan units; everyone faces and bobs as they move.
+  function drillItems() {
+    const d = club()?.data;
+    if (!d?.squad) return [];
+    const kind = drillKind();
+    const byShirt = d.squad.players.filter((p) => !p.founder).slice().sort((a, b) => (a.shirt ?? 99) - (b.shirt ?? 99));
+    const rests = (p) => kind === 'rest' || p.focus === 'rest';
+    const training = byShirt.filter((p) => !rests(p)).slice(0, DRILL.maxOnPitch);
+    const resting = byShirt.filter(rests).slice(0, DRILL.maxResting);
+    const out = [];
+    const at = (col, row) => ({ x: col * CELL, y: row * CELL });
+    training.forEach((p, i) => {
+      let pos;
+      let walking = false;
+      let face = 1;
+      if (kind === 'shuttle') {
+        const lane = DRILL.lanes[i % DRILL.lanes.length] + Math.floor(i / DRILL.lanes.length) * 0.5;
+        const span = DRILL.laneTo - DRILL.laneFrom;
+        const t = drillTime * DRILL.runSpeed + i * 0.9;
+        const k = (t % (span * 2)) / span; // 0 → 2 and back
+        const u = k <= 1 ? k : 2 - k;
+        pos = at(DRILL.laneFrom + span * u, lane);
+        walking = !calendar()?.clock.paused;
+        face = k <= 1 ? 1 : -1; // plan +col is screen right-down
+      } else if (kind === 'pairs') {
+        const pair = DRILL.pairs[Math.floor(i / 2) % DRILL.pairs.length];
+        const spot = pair[i % 2];
+        const sway = Math.sin(drillTime * 2 + i) * 0.15;
+        pos = at(spot.col, spot.row + sway);
+        face = i % 2 ? -1 : 1;
+      } else {
+        const spot = p.position === 'GK' ? DRILL.keeper : DRILL.shooters[i % DRILL.shooters.length];
+        pos = at(spot.col + (p.position === 'GK' ? Math.sin(drillTime * 1.6) * 0.8 : 0), spot.row);
+        walking = p.position === 'GK' && !calendar()?.clock.paused;
+      }
+      out.push({ kind: 'drill', id: p.id, p, ...pos, walking, face, resting: false, depth: Math.max(PITCH_DEPTH + 1, pos.x + pos.y) });
+    });
+    // cones (prop_01) at both ends of each shuttle lane in use
+    if (kind === 'shuttle')
+      DRILL.lanes.slice(0, Math.min(DRILL.lanes.length, training.length)).forEach((lane, j) => {
+        for (const col of [DRILL.laneFrom - 0.25, DRILL.laneTo + 0.25]) {
+          const pos = at(col, lane);
+          out.push({ kind: 'drill', id: `cone${j}:${col}`, cone: true, ...pos, depth: PITCH_DEPTH + 0.5 + (pos.x + pos.y) / 1e4 });
+        }
+      });
+    resting.forEach((p, i) => {
+      const spot = REST_SPOTS[i % REST_SPOTS.length];
+      const pos = at(spot.col, spot.row);
+      out.push({ kind: 'drill', id: p.id, p, ...pos, walking: false, face: i % 2 ? -1 : 1, resting: true, depth: pos.x + pos.y });
+    });
+    return out;
+  }
+  // A figure: the match body in the club kit (keepers in their colour) with a head, on a soft shadow, bobbing.
+  function drawDrill(ctx, it) {
+    const c = club()?.data.club;
+    if (!c) return;
+    if (it.cone) {
+      const f = iso.toWorld(it.x, it.y);
+      assets.draw(ctx, 'prop_01', f.x - 22, f.y - 40, 44, 44);
+      return;
+    }
+    const kit = kitFromColour(colourById(c.colours.primary).hex);
+    kit.shorts = colourById(c.colours.secondary).hex;
+    const gk = it.p.position === 'GK';
+    const body = gk ? KEEPER_BODIES[0] : FRONT_BODIES[(it.p.shirt ?? 0) % FRONT_BODIES.length];
+    const key = bodyKey(assets, body, kit);
+    const f = iso.toWorld(it.x, it.y);
+    const h = DRILL.height;
+    ctx.save();
+    ctx.fillStyle = L.fenceShade;
+    ctx.beginPath();
+    ctx.ellipse(f.x, f.y, HW * 0.3, HH * 0.3, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+    characterPose({ state: it.walking ? 'walking' : it.resting ? 'idle' : 'working', facing: it.face }, time, (it.p.shirt ?? 0) + 3, drillPose);
+    drawCharacter(ctx, assets, key, f.x, f.y + h * 0.06, h, h, drillPose);
+    const head = BODY_ART[body]?.head;
+    if (head && assets.has(headOf({ name: c.name }, it.p))) {
+      // the head, on the body's bald head (mirrored with it)
+      const hs = h * head.r * 2.55;
+      ctx.save();
+      ctx.translate(f.x, f.y + h * 0.06 + drillPose.bob);
+      if (drillPose.tilt) ctx.rotate(drillPose.tilt);
+      if (drillPose.flip < 0) ctx.scale(-1, 1);
+      assets.draw(ctx, headOf({ name: c.name }, it.p), -h / 2 + head.x * h - hs / 2, -h + head.y * h - hs * 0.56, hs, hs);
+      ctx.restore();
+    }
+  }
+  function drawClubhouse(ctx) {
+    const { col, row, w: fw, h: fh, look, art } = CLUBHOUSE;
+    const w = (fw + fh) * HW * look.width;
+    const h = w / assets.aspect(art);
+    const cx = iso.corner(col + fw / 2, row + fh / 2).x;
+    const front = iso.corner(col + fw, row + fh).y;
+    assets.draw(ctx, art, cx - w / 2, front - h * look.foot, w, h);
+  }
+
   // A prop: its picture standing at its spot (on a small table for the laptop and folder); the flag in club colours.
   function drawProp(ctx, it) {
     const f = iso.corner(it.col, it.row);
