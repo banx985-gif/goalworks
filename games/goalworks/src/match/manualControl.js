@@ -7,11 +7,14 @@
 // Input is part of the seeded simulation: the screen (or a test's auto player) calls control.input(frame) before each
 // world.step(); every change of frame is logged against the step it applies to. The save holds that log, so a reload
 // replays the same match exactly (restoreMatchWorld), and nothing here reads real time.
-//   createControl(world, { team = 0, inputs = [] }) → control     (matchWorld does this for a Play match)
+//   createControl(world, { team = 0, log = [] }) → control     (matchWorld does this whenever Play starts)
+//     log: the match's input log (world.inputs), shared by every Play stint of the match (Milestone 5 mode switching):
+//     a stint reads and writes only the entries from the step it started at.
 //   control.input({ mx, my, btn })   mx, my: the stick, −1 … 1 in pitch directions (x right, y down the screen)
 //                                    btn: BTN bits held now (Pass, Shoot/Tackle, Sprint, Switch)
 //   control.player — who is controlled   control.stamina 0 … 1   control.passHold — steps Pass has been held
 //   control.last — { kind, ok, step } the latest action, for the screen   control.serialize() → { team, inputs }
+//   control.detach() — Play is left: the controlled player goes back to the AI
 import { PITCH, MATCH_TIME } from '../../data/match.js';
 import { speedOf, pressureOn, steerVel, pass, shoot, tackle } from './matchAI.js';
 
@@ -23,11 +26,13 @@ const DT = MATCH_TIME.step;
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
 
-export function createControl(world, { team = 0, inputs = [] } = {}) {
+export function createControl(world, { team = 0, log = [] } = {}) {
   const T = world.T;
   const C = T.control;
-  const log = inputs.map((e) => e.slice()); // [[step, qx, qy, btn]] — each change, from the step it applies
-  let cursor = 0;
+  // log: [[step, qx, qy, btn]] — each change, from the step it applies (shared with the world, never copied)
+  const from = world.steps + 1; // this stint's first step
+  let cursor = log.findIndex((e) => e[0] >= from);
+  if (cursor < 0) cursor = log.length;
   let mx = 0;
   let my = 0;
   let btn = 0;
@@ -63,7 +68,8 @@ export function createControl(world, { team = 0, inputs = [] } = {}) {
       const qy = Math.round(y * Q);
       const b = (frame.btn ?? 0) & 15;
       const s = world.steps + 1; // the step this input applies to
-      const tail = log[log.length - 1];
+      const last = log[log.length - 1];
+      const tail = last && last[0] >= from ? last : null; // (an earlier stint's last entry is not this one's)
       if (tail && tail[1] === qx && tail[2] === qy && tail[3] === b) return;
       if (tail && tail[0] === s) {
         tail[1] = qx;
@@ -138,6 +144,11 @@ export function createControl(world, { team = 0, inputs = [] } = {}) {
 
     serialize() {
       return { team, inputs: log.map((e) => e.slice()) };
+    },
+    detach() {
+      if (ctl.player) ctl.player.manual = false;
+      ctl.player = null;
+      pending = null;
     },
   };
 

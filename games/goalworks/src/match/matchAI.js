@@ -7,6 +7,10 @@
 // Milestone 4 (Play): the one player the human controls has p.manual set (manualControl.js). The AI still picks its
 // target (the fallback when the stick is still) but never makes its carrier choices or tackles; the human's pass /
 // shot / tackle go through the same pass(), shoot() and tackle() below, so the stats decide how well they come off.
+// Milestone 5 (Manage): each team's commands arrive as world.fx[team] (data/match.js TACTIC_FX) and bend the same
+// decisions — where the block stands and how high (mentality, pressing), how many press and how often they tackle
+// (pressing), how long the carrier holds it and how the ball is played (tempo), how far across the shape reaches (width).
+// Every change is guarded so the Balanced / Normal defaults run the exact Milestone 3 arithmetic and dice.
 import { PITCH, MATCH_TIME } from '../../data/match.js';
 import { predictBall, rollDistance, ballSpeed } from './ballPhysics.js';
 
@@ -16,7 +20,7 @@ const DT = MATCH_TIME.step;
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
 const DECIDE_STEPS = (T) => Math.max(1, Math.round(T.decideEvery / DT));
-const OWNER_STEPS = (T) => Math.max(1, Math.round(T.ownerDecideEvery / DT));
+const OWNER_STEPS = (T, f) => Math.max(1, Math.round((f.decide === 1 ? T.ownerDecideEvery : T.ownerDecideEvery * f.decide) / DT));
 const ROLE_A = { DF: [38, 97], MF: [20, 90], FW: [6, 72] }; // how far up / back each line may slide (team frame)
 
 export const speedOf = (p, T) => T.speed.base + (T.speed.pace * p.stats.pace) / 100;
@@ -30,7 +34,8 @@ export function pressureOn(world, p) {
     const d = dist(o, p);
     if (d < R) s += 1 - d / R;
   }
-  return s;
+  const crowd = world.fx?.[p.team].crowd ?? 1;
+  return crowd === 1 ? s : s * crowd; // width / tempo: how much room the team's shape and speed buy its players
 }
 
 // --- the zone: where a player stands when nothing else calls ---------------------------------------------------------
@@ -39,13 +44,23 @@ function anchor(world, p) {
   const ball = world.ball;
   const own = world.owner ? world.owner.team === p.team : world.lastTouch === p.team;
   if (p.role === 'GK') return keeperSpot(world, p);
+  const f = world.fx[p.team];
   const ballA = world.aOf(p.team, ball.y);
   let a = p.fy * H + (ballA - 58) * T.shape.followY;
-  if (own) a -= T.shape.depth * T.shape.attackPush * (p.role === 'DF' ? 0.6 : 1);
+  if (own) {
+    let push = T.shape.depth * T.shape.attackPush * (p.role === 'DF' ? 0.6 : 1);
+    if (f.push !== 1) push *= f.push;
+    a -= push;
+  }
+  if (f.line) a += f.line * (p.role === 'FW' ? f.fwLine : 1); // mentality: the whole block higher (−) or deeper (+)
+  if (f.drop && !own) a += f.drop; // pressing: where the block waits without the ball
   const [lo, hi] = ROLE_A[p.role];
   a = clamp(a + p.offA, lo, hi);
   const bx = world.dir(p.team) < 0 ? ball.x : W - ball.x; // ball across, in the team's view
-  const fx = clamp((p.fx * W + (bx - W / 2) * T.shape.shiftX + p.offX) / W, 0.04, 0.96);
+  const spread = own ? f.spread : f.spreadOff; // width: how far across the shape reaches (with / without the ball)
+  const x0 = spread === 1 ? p.fx * W : W / 2 + (p.fx - 0.5) * W * spread;
+  const shift = f.shift === 1 ? T.shape.shiftX : T.shape.shiftX * f.shift;
+  const fx = clamp((x0 + (bx - W / 2) * shift + p.offX) / W, 0.04, 0.96);
   return world.toWorld(p.team, fx, a);
 }
 
@@ -104,7 +119,9 @@ export function think(world) {
     if ((s + p.i * 5) % N === 0) {
       const own = world.owner ? world.owner.team === p.team : false;
       if (own && p.role !== 'GK') {
-        const run = p.role === 'FW' ? 10 : p.role === 'MF' ? 6 : 2;
+        let run = p.role === 'FW' ? 10 : p.role === 'MF' ? 6 : 2;
+        const runs = world.fx[p.team].runs;
+        if (runs !== 1) run *= runs; // mentality: longer / shorter runs forward
         p.offA = -rng.range(0, run);
         p.offX = rng.range(-5, 5);
       } else {
@@ -113,7 +130,7 @@ export function think(world) {
       }
     }
     // Tackling: a presser in reach has a go now and then.
-    if (p.mode === 'press' && !p.manual && world.owner && world.owner.team !== p.team && p.cool <= 0 && world.phase === 'play' && (s + p.i) % 9 === 0) {
+    if (p.mode === 'press' && !p.manual && world.owner && world.owner.team !== p.team && p.cool <= 0 && world.phase === 'play' && (s + p.i) % world.fx[p.team].tackleEvery === 0) {
       if (dist(p, world.owner) < T.tackle.reach) tackle(world, p, world.owner);
     }
     target(world, p);
@@ -122,9 +139,10 @@ export function think(world) {
   // The ball carrier decides every ownerDecideEvery (after a short first touch).
   const o = world.owner;
   if (o && world.phase === 'play' && !o.manual) {
+    const f = world.fx[o.team];
     const held = s - world.ownerSince;
-    const M = OWNER_STEPS(T);
-    if (held >= 8 && held % M === 0) ownerDecide(world, o, null);
+    const M = OWNER_STEPS(T, f);
+    if (held >= f.hold && held % M === 0) ownerDecide(world, o, null);
   }
 }
 
@@ -135,7 +153,7 @@ function pickChasers(world) {
     const list = [];
     for (const p of world.players) if (p.team === team && p.role !== 'GK' && p !== world.owner) list.push({ p, d: dist(p, ball) });
     list.sort((a, b) => a.d - b.d || a.p.i - b.p.i);
-    world.chasers[team] = list.slice(0, T.chasers).map((e) => e.p);
+    world.chasers[team] = list.slice(0, Math.max(T.chasers, world.fx[team].press === 'double' ? 3 : 0)).map((e) => e.p);
   }
 }
 
@@ -184,13 +202,27 @@ function target(world, p) {
       return;
     }
   } else if (owner.team !== p.team) {
-    if (rank === 0) {
+    const f = world.fx[p.team];
+    const far = world.aOf(owner.team, owner.y) > f.zone; // the carrier is still far from our goal
+    // a low press: only once they are within f.zone metres of our goal (until then the first man stands off, goal-side);
+    // a high press: while they are far from it, a second man presses too (and a third covers)
+    const press = f.press === 'double' && !far ? 'normal' : f.press;
+    const standOff = press === 'contain' && far;
+    if (rank === 0 && standOff) {
+      p.mode = 'cover';
+      const g = world.ownGoal(p.team);
+      const d = Math.max(0.01, dist(g, owner));
+      p.tx = owner.x + ((g.x - owner.x) / d) * 4;
+      p.ty = owner.y + ((g.y - owner.y) / d) * 4;
+      return;
+    }
+    if (rank === 0 || (rank === 1 && press === 'double')) {
       p.mode = 'press';
       p.tx = owner.x + owner.vx * 0.25;
       p.ty = owner.y + owner.vy * 0.25;
       return;
     }
-    if (rank === 1) {
+    if ((rank === 1 && press !== 'contain') || (rank === 2 && press === 'double')) {
       p.mode = 'cover';
       const g = world.ownGoal(p.team);
       const d = Math.max(0.01, dist(g, owner));
@@ -349,6 +381,7 @@ function ownerDecide(world, p, restartType) {
 // noise-free ones to get the best choice without touching the match's dice.
 export function chooseOption(world, p, restartType, press, noise, chance) {
   const T = world.T;
+  const f = world.fx[p.team];
   const g = world.goalOf(p.team);
   const dG = dist(p, g);
 
@@ -357,6 +390,7 @@ export function chooseOption(world, p, restartType, press, noise, chance) {
   if (!restartType && p.role !== 'GK' && dG < T.shot.range) {
     const angle = Math.abs(p.x - W / 2) / Math.max(1, Math.abs(p.y - g.y)); // wide angles are poor
     let sc = Math.pow(1 - dG / T.shot.range, 1.1) * 1.35 + T.shot.eager + (dG < 12 ? T.shot.closeBonus : 0) - press * 0.12 - Math.max(0, angle - 0.9) * 0.6;
+    if (f.shot) sc += f.shot;
     sc += noise(-0.15, 0.15);
     best = { kind: 'shoot', score: sc };
   }
@@ -364,7 +398,8 @@ export function chooseOption(world, p, restartType, press, noise, chance) {
   if (!restartType && p.role !== 'GK') {
     let space = 10;
     for (const o of world.players) if (o.team !== p.team) space = Math.min(space, dist(o, p));
-    const sc = 0.3 + (space / 10) * 0.45 - press * 0.25 + (p.role === 'FW' || p.role === 'MF' ? 0.05 : -0.1) + noise(-0.12, 0.12);
+    let sc = 0.3 + (space / 10) * 0.45 - press * 0.25 + (p.role === 'FW' || p.role === 'MF' ? 0.05 : -0.1) + noise(-0.12, 0.12);
+    if (f.dribble) sc += f.dribble;
     if (sc > best.score) best = { kind: 'dribble', score: sc };
   }
   // Pass? (every team-mate, scored on progress, how free they are and how clear the lane is)
@@ -382,7 +417,8 @@ export function chooseOption(world, p, restartType, press, noise, chance) {
       free = Math.min(free, dist(o, q));
       lane = Math.min(lane, segDist(o, p, q));
     }
-    let sc = 0.45 * progress + 0.5 * (free / 8) + 0.35 * (lane / 5) - d / 90 + noise(-0.18, 0.18);
+    let sc = (f.progress === 1 ? 0.45 * progress : 0.45 * f.progress * progress) + 0.5 * (free / 8) + 0.35 * (lane / 5) - d / 90 + noise(-0.18, 0.18);
+    if (f.passBias && !restartType) sc += f.passBias;
     if (restartType === 'corner') sc += inBoxOf(world, p.team, q) ? 1 : -1;
     if (restartType === 'goalkick') sc += q.role === 'MF' || q.role === 'FW' ? 0.4 : 0;
     if (restartType === 'kickoff') sc += progress < 0 ? 0.6 : -0.6;
@@ -436,8 +472,9 @@ export function pass(world, p, q, press, lofted, aim = null) {
   const lead = 0.35;
   const tx = aim?.tx ?? q.x + q.vx * lead;
   const ty = aim?.ty ?? q.y + q.vy * lead;
+  const f = world.fx[p.team];
   const d = Math.hypot(tx - p.x, ty - p.y);
-  const err = aimError(world, P.errDeg, p.stats.passing, press);
+  const err = aimError(world, f.err === 1 ? P.errDeg : P.errDeg * f.err, p.stats.passing, press);
   world.stats[p.team].passes++;
   if (aim ? aim.loft : lofted && world.rng.next() < P.loftChance + (d > P.loftOver ? 0.3 : 0)) {
     const flight = 0.7 + d / 28;
@@ -446,6 +483,7 @@ export function pass(world, p, q, press, lofted, aim = null) {
     // enough pace to arrive still rolling at ~5 m/s
     let v = P.minSpeed;
     while (v < P.maxSpeed && rollDistance(v, T.ball) < d + 6) v += 1;
+    if (f.zip) v += f.zip; // a quick tempo zips it in (harder to control)
     kick(world, p, tx - p.x, ty - p.y, v, 0, err);
   }
   world.pass = { from: p, to: q, team: p.team };
@@ -475,7 +513,8 @@ export function shoot(world, p, press, aim = null) {
   const tx = aim ? aim.x : g.x + rng.range(-PITCH.goalW / 2 + 0.5, PITCH.goalW / 2 - 0.5);
   const h = aim ? aim.h : rng.range(0.1, PITCH.goalH - 0.3);
   const speed = S.speed * rng.range(0.85, 1.12);
-  const err = aimError(world, S.errDeg + d * S.errPerM, p.stats.shooting, press);
+  const se = world.fx[p.team].shotErr; // width: a crowded box (narrow) or a stretched defence (wide)
+  const err = aimError(world, se === 1 ? S.errDeg + d * S.errPerM : (S.errDeg + d * S.errPerM) * se, p.stats.shooting, press);
   const t = d / speed;
   const vz = Math.max(0, (h + 0.5 * T.ball.gravity * t * t) / t);
   kick(world, p, tx - p.x, g.y - p.y, speed, vz, err);
@@ -496,7 +535,9 @@ export function tackle(world, p, owner) {
   const T = world.T;
   const rng = world.rng;
   world.stats[p.team].tackles++;
-  const chance = T.tackle.base + (p.stats.tackling - owner.stats.dribbling) / 200;
+  let chance = T.tackle.base + (p.stats.tackling - owner.stats.dribbling) / 200;
+  const shield = world.fx[owner.team].shield; // tempo: a patient side keeps the ball closer
+  if (shield) chance -= shield;
   if (rng.next() < chance) {
     world.stats[p.team].tacklesWon++;
     // the ball squirts loose; the tackler usually comes away with it

@@ -4,7 +4,8 @@
 //   matchSetupSheet — opens by itself on kickoff day: the opponent and Kick off (Milestone 3: the 11 v 11 match; its
 //                   score goes back to the calendar at full time). ?debug=1 keeps the Milestone 2 "Match played" skip.
 //                   Milestone 4: Kick off · Watch (first, the default) or Kick off · Play (you control our side);
-//                   a match already under way shows one Resume button in the mode it was started in.
+//                   a match already under way shows one Resume button in the mode it was left in.
+//                   Milestone 5: Kick off · Manage too (the team plays to your commands); the mode can change mid-match.
 // Both are builder functions for sheet.open(), rebuilt every frame so the countdown stays live.
 import { THEME } from '../../../../core/Theme.js';
 import { sourceById, SPEED_FLAGS } from '../../data/fixtures.js';
@@ -47,7 +48,7 @@ export function fixturesSheet({ calendar, onCommit, debugFlags = null, message =
   };
 }
 
-// resuming() → null (no match yet) | 'watch' | 'play' (the match under way).  onKickOff(mode)
+// resuming() → null (no match yet) | 'watch' | 'manage' | 'play' (the match under way).  onKickOff(mode)
 export function matchSetupSheet({ calendar, clubName, onKickOff, onPlayed = null, resuming = () => null }) {
   return () => {
     const cal = calendar();
@@ -56,9 +57,10 @@ export function matchSetupSheet({ calendar, clubName, onKickOff, onPlayed = null
     const src = sourceById(f.source);
     const under = resuming();
     const kick = under
-      ? [{ id: 'kickoff', label: 'Resume match', sub: under === 'play' ? 'Play · you control your side' : 'Watch · 1× / 2×', accent: C.good, onTap: () => onKickOff(under) }]
+      ? [{ id: 'kickoff', label: 'Resume match', sub: under === 'play' ? 'Play · you control your side' : under === 'manage' ? 'Manage · your team commands' : 'Watch · 1× / 2×', accent: C.good, onTap: () => onKickOff(under) }]
       : [
           { id: 'kickoff', label: 'Kick off · Watch', sub: 'The team plays · 1× / 2×', accent: C.good, onTap: () => onKickOff('watch') },
+          { id: 'kickoffManage', label: 'Kick off · Manage', sub: 'The team plays to your orders', accent: C.purple, onTap: () => onKickOff('manage') },
           { id: 'kickoffPlay', label: 'Kick off · Play', sub: 'You play: stick + Pass / Shoot / Tackle', accent: C.action, onTap: () => onKickOff('play') },
         ];
     return {
@@ -68,10 +70,11 @@ export function matchSetupSheet({ calendar, clubName, onKickOff, onPlayed = null
       accent: C.action,
       tag: { text: 'MATCH DAY', color: C.action },
       sections: [
-        { title: 'Fixture', lines: [`Opponent: ${f.opponent.name}`, `Kickoff: ${dateText(cal, f.matchDay)}`, `From: ${src?.name ?? f.source}${src?.temporary ? ' (temporary)' : ''}`] },
+        // (kept short so all three Kick off buttons fit on a 9:16 phone without scrolling)
+        { title: 'Fixture', lines: [`${dateText(cal, f.matchDay)} · ${src?.name ?? f.source}${src?.temporary ? ' (temporary)' : ''}`] },
         {
           title: 'Match',
-          lines: ['11 v 11, about 5 minutes. Watch it, or play it yourself.', 'The calendar waits here until the result is in.'],
+          lines: ['11 v 11, about 5 minutes. Switch mode any time.'],
           buttons: [
             ...kick,
             ...(onPlayed ? [{ id: 'played', label: 'Match played (debug)', sub: 'Skip: commit a placeholder result', accent: C.progress, onTap: () => onPlayed() }] : []),

@@ -78,6 +78,76 @@ export const TUNING = {
   },
 };
 
+// Manage mode (Milestone 5, bible §15 / §17): the four team commands. Each option is a small set of changes to the M3
+// zone AI (matchAI.js reads them through world.fx[team]); anything an option leaves out keeps the FX_BASE value, so the
+// Balanced / Normal defaults are exactly the Milestone 3 match. Every option is a trade-off — it gains something and pays
+// for it (tuned over 300 seeded matches per option; tests/goalworks/m5.test.mjs checks none is a free boost):
+//   mentality  line: metres the block sits higher (−) or deeper (+) (fwLine: × for the forwards) · runs: × support-run
+//              length · push: × how far the block steps up with the ball · shot: + shot eagerness · progress: × how much
+//              a pass forward is worth
+//   pressing   press: 'contain' (the first man stands off until they are within zone m of our goal) | 'normal' |
+//              'double' (while they are further than zone m out, two press and a third covers) · drop: metres the block
+//              drops (+) or steps up (−) without the ball · tackleEvery: steps between a presser's tries
+//   tempo      decide: × time between the carrier's decisions · hold: first-touch steps · dribble / passBias: + to those
+//              choices · err: × pass error · zip: + pass pace (m/s) · crowd: × the pressure our players feel ·
+//              shield: − to tackles against our carrier (a patient side keeps the ball close)
+//   width      spread / spreadOff: × how far the shape reaches across with / without the ball · shift: × how far it
+//              slides with the ball · shotErr: × our shot error (a crowded box when narrow, a stretched defence when wide)
+// Measured (home on the option, away on the defaults, 300 matches each; goals per match for–against, base 1.33–1.24):
+//   Defensive 0.74–0.89 · Attacking 2.58–2.60 · Low press 1.02–1.03 · High press 1.64–2.00 · Slow 1.43–1.36 (fewer
+//   passes, more of the ball) · Fast 1.15–1.15 (more passes, less of the ball) · Narrow 0.98–0.91 · Wide 1.36–1.53.
+// (The full tactics library — formations, roles, familiarity — is Milestone 9.)
+export const TACTICS = {
+  mentality: { label: 'Mentality', options: ['defensive', 'balanced', 'attacking'], names: ['Defensive', 'Balanced', 'Attacking'], def: 'balanced' },
+  pressing: { label: 'Pressing', options: ['low', 'normal', 'high'], names: ['Low', 'Normal', 'High'], def: 'normal' },
+  tempo: { label: 'Tempo', options: ['slow', 'normal', 'fast'], names: ['Slow', 'Normal', 'Fast'], def: 'normal' },
+  width: { label: 'Width', options: ['narrow', 'normal', 'wide'], names: ['Narrow', 'Normal', 'Wide'], def: 'normal' },
+};
+export const TACTIC_FX = {
+  mentality: {
+    defensive: { line: 4, fwLine: 0, runs: 0.85, push: 0.8 },
+    attacking: { line: -4, runs: 1.3, push: 1.35, shot: 0.05, progress: 1.15 },
+  },
+  pressing: {
+    low: { press: 'contain', zone: 45, drop: 6, tackleEvery: 11 },
+    high: { press: 'double', zone: 50, drop: -3, tackleEvery: 7 },
+  },
+  tempo: {
+    slow: { decide: 1.5, hold: 16, err: 0.75, progress: 0.9, shield: 0.08 },
+    fast: { decide: 0.7, hold: 6, passBias: 0.06, err: 1.05, progress: 1.2, runs: 1.2, crowd: 0.8 },
+  },
+  width: {
+    narrow: { spread: 0.92, spreadOff: 0.9, shift: 1.1, shotErr: 2.0, runs: 0.9 },
+    wide: { spread: 1.1, spreadOff: 1.03, shift: 0.9, shotErr: 0.6, runs: 1.25 },
+  },
+};
+// The Balanced / Normal values every option starts from (the Milestone 3 engine exactly).
+export const FX_BASE = { line: 0, runs: 1, push: 1, shot: 0, progress: 1, press: 'normal', drop: 0, tackleEvery: 9, decide: 1, hold: 8, dribble: 0, passBias: 0, err: 1, zip: 0, spread: 1, spreadOff: 1, shift: 1, crowd: 1, fwLine: 0.6, zone: 40, shotErr: 1, shield: 0 };
+
+// Key Moments (Milestone 5, bible §17): in Watch / Manage the match pauses and offers a short jump into Play. A moment
+// lasts at least minSec of play (unless the half ends) and at most maxSec, and after minSec it hands back at the next dead
+// ball or once the ball has clearly changed hands (settleSec). Offers are spaced by cooldownSec, at most maxPerMatch.
+// penalty / freeKick are hooks only: fouls and set pieces arrive in Milestone 25 (keyMoments.js offerFromEvent()).
+export const KEY_MOMENTS = {
+  minSec: 20,
+  maxSec: 60,
+  settleSec: 1.5,
+  cooldownSec: 30,
+  maxPerMatch: 5,
+  chance: { range: 26, goalSide: 2, pressure: 0.9 }, // our carrier this close to goal, ≤ goalSide outfield defenders goal-side
+  defence: { fromMinute: 84, range: 40 }, // their carrier within range of our goal, us level or one up
+  lateAttack: { fromMinute: 87 }, // our ball in their half, us level or one down
+  types: {
+    chance: { title: 'Big chance!', line: 'Through on goal. Take the shot yourself?', attack: true },
+    corner: { title: 'Dangerous corner', line: 'A corner for us. Attack it yourself?', attack: true },
+    cornerDef: { title: 'Dangerous corner', line: 'A corner against us. Defend it yourself?', attack: false },
+    defence: { title: 'Last-minute defence', line: 'They are pressing for a late goal. Hold them off?', attack: false },
+    lateAttack: { title: 'Stoppage-time attack', line: 'One last push. Lead it yourself?', attack: true },
+    penalty: { title: 'Penalty!', line: 'Take it yourself?', attack: true, hook: true },
+    freeKick: { title: 'Free kick', line: 'In shooting range. Take it yourself?', attack: true, hook: true },
+  },
+};
+
 // Test players (Milestone 3): plain generated names, flat stats — no real squad yet.
 export const TEST_STAT = 50;
 export const FIRST_NAMES = [

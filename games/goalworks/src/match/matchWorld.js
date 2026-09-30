@@ -11,8 +11,15 @@
 // Milestone 4 (Play): createMatchWorld(setup, { play: { team, inputs } }) adds world.control (manualControl.js) — the
 // human's stick and buttons, logged per step. A Play match saves { setup, steps, play } and replays the same way; a Watch
 // match (no play) never creates a control, so it runs exactly as in Milestone 3.
+// Milestone 5 (Watch / Manage / Play, mode switching): world.command(['mode', m]) and world.command(['tac', team, key,
+// value]) change the match between two steps. Each command is logged in world.timeline against the step it applies to
+// and applied at once; a replay applies it at the start of that step, so the saved match { setup, steps, start,
+// timeline, play: { team, inputs } } replays to exactly the same moment. Play creates the control (manualControl.js)
+// and leaves it again; one input log (world.inputs) runs through every Play stint. The clock, score, positions and dice
+// carry straight on — nothing is ever reset. The team commands change world.fx[team] (data/match.js TACTIC_FX), which the
+// zone AI reads; the Balanced / Normal defaults leave the Milestone 3 match untouched.
 import { Rng } from '../../../../core/Rng.js';
-import { PITCH, MATCH_TIME, FORMATION_442, TUNING } from '../../data/match.js';
+import { PITCH, MATCH_TIME, FORMATION_442, TUNING, TACTICS, TACTIC_FX, FX_BASE } from '../../data/match.js';
 import { createBall, stopBall, stepBall, crossing } from './ballPhysics.js';
 import { think, moveOwner, movePlayers, keeperStep, tryControl } from './matchAI.js';
 import { createControl } from './manualControl.js';
@@ -20,7 +27,21 @@ import { createControl } from './manualControl.js';
 const W = PITCH.w;
 const H = PITCH.h;
 
-export function createMatchWorld(setup, { play = null } = {}) {
+export const MODES = ['watch', 'manage', 'play'];
+
+// The team's commands (any left out stay at the default) → the numbers the AI reads.
+export function tacticsOf(t = {}) {
+  return Object.fromEntries(Object.entries(TACTICS).map(([k, def]) => [k, def.options.includes(t[k]) ? t[k] : def.def]));
+}
+export function fxOf(tactics) {
+  const fx = { ...FX_BASE };
+  for (const [k, v] of Object.entries(tactics)) Object.assign(fx, TACTIC_FX[k]?.[v] ?? {});
+  return fx;
+}
+
+// start: 'watch' | 'manage' | 'play' (play = { team, inputs } is the Milestone 4 way of saying start: 'play').
+// team: the side the human controls in Play. inputs / timeline: from a save (restoreMatchWorld).
+export function createMatchWorld(setup, { play = null, start = play ? 'play' : 'watch', team = play?.team ?? 0, inputs = play?.inputs ?? [], timeline = [] } = {}) {
   const rng = new Rng(`${setup.seed}:match`);
   const teams = [setup.home, setup.away];
   const players = [];
@@ -77,7 +98,13 @@ export function createMatchWorld(setup, { play = null } = {}) {
     events: [], // goals, saves, shots, half/full time (for the screen's banners and the tests)
     chasers: [[], []],
     control: null, // Play mode: the human's control (manualControl.js)
-    mode: play ? 'play' : 'watch',
+    mode: MODES.includes(start) ? start : 'watch',
+    start: MODES.includes(start) ? start : 'watch',
+    team, // the human's side
+    inputs: inputs.map((e) => e.slice()), // the Play input log, across every Play stint
+    timeline: timeline.map((e) => e.slice()), // [[step, 'mode', m] | [step, 'tac', team, key, value]]
+    tactics: [0, 1].map((t) => tacticsOf(setup.tactics?.[t])),
+    fx: null,
 
     // Which way a team attacks now: -1 up the screen (towards y = 0), +1 down.
     dir(team) {
@@ -115,6 +142,7 @@ export function createMatchWorld(setup, { play = null } = {}) {
 
     step() {
       if (world.phase === 'fulltime') return;
+      applyDue();
       const dt = MATCH_TIME.step;
       world.steps++;
       if (world.phase === 'halftime') {
@@ -160,7 +188,25 @@ export function createMatchWorld(setup, { play = null } = {}) {
       for (let k = 0; k < n && !world.done; k++) world.step();
     },
     serialize() {
-      return world.control ? { setup: world.setup, steps: world.steps, play: world.control.serialize() } : { setup: world.setup, steps: world.steps };
+      const out = { setup: world.setup, steps: world.steps };
+      if (world.timeline.length || world.start === 'manage') {
+        out.start = world.start;
+        out.timeline = world.timeline.map((e) => e.slice());
+      }
+      if (world.start === 'play' || world.control || world.inputs.length) out.play = { team: world.team, inputs: world.inputs.map((e) => e.slice()) };
+      return out;
+    },
+    // Milestone 5: change the mode or a team command now (logged for the replay; applies from the next step).
+    command(cmd) {
+      const e = [world.steps + 1, ...cmd];
+      if (!valid(e)) return false;
+      world.timeline.push(e);
+      applyDue();
+      return true;
+    },
+    // (a restored world: commands given after its last step)
+    catchUp() {
+      applyDue();
     },
 
     // --- actions the AI calls -----------------------------------------------------------------------------------
@@ -305,15 +351,45 @@ export function createMatchWorld(setup, { play = null } = {}) {
     }
   }
 
+  // --- Milestone 5: the timeline --------------------------------------------------------------------------------
+  let tc = 0; // the next timeline entry to apply
+  function valid(e) {
+    if (e[1] === 'mode') return MODES.includes(e[2]);
+    if (e[1] === 'tac') return (e[2] === 0 || e[2] === 1) && !!TACTICS[e[3]]?.options.includes(e[4]);
+    return false;
+  }
+  function applyDue() {
+    while (tc < world.timeline.length && world.timeline[tc][0] <= world.steps + 1) apply(world.timeline[tc++]);
+  }
+  function apply(e) {
+    if (!valid(e)) return;
+    if (e[1] === 'mode') {
+      const m = e[2];
+      if (m === 'play' && !world.control) world.control = createControl(world, { team: world.team, log: world.inputs });
+      else if (m !== 'play' && world.control) {
+        world.control.detach();
+        world.control = null;
+      }
+      world.mode = m;
+    } else {
+      world.tactics[e[2]] = { ...world.tactics[e[2]], [e[3]]: e[4] };
+      world.fx[e[2]] = fxOf(world.tactics[e[2]]);
+    }
+  }
+  world.fx = world.tactics.map(fxOf);
+
   kickoff(0);
-  if (play) world.control = createControl(world, play);
+  if (world.start === 'play') world.control = createControl(world, { team: world.team, log: world.inputs });
   return world;
 }
 
-// A world at exactly the saved step (replayed headlessly from the fixed seed and line-ups — and, for Play, the input log).
+// A world at exactly the saved step (replayed headlessly from the fixed seed and line-ups — and the Play input log and
+// the mode / team-command timeline).
 export function restoreMatchWorld(saved) {
-  const w = createMatchWorld(saved.setup, { play: saved.play ?? null });
+  const start = saved.start ?? (saved.play ? 'play' : 'watch');
+  const w = createMatchWorld(saved.setup, { start, team: saved.play?.team ?? 0, inputs: saved.play?.inputs ?? [], timeline: saved.timeline ?? [] });
   w.run(saved.steps ?? 0);
+  w.catchUp();
   return w;
 }
 

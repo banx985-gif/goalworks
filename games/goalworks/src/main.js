@@ -18,9 +18,15 @@
 // Milestone 4: Match Setup offers Kick off · Watch (the default) or Kick off · Play (src/match/manualControl.js, the
 // touch controls in src/screens/matchControls.js). A Play match saves its input log with it (data.match.play), so a
 // reload replays it to the same moment too.
+// Milestone 5: Kick off · Watch / Manage / Play; the Mode button switches freely mid-match (src/match/matchDirector.js,
+// src/screens/matchModeUi.js), Manage gives the four team commands, and Key Moments offer a short jump into Play. The
+// match save is data.match = { fixtureId, setup, steps, start, timeline, play, director } — the mode / command timeline
+// and the director's state (mode, speed, camera, a Key Moment in progress) — so a reload resumes exactly where it was.
+// The club remembers its team commands (data.tactics, used at the next kickoff) and the Key Moments setting
+// (data.prefs.keyMoments).
 // Add ?debug=1 for the FPS/state overlay, ?screen=test for the scaling / tap / asset-loader test screen, ?screen=match
-// (&seed=…, &mode=play, &stats=35,70 for flat home,away test stats) for a test match between two test teams (never
-// saved). With ?debug=1, &safe=phone|tablet stands in a notch and home bar (safe-area insets) on any screen.
+// (&seed=…, &mode=watch|manage|play, &km=1 for Key Moment prompts, &stats=35,70 for flat home,away test stats) for a
+// test match between two test teams (never saved). With ?debug=1, &safe=phone|tablet stands in a notch and home bar (safe-area insets) on any screen.
 import { THEME, font } from '../../../core/Theme.js';
 import { EventBus } from '../../../core/EventBus.js';
 import { Rng } from '../../../core/Rng.js';
@@ -53,7 +59,8 @@ import { fixturesSheet, matchSetupSheet } from './screens/fixtureSheets.js';
 import { createCalendar } from './systems/calendar.js';
 import { createMatchScreen } from './screens/MatchScreen.js';
 import { createMatchSetup } from './match/lineups.js';
-import { createMatchWorld, restoreMatchWorld, matchResult } from './match/matchWorld.js';
+import { createMatchWorld, restoreMatchWorld, matchResult, MODES } from './match/matchWorld.js';
+import { createMatchDirector } from './match/matchDirector.js';
 import { REGIONAL_CLUBS } from '../data/fixtures.js';
 import { COLOURS, colourById } from '../data/setup.js';
 const COL = THEME.color;
@@ -393,11 +400,50 @@ async function toggleSpeedFlag(id) {
 function openMatchSetup() {
   if (!open?.calendar.atKickoff) return;
   open.setupShown = true;
-  sheet.open(matchSetupSheet({ calendar, clubName: () => open?.data.club.name ?? '', onKickOff: (mode) => kickOff(mode), onPlayed: debug.enabled ? () => playPlaceholder() : null, resuming: () => (open?.data.match ? (open.data.match.play ? 'play' : 'watch') : null) }));
+  sheet.open(matchSetupSheet({ calendar, clubName: () => open?.data.club.name ?? '', onKickOff: (mode) => kickOff(mode), onPlayed: debug.enabled ? () => playPlaceholder() : null, resuming: () => savedMode(open?.data.match) }));
 }
 
 // --- Milestone 3: the match -------------------------------------------------------------------------------------
-let match = null; // { world, mode: 'fixture'|'test', speed } — the match on screen
+let match = null; // { world, director, mode: 'fixture'|'test' } — the match on screen
+// The mode a saved match was left in (null: no match under way).
+const savedMode = (m) => (m ? m.director?.userMode ?? m.start ?? (m.play ? 'play' : 'watch') : null);
+const prefs = () => (open ? (open.data.prefs ??= { keyMoments: true }) : (testPrefs ??= { keyMoments: PARAMS.get('km') === '1' }));
+let testPrefs = null; // (a ?screen=match test match: Key Moment prompts only with &km=1)
+// The match on screen: the world and its director. match.speed reads / sets the director's speed; 0 (debug and tests
+// only) holds the match still.
+function liveMatch(world, mode, saved = null) {
+  const m = {
+    world,
+    director: null,
+    mode,
+    hold: false,
+    get speed() {
+      return m.hold ? 0 : m.director.speed;
+    },
+    set speed(v) {
+      m.hold = v === 0;
+      if (v) m.director.setSpeed(v);
+    },
+  };
+  match = m;
+  m.director = directorFor(world, saved);
+  return m;
+}
+// The director beside a world: saves after every change of mode, command or Key Moment; remembers the club's commands and
+// the Key Moments setting.
+function directorFor(world, saved = null) {
+  const d = createMatchDirector(world, {
+    saved,
+    prompts: prefs().keyMoments !== false,
+    onChange: (why) => {
+      if (why === 'prompts') prefs().keyMoments = d.prompts;
+      if (why === 'tactic' && open && match?.mode === 'fixture') open.data.tactics = { ...world.tactics[0] };
+      if (why !== 'camera' && why !== 'speed') debug.log(`match: ${why}`);
+      matchProgress(world, `match:${why}`);
+    },
+  });
+  return d;
+}
 // An opponent's colours for the match (until real opponents have kits): from its id, never the club's own colour.
 function opponentColour(oppId, avoid) {
   const list = COLOURS.filter((c) => c.id !== avoid && c.id !== 'white');
@@ -406,8 +452,10 @@ function opponentColour(oppId, avoid) {
   return list[h % list.length];
 }
 // Kick off: the seed and line-ups are fixed now and saved with the campaign; reopening resumes the same match.
-// mode: 'watch' (the AI plays both sides) or 'play' (you control our side; the input log is saved with the match).
+// mode: 'watch' (the AI plays both sides), 'manage' (the AI plays to your team commands) or 'play' (you control our side;
+// the input log is saved with the match). The club's last team commands carry into the new match.
 function kickOff(mode = 'watch') {
+  if (!MODES.includes(mode)) mode = 'watch';
   const f = open?.calendar.fixture;
   if (!f || !open.calendar.atKickoff) return;
   if (!open.data.match || open.data.match.fixtureId !== f.id) {
@@ -415,7 +463,9 @@ function kickOff(mode = 'watch') {
     const mine = colourById(club.colours.primary);
     const theirs = opponentColour(f.opponent.id, mine.id);
     const setup = createMatchSetup({ seed: `${open.data.seed}:${f.id}`, home: { name: club.name, colour: mine }, away: { name: f.opponent.name, colour: theirs } });
-    open.data.match = { fixtureId: f.id, setup, steps: 0, ...(mode === 'play' ? { play: { team: 0, inputs: [] } } : {}) };
+    if (open.data.tactics) setup.tactics = [{ ...open.data.tactics }, {}];
+    const world = createMatchWorld(setup, { start: mode });
+    open.data.match = { fixtureId: f.id, ...world.serialize(), director: createMatchDirector(world, { prompts: prefs().keyMoments !== false }).serialize() };
     autosave.request('match:kickoff');
   }
   resumeMatch();
@@ -427,24 +477,24 @@ function resumeMatch() {
     return false;
   }
   const t0 = performance.now();
-  match = { world: restoreMatchWorld(m), mode: 'fixture', speed: 1 };
-  debug.log(`match ${m.fixtureId} (${m.play ? 'Play' : 'Watch'}): resumed at step ${m.steps} (${Math.round(performance.now() - t0)} ms)`);
+  liveMatch(restoreMatchWorld(m), 'fixture', m.director ?? null);
+  debug.log(`match ${m.fixtureId} (${savedMode(m)}): resumed at step ${m.steps} (${Math.round(performance.now() - t0)} ms)`);
   sheet.close();
   router.go('match');
   return true;
 }
-function startTestMatch(seed = PARAMS.get('seed') ?? `test-${Date.now()}`, mode = PARAMS.get('mode') === 'play' ? 'play' : 'watch') {
+function startTestMatch(seed = PARAMS.get('seed') ?? `test-${Date.now()}`, mode = MODES.includes(PARAMS.get('mode')) ? PARAMS.get('mode') : 'watch') {
   const [a, b] = [REGIONAL_CLUBS[0], REGIONAL_CLUBS[1]];
   const [hs, as] = (PARAMS.get('stats') ?? '').split(',').map((v) => (v ? Math.max(1, Math.min(99, Number(v) || 50)) : undefined));
   const setup = createMatchSetup({ seed, home: { name: a.name, colour: colourById('royal'), stat: hs }, away: { name: b.name, colour: colourById('red'), stat: as } });
-  match = { world: createMatchWorld(setup, mode === 'play' ? { play: { team: 0 } } : {}), mode: 'test', speed: 1 };
+  liveMatch(createMatchWorld(setup, { start: mode }), 'test');
   debug.log(`test match (${mode}), seed ${seed}`);
   router.go('match');
 }
 function matchProgress(world, reason) {
-  if (match?.mode !== 'fixture' || !open?.data.match) return;
-  open.data.match.steps = world.steps;
-  if (world.control) open.data.match.play = world.control.serialize(); // the input log so far
+  if (match?.mode !== 'fixture' || !open?.data.match || match.world !== world) return;
+  // the whole match record: steps, the input log, the mode / command timeline and the director (a Key Moment in progress)
+  open.data.match = { fixtureId: open.data.match.fixtureId, ...world.serialize(), director: match.director.serialize() };
   autosave.request(reason);
 }
 function matchFinished(world) {
@@ -476,7 +526,7 @@ const matchScreen = createMatchScreen({
   live: () => match,
   onMenu: () => leaveMatch(),
   onContinue: (world) => matchFinished(world),
-  onReplay: () => startTestMatch(`test-${Date.now()}`, match?.world.control ? 'play' : 'watch'),
+  onReplay: () => startTestMatch(`test-${Date.now()}`, match?.director?.userMode ?? 'watch'),
   onProgress: (world, reason) => matchProgress(world, reason),
 });
 function playPlaceholder() {
