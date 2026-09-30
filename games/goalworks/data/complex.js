@@ -82,6 +82,18 @@ export const TREES = [
   { col: 6.2, row: 11.2, r: 0.5 },
 ];
 
+// Milestone 6 props (decoration on grass, off every walkway, never tapped): col / row = where the picture's feet stand
+// (plan tiles), h = drawn height at zoom 1 (logical px). table: a small code-drawn table under it. flag: the club flag
+// (prop_25 in the club colour, with the badge on it).
+export const PROPS = [
+  { art: 'prop_01', col: 7.35, row: 10.7, h: 64 }, // cones on the grass by the crossroads, below the pitch
+  { art: 'prop_02', col: 6.4, row: 8.62, h: 96 }, // free-kick mannequins
+  { art: 'prop_03', col: 0.55, row: 6.2, h: 92 }, // the ball rack by the pitch
+  { art: 'prop_11', col: 5.3, row: 15.55, h: 54, table: true }, // the scout's laptop by the Scout Desk
+  { art: 'prop_12', col: 11.75, row: 6.7, h: 46, table: true }, // a contract folder by the Manager Office
+  { art: 'prop_25', col: 9.55, row: 17.3, h: 230, flag: true }, // the club flag by the gate
+];
+
 // People: drawn height in logical px at zoom 1; feet = where the feet sit in the 512² picture (share of its height).
 export const PERSON = { height: 200, feet: 0.93, speed: 260, tagSize: 28 };
 

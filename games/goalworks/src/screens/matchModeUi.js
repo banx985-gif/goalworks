@@ -9,7 +9,7 @@
 //     ui.top() → { menu, score, mode } rects      ui.pitchBottom(mode) → where the pitch area must end (Watch / Manage)
 //     ui.rects(director, ballY) → { id: rect } for every control on screen now (tests + taps)
 //     ui.tap(p, director) → true when it used the tap      ui.render(ctx, world, director, ballY)
-import { THEME } from '../../../../core/Theme.js';
+import { THEME, font } from '../../../../core/Theme.js';
 import { drawButton, hitRect } from '../../../../core/ui/Button.js';
 import { text } from '../../../../core/ui/Kit.js';
 import { TACTICS, KEY_MOMENTS, MATCH_TIME } from '../../data/match.js';
@@ -164,7 +164,7 @@ export function createModeUi({ layout, renderer }) {
     render(ctx, world, d, ballY = null) {
       const t = top();
       // the Mode button
-      drawButton(ctx, t.mode, `${MODE_NAME[d.mode].toUpperCase()} ▾`, { accent: d.mode === 'play' ? C.action : d.mode === 'manage' ? C.purple : C.progress, font: `bold ${S.small}px x` });
+      drawButton(ctx, t.mode, `${MODE_NAME[d.mode].toUpperCase()} ▾`, { accent: d.mode === 'play' ? C.action : d.mode === 'manage' ? C.purple : C.progress, font: font(S.small, true) });
       if (d.mode !== 'play') {
         const b = bar();
         for (const s of MATCH_TIME.speeds) drawButton(ctx, b[`speed${s}`], `${s}×`, { accent: C.progress, selected: d.speed === s, disabled: world.done });

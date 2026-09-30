@@ -23,14 +23,15 @@ export const FIXTURE_SOURCES = [
 ];
 export const sourceById = (id) => FIXTURE_SOURCES.find((s) => s.id === id) ?? null;
 
-// The Regional League clubs (bible §8, L1). The Test Challenge picks its opponent from here.
+// The Regional League clubs (bible §8, L1). The Test Challenge picks its opponent from here. Milestone 6: each has its
+// crest (Batch 2 art) and its own kit colours (palette ids, picked from the crest).
 export const REGIONAL_CLUBS = [
-  { id: 'REG01', name: 'Fenland Folk' },
-  { id: 'REG02', name: 'Borderers' },
-  { id: 'REG03', name: 'Moorlanders' },
-  { id: 'REG04', name: 'Valley Folk' },
-  { id: 'REG05', name: 'Coastfolk' },
-  { id: 'REG06', name: 'Midlanders' },
+  { id: 'REG01', name: 'Fenland Folk', crest: 'club_reg01_crest', colours: { primary: 'green', secondary: 'gold' } },
+  { id: 'REG02', name: 'Borderers', crest: 'club_reg02_crest', colours: { primary: 'red', secondary: 'gold' } },
+  { id: 'REG03', name: 'Moorlanders', crest: 'club_reg03_crest', colours: { primary: 'navy', secondary: 'gold' } },
+  { id: 'REG04', name: 'Valley Folk', crest: 'club_reg04_crest', colours: { primary: 'gold', secondary: 'green' } },
+  { id: 'REG05', name: 'Coastfolk', crest: 'club_reg05_crest', colours: { primary: 'sky', secondary: 'white' } },
+  { id: 'REG06', name: 'Midlanders', crest: 'club_reg06_crest', colours: { primary: 'claret', secondary: 'gold' } },
 ];
 export const clubById = (id) => REGIONAL_CLUBS.find((c) => c.id === id) ?? null;
 

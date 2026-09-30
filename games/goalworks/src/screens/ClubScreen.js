@@ -9,6 +9,10 @@
 // speed buttons (Pause · 1× · 2× only while a valid fixture is pending · 4× locked) and "Next match: … in N days". The
 // Founder walks at the calendar's speed (and stands still while it is paused). On match day the shortcut becomes
 // Match Setup. The Manager Office sheet gets the temporary Fixtures row (extraSections).
+// Milestone 6: an art pass — early props on the grass off every walkway (cones, mannequins, the ball rack by the pitch, a
+// laptop by the Scout Desk, a contract folder by the Office; data/complex.js PROPS), the club flag by the gate in the
+// club colour with the badge on it, fence rails in the club colours, and the Founder walks with a gentle bob and breathes
+// while standing (core/CharacterMotion; the bob only while actually walking, so they never glide).
 // Plan space lives in the world; only drawing and tapping go through the IsoProjection here.
 //   createClubScreen({ renderer, layout, assets, bus, sheet, club, onMenu, debug, calendar, onMatchSetup, extraSections })
 //     club() → { n, data } or null     calendar() → the open club's calendar (src/systems/calendar.js) or null
@@ -22,8 +26,11 @@ import { Selection } from '../../../../core/Selection.js';
 import { isoPath } from '../../../../core/IsoRoom.js';
 import { drawButton, hitRect } from '../../../../core/ui/Button.js';
 import { text } from '../../../../core/ui/Kit.js';
+import { characterPose, drawCharacter } from '../../../../core/CharacterMotion.js';
+import { drawClubFlag } from '../ui/kitArt.js';
+import { drawBadge } from '../ui/clubArt.js';
 import { founderById, colourById, POSITIONS } from '../../data/setup.js';
-import { COMPLEX, STATIONS, PATHS, TREES, GATE_COL, PERSON, LOOK as L } from '../../data/complex.js';
+import { COMPLEX, STATIONS, PATHS, TREES, PROPS, GATE_COL, PERSON, LOOK as L } from '../../data/complex.js';
 import { createComplexWorld } from '../systems/complexWorld.js';
 
 const C = THEME.color;
@@ -84,11 +91,15 @@ export function createClubScreen({ renderer, layout, assets, bus, sheet, club, o
   // Draw order: plan x + y (further back first); a station by its footprint's middle.
   const depthOf = (it) => {
     if (it.kind === 'player') return it.agent.x + it.agent.y;
-    if (it.kind === 'tree') return (it.col + it.row) * CELL;
+    if (it.kind === 'tree' || it.kind === 'prop') return (it.col + it.row) * CELL;
     return (it.fp.col + it.fp.w / 2 + it.fp.row + it.fp.h / 2) * CELL;
   };
   const selection = new Selection(bus, { boundsOf: tapRect, depthOf: (it) => depthOf(it) + (it.kind === 'player' ? 100000 : 0), minHitSize: 90 });
   const trees = TREES.map((t) => ({ kind: 'tree', ...t }));
+  const props = PROPS.map((p) => ({ kind: 'prop', ...p }));
+  let fenceFor = ''; // the club colours the cached back fence was drawn in
+  let time = 0;
+  const pose = { bob: 0, tilt: 0, flip: 1 };
 
   // --- UI rects (screen) -----------------------------------------------------------------------------------------
   let buildMode = false;
@@ -203,6 +214,11 @@ export function createClubScreen({ renderer, layout, assets, bus, sheet, club, o
     get world() {
       return world;
     },
+    // Tests: the Founder's pose this frame ({ bob, tilt, flip }) and the props.
+    get founderPose() {
+      return { ...pose };
+    },
+    props,
     get buildMode() {
       return buildMode;
     },
@@ -259,6 +275,11 @@ export function createClubScreen({ renderer, layout, assets, bus, sheet, club, o
         slotN = o.n;
         if (!sameSlot) screen.viewSet = false;
       }
+      const cols = `${o.data.club.colours.primary}/${o.data.club.colours.secondary}`;
+      if (cols !== fenceFor) {
+        fenceFor = cols;
+        groundLayer.invalidate(); // the back fence wears the club colours
+      }
       screen.resize();
       if (!screen.viewSet) {
         screen.viewSet = true;
@@ -281,6 +302,7 @@ export function createClubScreen({ renderer, layout, assets, bus, sheet, club, o
     },
     update(dt) {
       world?.update(dt * (calendar()?.clock.speed ?? 1)); // the Founder keeps the calendar's pace; still while paused
+      time += dt;
       if (note && (note.t -= dt) <= 0) note = null;
       if (!sheet.active && selection.selected) selection.clear();
     },
@@ -368,12 +390,13 @@ export function createClubScreen({ renderer, layout, assets, bus, sheet, club, o
       assets.detail = detailFor(camera.zoom);
       if (buildMode) drawBuildGrass(ctx);
       drawSelectionMark(ctx);
-      const items = [...world.stations, ...trees, ...world.people].sort((a, b) => depthOf(a) - depthOf(b));
+      const items = [...world.stations, ...trees, ...props, ...world.people].sort((a, b) => depthOf(a) - depthOf(b));
       for (const it of items) {
         if (it.kind === 'station') {
           const r = artRect(it);
           assets.draw(ctx, it.def.art, r.x, r.y, r.w, r.h);
         } else if (it.kind === 'tree') drawTree(ctx, it);
+        else if (it.kind === 'prop') drawProp(ctx, it);
         else drawPlayer(ctx, it);
       }
       drawFrontFence(ctx);
@@ -438,10 +461,13 @@ export function createClubScreen({ renderer, layout, assets, bus, sheet, club, o
     };
     g.save();
     g.lineCap = 'round';
+    const c = club()?.data.club;
+    const top = c ? colourById(c.colours.primary).hex : L.fenceRail;
+    const cap = c ? colourById(c.colours.secondary).hex : L.fencePost;
     for (let t = a; t < b; t++) {
       if (t === skip) continue;
       for (const h of [fenceH * 0.45, fenceH * 0.85]) {
-        g.strokeStyle = L.fenceRail;
+        g.strokeStyle = h > fenceH * 0.5 ? top : L.fenceRail; // the top rail in the club's first colour
         g.lineWidth = 7;
         line(g, P(t, h), P(t + 1, h));
       }
@@ -449,6 +475,16 @@ export function createClubScreen({ renderer, layout, assets, bus, sheet, club, o
     g.strokeStyle = L.fencePost;
     g.lineWidth = 9;
     for (let t = a; t <= b; t++) line(g, P(t, 0), P(t, fenceH));
+    g.fillStyle = cap; // post caps in the second colour
+    g.strokeStyle = L.outline;
+    g.lineWidth = 2;
+    for (let t = a; t <= b; t++) {
+      const p = P(t, fenceH);
+      g.beginPath();
+      g.arc(p.x, p.y, 6.5, 0, Math.PI * 2);
+      g.fill();
+      g.stroke();
+    }
     g.restore();
   }
   // The front fence (col = cols, and row = rows with the gate) goes over everything on the ground.
@@ -482,17 +518,59 @@ export function createClubScreen({ renderer, layout, assets, bus, sheet, club, o
     ctx.fill();
     ctx.restore();
   }
-  // The Founder: their picture, facing the way they walk (no bob, sway or shadow yet).
+  // The Founder: their picture facing the way they walk, a soft shadow, a gentle bob while walking (only while the
+  // calendar runs, so a paused Founder stands still rather than stepping on the spot) and a slow breath while standing.
   function drawPlayer(ctx, p) {
     const r = personRect(p);
-    const sx = p.agent.state === 'walking' && p.agent.path.length ? screenDir(p) : p.faceLast ?? 1;
+    const walking = p.agent.state === 'walking' && p.agent.path.length > 0 && !calendar()?.clock.paused;
+    const sx = walking ? screenDir(p) : p.faceLast ?? 1;
     p.faceLast = sx;
-    if (sx > 0) return void assets.draw(ctx, p.art, r.x, r.y, r.w, r.h);
+    const f = feetOf(p);
     ctx.save();
-    ctx.translate(r.x + r.w / 2, 0);
-    ctx.scale(-1, 1);
-    assets.draw(ctx, p.art, -r.w / 2, r.y, r.w, r.h);
+    ctx.fillStyle = L.fenceShade;
+    ctx.beginPath();
+    ctx.ellipse(f.x, f.y, HW * 0.42, HH * 0.42, 0, 0, Math.PI * 2);
+    ctx.fill();
     ctx.restore();
+    characterPose({ state: walking ? 'walking' : 'idle', facing: sx }, time, 1, pose);
+    drawCharacter(ctx, assets, p.art, r.x + r.w / 2, r.y + r.h, r.w, r.h, pose);
+  }
+  // A prop: its picture standing at its spot (on a small table for the laptop and folder); the flag in club colours.
+  function drawProp(ctx, it) {
+    const f = iso.corner(it.col, it.row);
+    const c = club()?.data.club;
+    if (it.flag) {
+      if (c) drawClubFlag(ctx, assets, f.x, f.y, it.h, c);
+      return;
+    }
+    let y = f.y;
+    if (it.table) {
+      const tw = it.h * 1.5;
+      const th = it.h * 0.55;
+      ctx.save();
+      ctx.fillStyle = L.fenceShade;
+      ctx.beginPath();
+      ctx.ellipse(f.x, f.y, tw * 0.55, tw * 0.22, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = L.fencePost;
+      ctx.strokeStyle = L.outline;
+      ctx.lineWidth = 3;
+      for (const dx of [-0.36, 0.36]) {
+        ctx.beginPath();
+        ctx.rect(f.x + dx * tw - 4, f.y - th, 8, th);
+        ctx.fill();
+        ctx.stroke();
+      }
+      ctx.fillStyle = L.fenceRail;
+      ctx.beginPath();
+      ctx.roundRect(f.x - tw / 2, f.y - th - 12, tw, 16, 6);
+      ctx.fill();
+      ctx.stroke();
+      ctx.restore();
+      y = f.y - th - 6;
+    }
+    const w = it.h * assets.aspect(it.art);
+    assets.draw(ctx, it.art, f.x - w / 2, y - it.h * 0.92, w, it.h);
   }
   // Which way the next step goes on screen: plan x grows to the right, plan y to the left.
   function screenDir(p) {
@@ -556,7 +634,7 @@ export function createClubScreen({ renderer, layout, assets, bus, sheet, club, o
     ctx.fillText(label, s.x, y + TAG_H / 2 + 1);
     ctx.restore();
   }
-  // The club's name on a plate in its colours, beside ‹ Menu.
+  // The club's name on a plate in its colours (with its badge), beside ‹ Menu.
   function drawPlate(ctx) {
     const c = club()?.data.club;
     if (!c) return;
@@ -571,7 +649,10 @@ export function createClubScreen({ renderer, layout, assets, bus, sheet, club, o
     ctx.fill();
     ctx.stroke();
     ctx.restore();
-    text(ctx, c.name, r.x + r.w / 2, r.y + r.h / 2, { size: S.body, bold: true, color: prim.ink, align: 'center', baseline: 'middle', maxWidth: r.w - 40 });
+    const bh = r.h - 16;
+    drawBadge(ctx, { x: r.x + 14, y: r.y + 8, w: bh * 0.84, h: bh }, { ...c.badge, primary: c.colours.primary, secondary: c.colours.secondary });
+    const tx = r.x + 14 + bh * 0.84 + 12;
+    text(ctx, c.name, tx + (r.x + r.w - 20 - tx) / 2, r.y + r.h / 2, { size: S.body, bold: true, color: prim.ink, align: 'center', baseline: 'middle', maxWidth: r.x + r.w - 20 - tx });
   }
   // The calendar strip's words: the date, the speed, and the next match (or why a speed was refused).
   function calendarLines() {

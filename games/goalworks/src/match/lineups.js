@@ -3,8 +3,15 @@
 //   createMatchSetup({ seed, home: { name, colour }, away: { name, colour } }) → setup (plain, save-friendly data)
 //     colour: { hex, ink }. Each side gets 11 players in the 4-4-2 (keeper first) and a body picture that reads apart
 //     from the other side's. A side may carry stat: n (Milestone 4 tests: one side's flat stats low, the other high).
+//   Milestone 6: a side may carry colours: { primary, secondary } (palette ids) — then both kits come from the kit clash
+//     check (src/match/kits.js: the away side changes to its second colour on a clash) and colour is the shirt it
+//     wears; badge (the club's code-drawn badge) and crest (an opponent's crest art) ride along for the screens. Every
+//     team gets kit = { shirt, shorts, keeper, change } (hexes; from colour alone when there are no palette colours).
+//     None of this touches the seeded draws, so the same seed still gives the same match.
 import { Rng } from '../../../../core/Rng.js';
 import { FORMATION_442, FIRST_NAMES, SURNAMES, TEST_STAT, MATCH_ART } from '../../data/match.js';
+import { COLOURS, colourById } from '../../data/setup.js';
+import { matchKits, kitFromColour } from './kits.js';
 
 const STAT_KEYS = ['pace', 'passing', 'shooting', 'tackling', 'dribbling', 'keeping'];
 
@@ -31,16 +38,33 @@ function makeTeam(rng, side, used) {
     used.add(name);
     return { shirt: i + 1, name, role: slot.role, stats: Object.fromEntries(STAT_KEYS.map((k) => [k, side.stat ?? TEST_STAT])) };
   });
-  return { name: side.name, colour: { hex: side.colour.hex, ink: side.colour.ink ?? '#FFFFFF' }, players };
+  const colour = side.colour ?? colourById(side.colours?.primary);
+  const t = { name: side.name, colour: { hex: colour.hex, ink: colour.ink ?? '#FFFFFF' }, players };
+  if (side.colours) t.colours = { primary: side.colours.primary, secondary: side.colours.secondary };
+  if (side.badge) t.badge = { ...side.badge };
+  if (side.crest) t.crest = side.crest;
+  return t;
 }
+
+const colourByHex = (hex) => COLOURS.find((c) => c.hex.toLowerCase() === hex.toLowerCase()) ?? null;
 
 export function createMatchSetup({ seed, home, away }) {
   const rng = new Rng(`${seed}:lineups`);
   const used = new Set();
   const h = makeTeam(rng, home, used);
   const a = makeTeam(rng, away, used);
-  // If the two colours are too close, the away side wears white rings so they read apart.
-  if (colourGap(h.colour.hex, a.colour.hex) < 120) a.colour = { hex: '#F7F7F2', ink: '#222222' };
+  if (h.colours && a.colours) {
+    const k = matchKits(h.colours, a.colours);
+    h.kit = k.home;
+    a.kit = k.away;
+    const ink = (hex) => colourByHex(hex)?.ink ?? '#FFFFFF';
+    a.colour = { hex: k.away.shirt, ink: ink(k.away.shirt) };
+  } else {
+    // If the two colours are too close, the away side wears white rings so they read apart.
+    if (colourGap(h.colour.hex, a.colour.hex) < 120) a.colour = { hex: '#F7F7F2', ink: '#222222' };
+    h.kit = kitFromColour(h.colour.hex, [a.colour.hex]);
+    a.kit = kitFromColour(a.colour.hex, [h.colour.hex, h.kit.keeper]);
+  }
   h.body = bodyFor(h.colour.hex);
   a.body = bodyFor(a.colour.hex, h.body);
   h.keeper = MATCH_ART.keepers[0];

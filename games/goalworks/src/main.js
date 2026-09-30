@@ -24,6 +24,9 @@
 // and the director's state (mode, speed, camera, a Key Moment in progress) — so a reload resumes exactly where it was.
 // The club remembers its team commands (data.tactics, used at the next kickoff) and the Key Moments setting
 // (data.prefs.keyMoments).
+// Milestone 6: kits and club colours. Kick off hands both clubs' colours (the opponent's from data/fixtures.js), our
+// badge and their crest to the match set-up, which runs the kit clash check (src/match/kits.js); Match Setup shows both
+// kits before kickoff. Club Setup gains the kit pattern (saved as data.club.kit). The Club Complex flies the club flag.
 // Add ?debug=1 for the FPS/state overlay, ?screen=test for the scaling / tap / asset-loader test screen, ?screen=match
 // (&seed=…, &mode=watch|manage|play, &km=1 for Key Moment prompts, &stats=35,70 for flat home,away test stats) for a
 // test match between two test teams (never saved). With ?debug=1, &safe=phone|tablet stands in a notch and home bar (safe-area insets) on any screen.
@@ -61,8 +64,9 @@ import { createMatchScreen } from './screens/MatchScreen.js';
 import { createMatchSetup } from './match/lineups.js';
 import { createMatchWorld, restoreMatchWorld, matchResult, MODES } from './match/matchWorld.js';
 import { createMatchDirector } from './match/matchDirector.js';
-import { REGIONAL_CLUBS } from '../data/fixtures.js';
-import { COLOURS, colourById } from '../data/setup.js';
+import { REGIONAL_CLUBS, clubById } from '../data/fixtures.js';
+import { matchKits } from './match/kits.js';
+import { COLOURS } from '../data/setup.js';
 const COL = THEME.color;
 
 const W = 1080;
@@ -397,10 +401,15 @@ async function toggleSpeedFlag(id) {
   debug.log(`account ${id}: ${f[id]}`);
   await campaigns.slots.saveAccount(account);
 }
+// Both kits for Match Setup (the same clash check the match runs).
+function fixtureKits(club, opp) {
+  const sides = fixtureSides(club, opp);
+  return { ...matchKits(sides.home.colours, sides.away.colours), sides };
+}
 function openMatchSetup() {
   if (!open?.calendar.atKickoff) return;
   open.setupShown = true;
-  sheet.open(matchSetupSheet({ calendar, clubName: () => open?.data.club.name ?? '', onKickOff: (mode) => kickOff(mode), onPlayed: debug.enabled ? () => playPlaceholder() : null, resuming: () => savedMode(open?.data.match) }));
+  sheet.open(matchSetupSheet({ calendar, clubName: () => open?.data.club.name ?? '', club: () => open?.data.club ?? null, kits: () => (open?.calendar.fixture ? fixtureKits(open.data.club, open.calendar.fixture.opponent) : null), onKickOff: (mode) => kickOff(mode), onPlayed: debug.enabled ? () => playPlaceholder() : null, resuming: () => savedMode(open?.data.match) }));
 }
 
 // --- Milestone 3: the match -------------------------------------------------------------------------------------
@@ -444,12 +453,21 @@ function directorFor(world, saved = null) {
   });
   return d;
 }
-// An opponent's colours for the match (until real opponents have kits): from its id, never the club's own colour.
-function opponentColour(oppId, avoid) {
-  const list = COLOURS.filter((c) => c.id !== avoid && c.id !== 'white');
-  let h = 0;
-  for (const ch of String(oppId)) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
-  return list[h % list.length];
+// The two sides of a fixture for the match set-up: our club (colours + badge) and the opponent (its kit colours and
+// crest from data/fixtures.js; a club without colours gets one from its id, never our own colour).
+function fixtureSides(club, opp) {
+  const reg = clubById(opp.id);
+  let colours = reg?.colours;
+  if (!colours) {
+    const list = COLOURS.filter((c) => c.id !== club.colours.primary && c.id !== 'white');
+    let h = 0;
+    for (const ch of String(opp.id)) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+    colours = { primary: list[h % list.length].id, secondary: 'white' };
+  }
+  return {
+    home: { name: club.name, colours: { ...club.colours }, badge: { ...club.badge } },
+    away: { name: opp.name, colours: { ...colours }, crest: reg?.crest },
+  };
 }
 // Kick off: the seed and line-ups are fixed now and saved with the campaign; reopening resumes the same match.
 // mode: 'watch' (the AI plays both sides), 'manage' (the AI plays to your team commands) or 'play' (you control our side;
@@ -459,10 +477,7 @@ function kickOff(mode = 'watch') {
   const f = open?.calendar.fixture;
   if (!f || !open.calendar.atKickoff) return;
   if (!open.data.match || open.data.match.fixtureId !== f.id) {
-    const club = open.data.club;
-    const mine = colourById(club.colours.primary);
-    const theirs = opponentColour(f.opponent.id, mine.id);
-    const setup = createMatchSetup({ seed: `${open.data.seed}:${f.id}`, home: { name: club.name, colour: mine }, away: { name: f.opponent.name, colour: theirs } });
+    const setup = createMatchSetup({ seed: `${open.data.seed}:${f.id}`, ...fixtureSides(open.data.club, f.opponent) });
     if (open.data.tactics) setup.tactics = [{ ...open.data.tactics }, {}];
     const world = createMatchWorld(setup, { start: mode });
     open.data.match = { fixtureId: f.id, ...world.serialize(), director: createMatchDirector(world, { prompts: prefs().keyMoments !== false }).serialize() };
@@ -486,7 +501,7 @@ function resumeMatch() {
 function startTestMatch(seed = PARAMS.get('seed') ?? `test-${Date.now()}`, mode = MODES.includes(PARAMS.get('mode')) ? PARAMS.get('mode') : 'watch') {
   const [a, b] = [REGIONAL_CLUBS[0], REGIONAL_CLUBS[1]];
   const [hs, as] = (PARAMS.get('stats') ?? '').split(',').map((v) => (v ? Math.max(1, Math.min(99, Number(v) || 50)) : undefined));
-  const setup = createMatchSetup({ seed, home: { name: a.name, colour: colourById('royal'), stat: hs }, away: { name: b.name, colour: colourById('red'), stat: as } });
+  const setup = createMatchSetup({ seed, home: { name: a.name, colours: a.colours, crest: a.crest, stat: hs }, away: { name: b.name, colours: b.colours, crest: b.crest, stat: as } });
   liveMatch(createMatchWorld(setup, { start: mode }), 'test');
   debug.log(`test match (${mode}), seed ${seed}`);
   router.go('match');

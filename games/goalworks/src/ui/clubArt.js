@@ -356,7 +356,9 @@ function drawSymbol(ctx, id, cx, cy, s, fill, back) {
 }
 
 // Shirt (primary body, secondary sleeves and collar), shorts (secondary) and socks (primary with a secondary top), in r.
-export function drawKit(ctx, r, primary, secondary) {
+// look 'stripes' (Milestone 6): diagonal secondary stripes across the shirt — the code-drawn stand-in for the Stripes
+// pattern, whose art can't be recoloured cleanly.
+export function drawKit(ctx, r, primary, secondary, look = 'plain') {
   const p1 = colourById(primary).hex;
   const p2 = colourById(secondary).hex;
   const k = Math.min(r.w / 100, r.h / 140);
@@ -392,6 +394,22 @@ export function drawKit(ctx, r, primary, secondary) {
   body.lineTo(24, 70);
   body.closePath();
   fillStroke(body, p1);
+  if (look === 'stripes') {
+    ctx.save();
+    ctx.clip(body);
+    ctx.fillStyle = p2;
+    for (const o of [-10, 12, 34]) {
+      ctx.beginPath();
+      ctx.moveTo(24 + o, 70);
+      ctx.lineTo(24 + o + 10, 70);
+      ctx.lineTo(76 + o + 10, 4);
+      ctx.lineTo(76 + o, 4);
+      ctx.closePath();
+      ctx.fill();
+    }
+    ctx.restore();
+    ctx.stroke(body);
+  }
   const collar = new Path2D();
   collar.moveTo(40, 4);
   collar.quadraticCurveTo(50, 16, 60, 4);

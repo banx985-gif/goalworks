@@ -1,6 +1,7 @@
 // A new GOALWORKS campaign and its slot summary (Milestone 0). The campaign save holds the club identity chosen in
 // Club Setup and the date; Milestone 2 adds the calendar (src/systems/calendar.js serialize(), written by the autosave).
 import { founderById, colourById, areaById, shapeById, symbolById, POSITIONS, FOUNDER_FLAG } from '../../data/setup.js';
+import { patternById } from '../../data/kits.js';
 
 export function newCampaign(setup, now = Date.now()) {
   const founder = founderById(setup.founder);
@@ -12,6 +13,7 @@ export function newCampaign(setup, now = Date.now()) {
       manager: setup.manager,
       area: areaById(setup.area).id,
       colours: { primary: colourById(setup.primary).id, secondary: colourById(setup.secondary).id },
+      kit: patternById(setup.kit).id, // Milestone 6: the kit pattern (Club Setup preview; saves from before it read as Plain)
       badge: { shape: shapeById(setup.shape).id, symbol: symbolById(setup.symbol).id },
       founder: { id: founder.id, [FOUNDER_FLAG]: true }, // history counters join in later milestones
       createdAt: now,

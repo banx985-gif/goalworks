@@ -5,23 +5,28 @@
 // cards with their Batch 1 portrait, position, base trait and Founder Perk), then RANDOMISE ALL (every field stays
 // editable after). "Review and start" opens the confirmation panel (club, manager, area, badge + colours, Founder +
 // perk) with START CLUB. Drag scrolls. Layout and tapping share one pass, so they can never disagree.
+// Milestone 6: under the colours, the Kit Pattern — the eight kit pictures (custom_13–20) recoloured into the club's two
+// colours (src/ui/kitArt.js), or Plain; the preview and the confirmation panel show it. Every tile is at least 110 tall
+// (a thumb's worth) and shows a pressed look under a finger.
 import { THEME, font } from '../../../../core/Theme.js';
 import { ScrollPanel } from '../../../../core/ui/ScrollPanel.js';
-import { drawButton, hitRect } from '../../../../core/ui/Button.js';
+import { drawButton, hitRect, isPressed } from '../../../../core/ui/Button.js';
 import { card, text, para } from '../../../../core/ui/Kit.js';
 import { pickName, pickIndex } from '../../../../core/NamePicker.js';
 import {
   FOUNDERS, COLOURS, HOME_AREAS, BADGE_SHAPES, BADGE_SYMBOLS, CLUB_NAMES, CLUB_SUFFIXES, MANAGER_NAMES, NAME_MAX, POSITIONS,
   founderById, colourById, areaById, shapeById, symbolById,
 } from '../../data/setup.js';
-import { drawFounder, drawBadge, drawKit, diceButton } from '../ui/clubArt.js';
+import { drawFounder, drawBadge, diceButton } from '../ui/clubArt.js';
+import { drawKitPreview } from '../ui/kitArt.js';
+import { KIT_PATTERNS, patternById } from '../../data/kits.js';
 import { managerLine } from '../systems/club.js';
 
 const C = THEME.color;
 const S = THEME.size;
 const PAD = 32;
 
-export const defaultSetup = () => ({ club: '', manager: '', area: HOME_AREAS[0].id, primary: 'green', secondary: 'white', shape: BADGE_SHAPES[0].id, symbol: BADGE_SYMBOLS[0].id, founder: FOUNDERS[0].id });
+export const defaultSetup = () => ({ club: '', manager: '', area: HOME_AREAS[0].id, primary: 'green', secondary: 'white', kit: 'plain', shape: BADGE_SHAPES[0].id, symbol: BADGE_SYMBOLS[0].id, founder: FOUNDERS[0].id });
 
 // A made-up club name: usually one of the home area's towns + an ending ("Saltcliff Rovers"), sometimes a stock name.
 export function randomClubName(areaId, not = null, random = Math.random) {
@@ -71,6 +76,7 @@ export function createSetupScreen({ layout, assets, textPrompt, onBack, onStart 
       setup.primary = a;
       setup.secondary = b;
     },
+    kit: () => (setup.kit = pickFrom(KIT_PATTERNS, setup.kit)),
     badge: () => {
       setup.shape = pickFrom(BADGE_SHAPES, setup.shape);
       setup.symbol = pickFrom(BADGE_SYMBOLS, setup.symbol);
@@ -78,6 +84,7 @@ export function createSetupScreen({ layout, assets, textPrompt, onBack, onStart 
     founder: () => (setup.founder = pickFrom(FOUNDERS, setup.founder)),
   };
   const randomiseAll = () => Object.values(random).forEach((fn) => fn()); // area before club: the name uses its towns
+  const kitOf = () => ({ pattern: setup.kit, primary: setup.primary, secondary: setup.secondary });
   const badgeOf = (over = {}) => ({ shape: setup.shape, symbol: setup.symbol, primary: setup.primary, secondary: setup.secondary, ...over });
 
   // One pass over the scrolling content (content coordinates). Draws when ctx is given, returns the action under
@@ -99,9 +106,10 @@ export function createSetupScreen({ layout, assets, textPrompt, onBack, onStart 
       y += 66;
     };
     const smallRandom = (id, fn) => {
-      const r = { x: PAD + cw - 250, y: y - 76, w: 250, h: 70 };
+      const r = { x: PAD + cw - 250, y: y - 66 - 22, w: 250, h: THEME.button.minH };
       if (ctx) diceButton(ctx, assets, r, 'Random', { accent: C.progress, font: font(S.small, true) });
       box(r, fn, id);
+      y += 36; // the button is taller than the heading
     };
     // A grid of n tiles, cols across; draw(r, i, on) paints one.
     const grid = (items, cols, tileH, isOn, onPick, idPrefix, draw) => {
@@ -109,7 +117,15 @@ export function createSetupScreen({ layout, assets, textPrompt, onBack, onStart 
       const tw = (cw - gap * (cols - 1)) / cols;
       items.forEach((it, i) => {
         const r = { x: PAD + (i % cols) * (tw + gap), y: y + Math.floor(i / cols) * (tileH + gap), w: tw, h: tileH };
-        if (ctx) draw(r, it, isOn(it));
+        if (ctx) {
+          draw(r, it, isOn(it));
+          if (isPressed(ctx, r)) {
+            ctx.fillStyle = 'rgba(40, 30, 20, 0.16)';
+            ctx.beginPath();
+            ctx.roundRect(r.x, r.y, r.w, r.h, 20);
+            ctx.fill();
+          }
+        }
         box(r, () => onPick(it), `${idPrefix}:${it.id}`);
       });
       y += Math.ceil(items.length / cols) * (tileH + gap);
@@ -144,7 +160,7 @@ export function createSetupScreen({ layout, assets, textPrompt, onBack, onStart 
     // 3. Home Area: 12 tiles.
     heading(3, 'Home Area', 'flavour only');
     smallRandom('areaRandom', random.area);
-    grid(HOME_AREAS, 3, 96, (a) => a.id === setup.area, (a) => (setup.area = a.id), 'area', (r, a, on) => {
+    grid(HOME_AREAS, 3, THEME.button.minH, (a) => a.id === setup.area, (a) => (setup.area = a.id), 'area', (r, a, on) => {
       card(ctx, r, on ? 'selected' : 'normal', { radius: 20 });
       text(ctx, a.name, r.x + r.w / 2, r.y + r.h / 2, { size: S.small, bold: true, align: 'center', baseline: 'middle', color: on ? C.good : C.text, maxWidth: r.w - 20 });
     });
@@ -157,7 +173,7 @@ export function createSetupScreen({ layout, assets, textPrompt, onBack, onStart 
     for (const which of ['primary', 'secondary']) {
       if (ctx) text(ctx, which === 'primary' ? `Primary · ${colourById(setup.primary).name}` : `Secondary · ${colourById(setup.secondary).name}`, PAD, y, { size: S.small, bold: true, color: C.textMuted });
       y += 44;
-      grid(COLOURS, 6, 100, (c) => setup[which] === c.id, (c) => setColour(which, c.id), which, (r, c, on) => {
+      grid(COLOURS, 6, THEME.button.minH, (c) => setup[which] === c.id, (c) => setColour(which, c.id), which, (r, c, on) => {
         ctx.fillStyle = c.hex;
         ctx.strokeStyle = C.outline;
         ctx.lineWidth = on ? 8 : 3;
@@ -174,11 +190,26 @@ export function createSetupScreen({ layout, assets, textPrompt, onBack, onStart 
       const pr = { x: PAD, y, w: cw, h: pv };
       card(ctx, pr, 'info');
       drawBadge(ctx, { x: pr.x + cw * 0.18 - 100, y: pr.y + 20, w: 200, h: pv - 40 }, badgeOf());
-      drawKit(ctx, { x: pr.x + cw * 0.55 - 100, y: pr.y + 20, w: 200, h: pv - 40 }, setup.primary, setup.secondary);
+      drawKitPreview(ctx, assets, { x: pr.x + cw * 0.55 - 100, y: pr.y + 20, w: 200, h: pv - 40 }, kitOf());
       text(ctx, setup.club.trim() || 'Your Club', pr.x + cw * 0.84, pr.y + pv / 2 - 24, { size: S.small, bold: true, align: 'center', baseline: 'middle', maxWidth: cw * 0.28 });
       text(ctx, areaById(setup.area).name, pr.x + cw * 0.84, pr.y + pv / 2 + 20, { size: S.small, color: C.textMuted, align: 'center', baseline: 'middle', maxWidth: cw * 0.28 });
     }
-    y += pv + 40;
+    y += pv + 30;
+
+    // Kit pattern: the kit pictures in the club's colours.
+    if (ctx) text(ctx, `Kit Pattern · ${patternById(setup.kit).name}`, PAD, y, { size: S.small, bold: true, color: C.textMuted });
+    {
+      const r = { x: PAD + cw - 250, y: y - 30, w: 250, h: THEME.button.minH };
+      if (ctx) diceButton(ctx, assets, r, 'Random', { accent: C.progress, font: font(S.small, true) });
+      box(r, random.kit, 'kitRandom');
+    }
+    y += 96;
+    grid(KIT_PATTERNS, 3, 190, (p) => p.id === setup.kit, (p) => (setup.kit = p.id), 'kit', (r, p, on) => {
+      card(ctx, r, on ? 'selected' : 'normal', { radius: 20 });
+      drawKitPreview(ctx, assets, { x: r.x + 10, y: r.y + 8, w: r.w - 20, h: r.h - 62 }, { pattern: p.id, primary: setup.primary, secondary: setup.secondary });
+      text(ctx, p.name, r.x + r.w / 2, r.y + r.h - 30, { size: S.small, bold: true, align: 'center', baseline: 'middle', color: on ? C.good : C.text, maxWidth: r.w - 20 });
+    });
+    y += 30;
 
     // 5. Badge: 12 shield shapes and a symbol, drawn in the club colours.
     heading(5, 'Badge', 'shape + symbol');
@@ -265,7 +296,7 @@ export function createSetupScreen({ layout, assets, textPrompt, onBack, onStart 
     y += 84 * k;
     const bh = 220 * k;
     drawBadge(ctx, { x: b.x + b.w * 0.3 - bh * 0.42, y, w: bh * 0.84, h: bh }, badgeOf());
-    drawKit(ctx, { x: b.x + b.w * 0.62 - bh * 0.36, y, w: bh * 0.72, h: bh }, setup.primary, setup.secondary);
+    drawKitPreview(ctx, assets, { x: b.x + b.w * 0.62 - bh * 0.4, y, w: bh * 0.8, h: bh }, kitOf());
     y += bh + 24 * k;
     const ps = 180 * k;
     drawFounder(ctx, assets, { x: b.x + 40, y, w: ps, h: ps }, f, colourById(setup.primary).hex);
@@ -276,6 +307,7 @@ export function createSetupScreen({ layout, assets, textPrompt, onBack, onStart 
       ['Club Manager', setup.manager],
       ['Home Area', areaById(setup.area).name],
       ['Colours', `${colourById(setup.primary).name} / ${colourById(setup.secondary).name}`],
+      ['Kit', patternById(setup.kit).name],
       ['Badge', `${shapeById(setup.shape).name} · ${symbolById(setup.symbol).name}`],
       ['Founder', `${f.name} (${f.position})`],
     ];
@@ -390,7 +422,7 @@ export function createSetupScreen({ layout, assets, textPrompt, onBack, onStart 
     },
   };
   // Screen rect of a tappable thing (tests): 'randomAll', 'club', 'clubRandom', 'manager', 'area:coast', 'areaRandom',
-  // 'primary:red', 'secondary:navy', 'coloursRandom', 'shape:hex', 'symbol:crown', 'badgeRandom', 'founder:WG01'…
+  // 'primary:red', 'secondary:navy', 'coloursRandom', 'kit:hoops', 'kitRandom', 'shape:hex', 'symbol:crown', 'badgeRandom', 'founder:WG01'…
   // plus 'review', 'start', 'change'.
   screen.rectOf = (what) => {
     if (what === 'review') return bottomRect();
