@@ -8,15 +8,19 @@
 // Phases: 'restart' (kickoff / throw-in / goal kick / corner — a quick placement, then the taker plays), 'play',
 // 'goal' (the celebration pause before the kickoff), 'halftime', 'fulltime'.
 // Teams: 0 = home, 1 = away. Home attacks up the screen (towards y = 0) in the first half; sides swap at half time.
+// Milestone 4 (Play): createMatchWorld(setup, { play: { team, inputs } }) adds world.control (manualControl.js) — the
+// human's stick and buttons, logged per step. A Play match saves { setup, steps, play } and replays the same way; a Watch
+// match (no play) never creates a control, so it runs exactly as in Milestone 3.
 import { Rng } from '../../../../core/Rng.js';
 import { PITCH, MATCH_TIME, FORMATION_442, TUNING } from '../../data/match.js';
 import { createBall, stopBall, stepBall, crossing } from './ballPhysics.js';
 import { think, moveOwner, movePlayers, keeperStep, tryControl } from './matchAI.js';
+import { createControl } from './manualControl.js';
 
 const W = PITCH.w;
 const H = PITCH.h;
 
-export function createMatchWorld(setup) {
+export function createMatchWorld(setup, { play = null } = {}) {
   const rng = new Rng(`${setup.seed}:match`);
   const teams = [setup.home, setup.away];
   const players = [];
@@ -72,6 +76,8 @@ export function createMatchWorld(setup) {
     stats: [0, 1].map(() => ({ shots: 0, onTarget: 0, saves: 0, passes: 0, passesDone: 0, tackles: 0, tacklesWon: 0, possessionSteps: 0 })),
     events: [], // goals, saves, shots, half/full time (for the screen's banners and the tests)
     chasers: [[], []],
+    control: null, // Play mode: the human's control (manualControl.js)
+    mode: play ? 'play' : 'watch',
 
     // Which way a team attacks now: -1 up the screen (towards y = 0), +1 down.
     dir(team) {
@@ -123,6 +129,7 @@ export function createMatchWorld(setup) {
       world.t += dt;
       if (world.owner) world.stats[world.owner.team].possessionSteps++;
       for (const p of players) if (p.cool > 0) p.cool -= dt;
+      if (world.control) world.control.pre();
 
       if (world.phase === 'restart' || world.phase === 'goal') {
         world.phaseLeft -= dt;
@@ -153,7 +160,7 @@ export function createMatchWorld(setup) {
       for (let k = 0; k < n && !world.done; k++) world.step();
     },
     serialize() {
-      return { setup: world.setup, steps: world.steps };
+      return world.control ? { setup: world.setup, steps: world.steps, play: world.control.serialize() } : { setup: world.setup, steps: world.steps };
     },
 
     // --- actions the AI calls -----------------------------------------------------------------------------------
@@ -299,12 +306,13 @@ export function createMatchWorld(setup) {
   }
 
   kickoff(0);
+  if (play) world.control = createControl(world, play);
   return world;
 }
 
-// A world at exactly the saved step (replayed headlessly from the fixed seed and line-ups).
+// A world at exactly the saved step (replayed headlessly from the fixed seed and line-ups — and, for Play, the input log).
 export function restoreMatchWorld(saved) {
-  const w = createMatchWorld(saved.setup);
+  const w = createMatchWorld(saved.setup, { play: saved.play ?? null });
   w.run(saved.steps ?? 0);
   return w;
 }

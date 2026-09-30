@@ -2,7 +2,7 @@
 // reload never changes what happens. Test players only: plain generated names, flat stats (TEST_STAT) — no real squad.
 //   createMatchSetup({ seed, home: { name, colour }, away: { name, colour } }) → setup (plain, save-friendly data)
 //     colour: { hex, ink }. Each side gets 11 players in the 4-4-2 (keeper first) and a body picture that reads apart
-//     from the other side's.
+//     from the other side's. A side may carry stat: n (Milestone 4 tests: one side's flat stats low, the other high).
 import { Rng } from '../../../../core/Rng.js';
 import { FORMATION_442, FIRST_NAMES, SURNAMES, TEST_STAT, MATCH_ART } from '../../data/match.js';
 
@@ -29,7 +29,7 @@ function makeTeam(rng, side, used) {
     do name = `${rng.pick(FIRST_NAMES)} ${rng.pick(SURNAMES)}`;
     while (used.has(name));
     used.add(name);
-    return { shirt: i + 1, name, role: slot.role, stats: Object.fromEntries(STAT_KEYS.map((k) => [k, TEST_STAT])) };
+    return { shirt: i + 1, name, role: slot.role, stats: Object.fromEntries(STAT_KEYS.map((k) => [k, side.stat ?? TEST_STAT])) };
   });
   return { name: side.name, colour: { hex: side.colour.hex, ink: side.colour.ink ?? '#FFFFFF' }, players };
 }

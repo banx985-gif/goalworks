@@ -15,8 +15,12 @@
 // Milestone 3: Match Setup's Kick off opens the 11 v 11 match (src/match/, src/screens/MatchScreen.js), Watch only. The
 // match seed and both line-ups are fixed when it is created and saved in the campaign (data.match = { fixtureId, setup,
 // steps }); a reload replays it to the same step. At full time Continue sends the score back to the calendar.
+// Milestone 4: Match Setup offers Kick off · Watch (the default) or Kick off · Play (src/match/manualControl.js, the
+// touch controls in src/screens/matchControls.js). A Play match saves its input log with it (data.match.play), so a
+// reload replays it to the same moment too.
 // Add ?debug=1 for the FPS/state overlay, ?screen=test for the scaling / tap / asset-loader test screen, ?screen=match
-// (&seed=…) for a test match between two test teams (never saved).
+// (&seed=…, &mode=play, &stats=35,70 for flat home,away test stats) for a test match between two test teams (never
+// saved). With ?debug=1, &safe=phone|tablet stands in a notch and home bar (safe-area insets) on any screen.
 import { THEME, font } from '../../../core/Theme.js';
 import { EventBus } from '../../../core/EventBus.js';
 import { Rng } from '../../../core/Rng.js';
@@ -59,11 +63,13 @@ const BASE_H = 1920; // 9:16; taller phones grow the height (see Renderer)
 const MAX_H = 2640; // up to 9:22 fills edge to edge; taller still gets thin bars top and bottom
 const PARAMS = new URLSearchParams(window.location.search);
 const START_SCREEN = ['test', 'match'].includes(PARAMS.get('screen')) ? PARAMS.get('screen') : 'menu';
+const SAFE_PARAM = PARAMS.get('debug') === '1' ? PARAMS.get('safe') : null;
+const FORCE_INSETS = { phone: { top: 47, bottom: 34, left: 0, right: 0 }, tablet: { top: 24, bottom: 20, left: 0, right: 0 } }[SAFE_PARAM] ?? null;
 
 const bus = new EventBus();
 const rng = new Rng('goalworks-m0');
 const renderer = new Renderer(document.getElementById('game'), { width: W, height: BASE_H, maxHeight: MAX_H, maxDpr: 2, bus });
-const layout = new UiLayout(renderer);
+const layout = new UiLayout(renderer, { forceInsets: FORCE_INSETS });
 bus.on('renderer:resize', () => layout.refresh());
 const input = new Input(renderer, bus);
 const assets = new AssetManager({ bus });
@@ -387,7 +393,7 @@ async function toggleSpeedFlag(id) {
 function openMatchSetup() {
   if (!open?.calendar.atKickoff) return;
   open.setupShown = true;
-  sheet.open(matchSetupSheet({ calendar, clubName: () => open?.data.club.name ?? '', onKickOff: () => kickOff(), onPlayed: debug.enabled ? () => playPlaceholder() : null, resuming: () => !!open?.data.match }));
+  sheet.open(matchSetupSheet({ calendar, clubName: () => open?.data.club.name ?? '', onKickOff: (mode) => kickOff(mode), onPlayed: debug.enabled ? () => playPlaceholder() : null, resuming: () => (open?.data.match ? (open.data.match.play ? 'play' : 'watch') : null) }));
 }
 
 // --- Milestone 3: the match -------------------------------------------------------------------------------------
@@ -400,7 +406,8 @@ function opponentColour(oppId, avoid) {
   return list[h % list.length];
 }
 // Kick off: the seed and line-ups are fixed now and saved with the campaign; reopening resumes the same match.
-function kickOff() {
+// mode: 'watch' (the AI plays both sides) or 'play' (you control our side; the input log is saved with the match).
+function kickOff(mode = 'watch') {
   const f = open?.calendar.fixture;
   if (!f || !open.calendar.atKickoff) return;
   if (!open.data.match || open.data.match.fixtureId !== f.id) {
@@ -408,7 +415,7 @@ function kickOff() {
     const mine = colourById(club.colours.primary);
     const theirs = opponentColour(f.opponent.id, mine.id);
     const setup = createMatchSetup({ seed: `${open.data.seed}:${f.id}`, home: { name: club.name, colour: mine }, away: { name: f.opponent.name, colour: theirs } });
-    open.data.match = { fixtureId: f.id, setup, steps: 0 };
+    open.data.match = { fixtureId: f.id, setup, steps: 0, ...(mode === 'play' ? { play: { team: 0, inputs: [] } } : {}) };
     autosave.request('match:kickoff');
   }
   resumeMatch();
@@ -421,21 +428,23 @@ function resumeMatch() {
   }
   const t0 = performance.now();
   match = { world: restoreMatchWorld(m), mode: 'fixture', speed: 1 };
-  debug.log(`match ${m.fixtureId}: resumed at step ${m.steps} (${Math.round(performance.now() - t0)} ms)`);
+  debug.log(`match ${m.fixtureId} (${m.play ? 'Play' : 'Watch'}): resumed at step ${m.steps} (${Math.round(performance.now() - t0)} ms)`);
   sheet.close();
   router.go('match');
   return true;
 }
-function startTestMatch(seed = PARAMS.get('seed') ?? `test-${Date.now()}`) {
+function startTestMatch(seed = PARAMS.get('seed') ?? `test-${Date.now()}`, mode = PARAMS.get('mode') === 'play' ? 'play' : 'watch') {
   const [a, b] = [REGIONAL_CLUBS[0], REGIONAL_CLUBS[1]];
-  const setup = createMatchSetup({ seed, home: { name: a.name, colour: colourById('royal') }, away: { name: b.name, colour: colourById('red') } });
-  match = { world: createMatchWorld(setup), mode: 'test', speed: 1 };
-  debug.log(`test match, seed ${seed}`);
+  const [hs, as] = (PARAMS.get('stats') ?? '').split(',').map((v) => (v ? Math.max(1, Math.min(99, Number(v) || 50)) : undefined));
+  const setup = createMatchSetup({ seed, home: { name: a.name, colour: colourById('royal'), stat: hs }, away: { name: b.name, colour: colourById('red'), stat: as } });
+  match = { world: createMatchWorld(setup, mode === 'play' ? { play: { team: 0 } } : {}), mode: 'test', speed: 1 };
+  debug.log(`test match (${mode}), seed ${seed}`);
   router.go('match');
 }
 function matchProgress(world, reason) {
   if (match?.mode !== 'fixture' || !open?.data.match) return;
   open.data.match.steps = world.steps;
+  if (world.control) open.data.match.play = world.control.serialize(); // the input log so far
   autosave.request(reason);
 }
 function matchFinished(world) {
@@ -462,10 +471,12 @@ const matchScreen = createMatchScreen({
   renderer,
   layout,
   assets,
+  bus,
+  input,
   live: () => match,
   onMenu: () => leaveMatch(),
   onContinue: (world) => matchFinished(world),
-  onReplay: () => startTestMatch(`test-${Date.now()}`),
+  onReplay: () => startTestMatch(`test-${Date.now()}`, match?.world.control ? 'play' : 'watch'),
   onProgress: (world, reason) => matchProgress(world, reason),
 });
 function playPlaceholder() {

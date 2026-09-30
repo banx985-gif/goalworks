@@ -4,6 +4,9 @@
 // TUNING.decideEvery seconds (offset by shirt number), the ball carrier every ownerDecideEvery; the team's chasers are
 // re-picked every few steps. Actions (pass, shoot, tackle, keeper save) succeed from simple stat + pressure numbers.
 // Everything random comes from world.rng, in a fixed order, so the match is the same every time for the same seed.
+// Milestone 4 (Play): the one player the human controls has p.manual set (manualControl.js). The AI still picks its
+// target (the fallback when the stick is still) but never makes its carrier choices or tackles; the human's pass /
+// shot / tackle go through the same pass(), shoot() and tackle() below, so the stats decide how well they come off.
 import { PITCH, MATCH_TIME } from '../../data/match.js';
 import { predictBall, rollDistance, ballSpeed } from './ballPhysics.js';
 
@@ -56,7 +59,7 @@ function keeperSpot(world, p) {
 }
 
 // Where a player can meet the rolling ball soonest (cheap: a few look-ahead points).
-function meetBall(world, p) {
+export function meetBall(world, p) {
   const T = world.T;
   const v = speedOf(p, T);
   for (let t = 0; t <= 2.4; t += 0.2) {
@@ -110,7 +113,7 @@ export function think(world) {
       }
     }
     // Tackling: a presser in reach has a go now and then.
-    if (p.mode === 'press' && world.owner && world.owner.team !== p.team && p.cool <= 0 && world.phase === 'play' && (s + p.i) % 9 === 0) {
+    if (p.mode === 'press' && !p.manual && world.owner && world.owner.team !== p.team && p.cool <= 0 && world.phase === 'play' && (s + p.i) % 9 === 0) {
       if (dist(p, world.owner) < T.tackle.reach) tackle(world, p, world.owner);
     }
     target(world, p);
@@ -118,7 +121,7 @@ export function think(world) {
 
   // The ball carrier decides every ownerDecideEvery (after a short first touch).
   const o = world.owner;
-  if (o && world.phase === 'play') {
+  if (o && world.phase === 'play' && !o.manual) {
     const held = s - world.ownerSince;
     const M = OWNER_STEPS(T);
     if (held >= 8 && held % M === 0) ownerDecide(world, o, null);
@@ -212,6 +215,7 @@ export function movePlayers(world, dt) {
   const T = world.T;
   for (const p of world.players) {
     if (p === world.owner) continue;
+    if (p.manual && world.control?.drive(world, p, dt, false)) continue; // the stick moves them
     steer(p, p.tx, p.ty, speedOf(p, T) * (p.cool > 0.4 && p.mode === 'press' ? 0.5 : 1), T.accel, dt);
   }
   separate(world);
@@ -228,6 +232,11 @@ function steer(p, tx, ty, vmax, accel, dt) {
     dvx = (dx / d) * v;
     dvy = (dy / d) * v;
   }
+  steerVel(p, dvx, dvy, accel, dt);
+}
+
+// Turn the player's velocity towards (dvx, dvy) within its acceleration, then move.
+export function steerVel(p, dvx, dvy, accel, dt) {
   const ax = dvx - p.vx;
   const ay = dvy - p.vy;
   const a = Math.hypot(ax, ay);
@@ -271,6 +280,9 @@ export function moveOwner(world, dt, hold) {
   const p = world.owner;
   if (hold) {
     p.vx = p.vy = 0;
+  } else if (p.manual && world.control?.drive(world, p, dt, true)) {
+    p.x = clamp(p.x, 0.6, W - 0.6);
+    p.y = clamp(p.y, 0.6, H - 0.6);
   } else {
     if (p.dribble == null) p.dribble = dribbleTarget(world, p);
     steer(p, p.dribble.x, p.dribble.y, speedOf(p, T) * T.dribble.speedFactor, T.accel, dt);
@@ -290,7 +302,7 @@ export function moveOwner(world, dt, hold) {
 }
 
 // Run at goal, bending away from the nearest defender in front.
-function dribbleTarget(world, p) {
+export function dribbleTarget(world, p) {
   const g = world.goalOf(p.team);
   const d = Math.max(0.01, dist(g, p));
   let ux = (g.x - p.x) / d;
@@ -323,24 +335,36 @@ function dribbleTarget(world, p) {
 function ownerDecide(world, p, restartType) {
   const T = world.T;
   const rng = world.rng;
-  const g = world.goalOf(p.team);
-  const dG = dist(p, g);
   const press = pressureOn(world, p);
   p.dribble = null;
+  const best = chooseOption(world, p, restartType, press, (a, b) => rng.range(a, b), (c) => rng.next() < c);
+  if (best.kind === 'shoot') return shoot(world, p, press);
+  if (best.kind === 'pass' && best.to) return pass(world, p, best.to, press, best.lane < 1.5 || best.d > T.pass.loftOver || restartType === 'corner' || restartType === 'goalkick');
+  if (best.kind === 'pass') return clear(world, p);
+  p.dribble = dribbleTarget(world, p);
+}
+
+// The carrier's options scored: { kind: 'shoot'|'dribble'|'pass', score, to?, lane?, d? }. noise(a, b) and chance(c)
+// are the AI's dice (world.rng, always called in the same order); the Play test's "perfect input" player passes
+// noise-free ones to get the best choice without touching the match's dice.
+export function chooseOption(world, p, restartType, press, noise, chance) {
+  const T = world.T;
+  const g = world.goalOf(p.team);
+  const dG = dist(p, g);
 
   // Shoot?
   let best = { kind: 'dribble', score: -Infinity };
   if (!restartType && p.role !== 'GK' && dG < T.shot.range) {
     const angle = Math.abs(p.x - W / 2) / Math.max(1, Math.abs(p.y - g.y)); // wide angles are poor
     let sc = Math.pow(1 - dG / T.shot.range, 1.1) * 1.35 + T.shot.eager + (dG < 12 ? T.shot.closeBonus : 0) - press * 0.12 - Math.max(0, angle - 0.9) * 0.6;
-    sc += rng.range(-0.15, 0.15);
+    sc += noise(-0.15, 0.15);
     best = { kind: 'shoot', score: sc };
   }
   // Run with it?
   if (!restartType && p.role !== 'GK') {
     let space = 10;
     for (const o of world.players) if (o.team !== p.team) space = Math.min(space, dist(o, p));
-    const sc = 0.3 + (space / 10) * 0.45 - press * 0.25 + (p.role === 'FW' || p.role === 'MF' ? 0.05 : -0.1) + rng.range(-0.12, 0.12);
+    const sc = 0.3 + (space / 10) * 0.45 - press * 0.25 + (p.role === 'FW' || p.role === 'MF' ? 0.05 : -0.1) + noise(-0.12, 0.12);
     if (sc > best.score) best = { kind: 'dribble', score: sc };
   }
   // Pass? (every team-mate, scored on progress, how free they are and how clear the lane is)
@@ -349,7 +373,7 @@ function ownerDecide(world, p, restartType) {
     if (q.team !== p.team || q === p) continue;
     const d = dist(p, q);
     if (d < 4 || d > 45) continue;
-    if (q.role === 'GK' && (restartType || rng.next() < 0.8)) continue;
+    if (q.role === 'GK' && (restartType || chance(0.8))) continue;
     const progress = (myA - world.aOf(q.team, q.y)) / 25;
     let free = 8;
     let lane = 5;
@@ -358,7 +382,7 @@ function ownerDecide(world, p, restartType) {
       free = Math.min(free, dist(o, q));
       lane = Math.min(lane, segDist(o, p, q));
     }
-    let sc = 0.45 * progress + 0.5 * (free / 8) + 0.35 * (lane / 5) - d / 90 + rng.range(-0.18, 0.18);
+    let sc = 0.45 * progress + 0.5 * (free / 8) + 0.35 * (lane / 5) - d / 90 + noise(-0.18, 0.18);
     if (restartType === 'corner') sc += inBoxOf(world, p.team, q) ? 1 : -1;
     if (restartType === 'goalkick') sc += q.role === 'MF' || q.role === 'FW' ? 0.4 : 0;
     if (restartType === 'kickoff') sc += progress < 0 ? 0.6 : -0.6;
@@ -366,11 +390,7 @@ function ownerDecide(world, p, restartType) {
   }
   // Under real pressure a keeper or defender clears it long instead of running.
   if (best.kind === 'dribble' && (p.role === 'GK' || restartType)) best.kind = 'pass';
-
-  if (best.kind === 'shoot') return shoot(world, p, press);
-  if (best.kind === 'pass' && best.to) return pass(world, p, best.to, press, best.lane < 1.5 || best.d > T.pass.loftOver || restartType === 'corner' || restartType === 'goalkick');
-  if (best.kind === 'pass') return clear(world, p);
-  p.dribble = dribbleTarget(world, p);
+  return best;
 }
 
 const inBoxOf = (world, team, q) => {
@@ -407,17 +427,19 @@ function kick(world, p, dx, dy, speed, vz, err) {
   b.z = vz > 0 ? 0.05 : 0;
 }
 
-function pass(world, p, q, press, lofted) {
+// aim (manual play only): { loft: true|false — chosen, not rolled; tx, ty — where to play it (a through ball) }. The
+// error still comes from the passer's passing stat and the pressure on them.
+export function pass(world, p, q, press, lofted, aim = null) {
   const T = world.T;
   const P = T.pass;
   // lead the receiver a little
   const lead = 0.35;
-  const tx = q.x + q.vx * lead;
-  const ty = q.y + q.vy * lead;
+  const tx = aim?.tx ?? q.x + q.vx * lead;
+  const ty = aim?.ty ?? q.y + q.vy * lead;
   const d = Math.hypot(tx - p.x, ty - p.y);
   const err = aimError(world, P.errDeg, p.stats.passing, press);
   world.stats[p.team].passes++;
-  if (lofted && world.rng.next() < P.loftChance + (d > P.loftOver ? 0.3 : 0)) {
+  if (aim ? aim.loft : lofted && world.rng.next() < P.loftChance + (d > P.loftOver ? 0.3 : 0)) {
     const flight = 0.7 + d / 28;
     kick(world, p, tx - p.x, ty - p.y, (d / flight) * 1.02, (T.ball.gravity * flight) / 2, err);
   } else {
@@ -441,15 +463,17 @@ function clear(world, p) {
   kick(world, p, tx - p.x, ty - p.y, d / flight, (T.ball.gravity * flight) / 2, aimError(world, 12, p.stats.passing, 0));
 }
 
-function shoot(world, p, press) {
+// aim (manual play only): { x, h } — the spot on the goal line the player picked. Power and the error still come from
+// the shooter's shooting stat, the distance and the pressure.
+export function shoot(world, p, press, aim = null) {
   const T = world.T;
   const S = T.shot;
   const rng = world.rng;
   const g = world.goalOf(p.team);
   const d = dist(p, g);
   // aim for a spot inside the posts, low or high
-  const tx = g.x + rng.range(-PITCH.goalW / 2 + 0.5, PITCH.goalW / 2 - 0.5);
-  const h = rng.range(0.1, PITCH.goalH - 0.3);
+  const tx = aim ? aim.x : g.x + rng.range(-PITCH.goalW / 2 + 0.5, PITCH.goalW / 2 - 0.5);
+  const h = aim ? aim.h : rng.range(0.1, PITCH.goalH - 0.3);
   const speed = S.speed * rng.range(0.85, 1.12);
   const err = aimError(world, S.errDeg + d * S.errPerM, p.stats.shooting, press);
   const t = d / speed;
@@ -468,7 +492,7 @@ function shoot(world, p, press) {
   world.event({ type: 'shot', team: p.team, by: p.name, onTarget: on });
 }
 
-function tackle(world, p, owner) {
+export function tackle(world, p, owner) {
   const T = world.T;
   const rng = world.rng;
   world.stats[p.team].tackles++;
@@ -487,9 +511,10 @@ function tackle(world, p, owner) {
     world.lastTouch = p.team;
     world.lastToucher = p;
     p.cool = 0;
-  } else {
-    p.cool = T.tackle.cooldown;
+    return true;
   }
+  p.cool = T.tackle.cooldown;
+  return false;
 }
 
 // --- the keeper, and taking a loose ball -------------------------------------------------------------------------------

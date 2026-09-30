@@ -3,13 +3,18 @@
 // art. A plain team-colour ring under each player tells the sides apart (kit tinting is Milestone 6). Top: ‹ Menu, the
 // score and the match clock. Bottom: 1× / 2× match speed. GOAL / half time banners; at full time the result panel
 // (final score and scorers) with Continue (or, on the ?screen=match test, Play again / Menu).
-//   createMatchScreen({ renderer, layout, assets, live, onMenu, onContinue, onReplay, onProgress })
+// Milestone 4 — Play (a world with world.control): the speed buttons give way to the touch controls (matchControls.js)
+// in a band along the bottom; the pitch fills the width above them and the camera follows the ball up and down. The
+// player you control wears a bright yellow ring and a marker. Play runs at 1×; each loop step feeds that step's stick and
+// buttons to the match before it steps, so the input is part of the seeded, replayable match.
+//   createMatchScreen({ renderer, layout, assets, bus, input, live, onMenu, onContinue, onReplay, onProgress })
 //     live() → { world, mode: 'fixture'|'test', speed } or null   onProgress(world, reason) — after goals / every few s
 import { THEME } from '../../../../core/Theme.js';
 import { CachedLayer } from '../../../../core/CachedLayer.js';
 import { drawButton, hitRect } from '../../../../core/ui/Button.js';
 import { text } from '../../../../core/ui/Kit.js';
 import { PITCH, MATCH_TIME, MATCH_ART } from '../../data/match.js';
+import { createMatchControls } from './matchControls.js';
 
 const C = THEME.color;
 const S = THEME.size;
@@ -19,12 +24,20 @@ const KY = 0.94; // the slight tilt: lengths look a touch shorter than widths
 const BODY_M = 4.8; // how tall a body is drawn, in metres (bigger than life so it reads on a phone)
 const BALL_M = 2.0;
 const LINE = '#F4F8EE';
+const MINE = '#FFE14A'; // the ring under the player you control
 
-export function createMatchScreen({ renderer, layout, assets, live, onMenu, onContinue, onReplay = null, onProgress = () => {} }) {
+export function createMatchScreen({ renderer, layout, assets, bus = null, input = null, live, onMenu, onContinue, onReplay = null, onProgress = () => {} }) {
   const W = renderer.width;
   let k = 10; // pixels per metre
   let ox = 0;
   let oy = 0;
+  let area = { top: 0, bottom: 0 }; // where the pitch is shown
+  let pitchH = 0; // the pitch picture's height (px)
+  let camY = 0; // Play: how far down the pitch picture the view starts (follows the ball)
+  let scroll = false;
+  let offMove = null;
+  const controls = createMatchControls({ layout, input });
+  const playing = () => !!live()?.world?.control;
   let lastEvent = 0;
   let banner = null; // { title, sub, t }
   let progressT = 0;
@@ -62,23 +75,40 @@ export function createMatchScreen({ renderer, layout, assets, live, onMenu, onCo
     return [{ id: 'continue', label: 'Continue', r: { x: p.x + 40, y, w: p.w - 80, h: THEME.button.minH }, accent: C.good }];
   };
 
-  // Fit the pitch between the score row and the speed buttons.
+  // Fit the pitch between the score row and the speed buttons (Watch) — or, in Play, the width of the screen above the
+  // controls band, scrolling with the ball if it is taller than the room there.
   function fit() {
+    const play = playing();
     const top = scoreRect().y + scoreRect().h + 20;
-    const bottom = speedRect(1).y - 20;
+    const bottom = play ? controls.band().y - 12 : speedRect(1).y - 20;
     const areaW = W - 32;
     const areaH = bottom - top;
-    k = Math.min(areaW / (PITCH.w + MX * 2), areaH / ((PITCH.h + MY * 2) * KY));
+    area = { top: play ? scoreRect().y + scoreRect().h + 8 : top, bottom };
+    k = play ? areaW / (PITCH.w + MX * 2) : Math.min(areaW / (PITCH.w + MX * 2), areaH / ((PITCH.h + MY * 2) * KY));
     const pw = (PITCH.w + MX * 2) * k;
     const ph = (PITCH.h + MY * 2) * k * KY;
+    pitchH = ph;
+    scroll = play && ph > areaH;
     ox = (W - pw) / 2;
-    oy = top + (areaH - ph) / 2;
+    oy = scroll ? top - camY : top + (areaH - ph) / 2;
+    if (scroll) follow(1);
     pitchLayer.resize(pw, ph);
     pitchLayer.setPixelScale(renderer.pixelScale);
     pitchLayer.invalidate();
   }
   const sx = (x) => ox + (x + MX) * k;
   const sy = (y) => oy + (y + MY) * k * KY;
+  // Play camera: keep the ball near the middle of the view, never showing past the ends (with room for the top goal).
+  function follow(t) {
+    const w = live()?.world;
+    if (!scroll || !w) return;
+    const top = scoreRect().y + scoreRect().h + 20;
+    const viewH = area.bottom - top;
+    const lo = -(PITCH.goalW / 0.7) * k * 0.45; // the top goal's picture stands out above the pitch
+    const want = Math.max(lo, Math.min(pitchH - viewH, (w.ball.y + MY) * k * KY - viewH / 2));
+    camY += (want - camY) * t;
+    oy = top - camY;
+  }
 
   // --- the pitch (cached) ----------------------------------------------------------------------------------------------
   const pitchLayer = new CachedLayer({ width: 10, height: 10, draw: drawPitch });
@@ -149,6 +179,15 @@ export function createMatchScreen({ renderer, layout, assets, live, onMenu, onCo
   function drawPlayer(ctx, world, p, team) {
     const x = sx(p.x);
     const y = sy(p.y);
+    if (p.manual) {
+      ctx.save();
+      ctx.strokeStyle = MINE;
+      ctx.lineWidth = Math.max(5, 0.3 * k);
+      ctx.beginPath();
+      ctx.ellipse(x, y, 1.6 * k, 1.6 * k * 0.55, 0, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+    }
     ctx.fillStyle = team.colour.hex;
     ctx.strokeStyle = p === world.owner ? '#FFFFFF' : C.outline;
     ctx.lineWidth = p === world.owner ? 4 : 2.5;
@@ -165,6 +204,22 @@ export function createMatchScreen({ renderer, layout, assets, live, onMenu, onCo
       assets.draw(ctx, key, -s / 2, y - s * 0.92, s, s);
       ctx.restore();
     } else assets.draw(ctx, key, x - s / 2, y - s * 0.92, s, s);
+    if (p.manual) {
+      // a marker over their head
+      const my = y - s * 0.92 - 10;
+      ctx.save();
+      ctx.fillStyle = MINE;
+      ctx.strokeStyle = C.outline;
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(x - 16, my - 22);
+      ctx.lineTo(x + 16, my - 22);
+      ctx.lineTo(x, my);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+      ctx.restore();
+    }
   }
   function drawBall(ctx, b) {
     const x = sx(b.x);
@@ -204,6 +259,7 @@ export function createMatchScreen({ renderer, layout, assets, live, onMenu, onCo
     const clock = world.phase === 'fulltime' ? 'Full time' : world.phase === 'halftime' ? 'Half time' : `${Math.min(world.half * 45, world.minute + 1)}'  ·  ${world.half === 1 ? '1st' : '2nd'} half`;
     text(ctx, clock, r.x + half, r.y + 118, { size: S.small, bold: true, color: C.progress, align: 'center', baseline: 'middle' });
     const lv = live();
+    if (world.control) return; // Play: 1× only; the controls take the bottom
     for (const s of MATCH_TIME.speeds) drawButton(ctx, speedRect(s), `${s}×`, { accent: C.progress, selected: lv.speed === s, disabled: world.done });
   }
 
@@ -213,7 +269,7 @@ export function createMatchScreen({ renderer, layout, assets, live, onMenu, onCo
     const w = 700;
     const h = banner.sub ? 200 : 140;
     const x = (W - w) / 2;
-    const y = oy + ((PITCH.h + MY * 2) * k * KY) / 2 - h / 2;
+    const y = scroll ? (area.top + area.bottom) / 2 - h / 2 : oy + ((PITCH.h + MY * 2) * k * KY) / 2 - h / 2;
     ctx.save();
     ctx.globalAlpha = Math.max(0, Math.min(1, a));
     ctx.fillStyle = C.chip;
@@ -283,20 +339,36 @@ export function createMatchScreen({ renderer, layout, assets, live, onMenu, onCo
     get banner() {
       return banner;
     },
-    // Tests: 'menu', 'score', 'speed1', 'speed2', and the result panel's buttons.
+    // Tests: 'menu', 'score', 'speed1', 'speed2', the result panel's buttons, and in Play 'band', 'stickZone',
+    // 'pass', 'action', 'sprint', 'switch'.
     rectOf(id) {
-      const fixed = { menu: menuRect(), score: scoreRect(), speed1: speedRect(1), speed2: speedRect(2), panel: panelRect() }[id];
-      return fixed ?? resultButtons().find((b) => b.id === id)?.r ?? null;
+      const fixed = { menu: menuRect(), score: scoreRect(), speed1: speedRect(1), speed2: speedRect(2), panel: panelRect(), band: controls.band(), stickZone: controls.stickZone() }[id];
+      return fixed ?? controls.buttonRect(id) ?? resultButtons().find((b) => b.id === id)?.r ?? null;
+    },
+    controls,
+    get view() {
+      return { top: area.top, bottom: area.bottom, k, scroll, camY };
     },
     toScreen: (x, y) => ({ x: sx(x), y: sy(y) }),
     enter() {
+      camY = 0;
       fit();
+      controls.release();
+      if (playing()) {
+        controls.attachKeys();
+        offMove = bus?.on('input:move', (p) => controls.onMove(p)) ?? null;
+      }
       const w = live()?.world;
       lastEvent = w ? w.events.length : 0; // no banners for what happened before a reload
       banner = null;
       progressT = 0;
     },
-    exit() {},
+    exit() {
+      controls.detachKeys();
+      controls.release();
+      offMove?.();
+      offMove = null;
+    },
     resize() {
       fit();
     },
@@ -305,13 +377,21 @@ export function createMatchScreen({ renderer, layout, assets, live, onMenu, onCo
       if (!lv) return;
       const world = lv.world;
       if (!world.done) {
-        for (let i = 0; i < lv.speed; i++) world.step(); // one match step per loop step at 1×, two at 2×
+        if (world.control) {
+          controls.sweep();
+          // Play: 1× — this step's stick and buttons go into the match (and its input log) first
+          for (let i = 0; i < Math.min(1, lv.speed); i++) {
+            world.control.input(controls.frame());
+            world.step();
+          }
+        } else for (let i = 0; i < lv.speed; i++) world.step(); // one match step per loop step at 1×, two at 2×
         progressT += dt;
         if (progressT >= 3) {
           progressT = 0;
           onProgress(world, 'match:progress');
         }
       }
+      if (scroll) follow(Math.min(1, dt * 4));
       readEvents(world);
       if (banner) {
         banner.t += dt;
@@ -321,6 +401,13 @@ export function createMatchScreen({ renderer, layout, assets, live, onMenu, onCo
     onBack() {
       onMenu();
       return true;
+    },
+    onDown(p) {
+      const w = live()?.world;
+      if (w?.control && !w.done) controls.onDown(p);
+    },
+    onUp(p) {
+      controls.onUp(p);
     },
     onTap(p) {
       const lv = live();
@@ -332,7 +419,9 @@ export function createMatchScreen({ renderer, layout, assets, live, onMenu, onCo
         else if (b?.id === 'menu') onMenu();
         return;
       }
+      if (controls.owns(p.id)) return; // (a finger still down on a control)
       if (hitRect(p, menuRect())) return onMenu();
+      if (lv.world.control) return; // Play: no speed buttons
       for (const s of MATCH_TIME.speeds) if (hitRect(p, speedRect(s))) lv.speed = s;
     },
     render(ctx) {
@@ -344,6 +433,12 @@ export function createMatchScreen({ renderer, layout, assets, live, onMenu, onCo
         return;
       }
       const world = lv.world;
+      if (scroll) {
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(0, area.top, W, area.bottom - area.top);
+        ctx.clip();
+      }
       pitchLayer.render(ctx, ox, oy);
       drawFlags(ctx, 0);
       drawGoal(ctx, 0);
@@ -360,6 +455,8 @@ export function createMatchScreen({ renderer, layout, assets, live, onMenu, onCo
       if (!ballDrawn) drawBall(ctx, world.ball);
       drawGoal(ctx, 1);
       drawFlags(ctx, 1);
+      if (scroll) ctx.restore();
+      if (world.control && !world.done) controls.render(ctx, world);
       drawHud(ctx, world);
       drawBanner(ctx);
       if (world.done) drawResult(ctx, world);

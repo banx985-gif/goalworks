@@ -60,6 +60,22 @@ export const TUNING = {
   keeper: { reach: 1.25, dive: 3.6, react: 0.18, save: 0.76, hold: 0.55 },
   ball: { rollDecel: 2.6, rollDrag: 0.35, airDrag: 0.05, gravity: 9.8, bounce: 0.45 },
   pressure: { radius: 4.5 },
+  // Play mode (Milestone 4, bible §17): the human's stick and buttons. Tuned with tests/goalworks/m4.test.mjs so a
+  // "perfect input" player gains only a little over the AI with the same squad (the §17 ceiling, ~10–15%).
+  control: {
+    dead: 0.15, // stick dead zone (0–1): inside it the AI moves the player (a pass on its way to them is met by the AI too)
+    holdSteps: 15, // Pass held this long (0.25 s) then released = a lofted through ball / cross
+    firstTouch: 5, // steps after taking the ball before the carrier can pass or shoot (a press this early waits)
+    buffer: 18, // … how long such an early press is remembered
+    coneDeg: 50, // a pass goes to the team-mate nearest the stick direction inside this cone (else the best angle)
+    throughLead: 4, // metres ahead of the receiver (towards goal) a through ball is played
+    shotH: 0.9, // shot height aimed at (m); the error still comes from the stats
+    sprint: 1.12, // speed × while sprinting (with or without the ball) — the biggest lever on the manual advantage
+    drain: 0.7, // stamina (0–1) used per second of sprinting (a full bar is a ~1.4 s burst)
+    refill: 0.1, // … and won back per second when not sprinting (empty to full in 10 s)
+    recover: 0.3, // an empty bar must refill to this before sprinting again
+    missCool: 0.6, // a tackle out of reach (tackle.reach, the AI's own): this long before the next one, at half speed
+  },
 };
 
 // Test players (Milestone 3): plain generated names, flat stats — no real squad yet.
