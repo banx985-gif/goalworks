@@ -18,8 +18,16 @@
 // and leaves it again; one input log (world.inputs) runs through every Play stint. The clock, score, positions and dice
 // carry straight on — nothing is ever reset. The team commands change world.fx[team] (data/match.js TACTIC_FX), which the
 // zone AI reads; the Balanced / Normal defaults leave the Milestone 3 match untouched.
+// Milestone 9 (bible §15): each side plays a formation (setup.formation[team], data/tactics.js FORMATIONS: slots with their
+// line, zone box and default role) with a player role per slot (setup.roles[team][slot], ROLES: small nudges the zone AI
+// reads from p.nudge), seven team instructions (TACTICS; the M5 names still read across) and a tactical familiarity
+// (setup.familiarity[team]: { 'formation:build': 0–100 } — below FAMILIARITY.comfortable the pair's positioning drifts
+// and its errors grow; no map = fully familiar). world.command(['formation', team, id]) re-fits the eleven on the pitch to
+// the new slots (by natural position, then nearest spot); world.command(['role', team, slot, roleId]) changes one role.
+// Both are logged in the timeline like the M5 commands. A 4-4-2 on the defaults with its default roles is the M3 match.
 import { Rng } from '../../../../core/Rng.js';
-import { PITCH, MATCH_TIME, FORMATION_442, TUNING, TACTICS, TACTIC_FX, FX_BASE } from '../../data/match.js';
+import { PITCH, MATCH_TIME, FORMATION_442, TUNING, TACTICS, TACTIC_FX, FX_BASE, TACTIC_ALIASES } from '../../data/match.js';
+import { formationById, FORMATIONS, ROLES, rolesForSlot, FAMILIARITY, pairKey } from '../../data/tactics.js';
 import { createBall, stopBall, stepBall, crossing } from './ballPhysics.js';
 import { think, moveOwner, movePlayers, keeperStep, tryControl } from './matchAI.js';
 import { createControl } from './manualControl.js';
@@ -29,14 +37,79 @@ const H = PITCH.h;
 
 export const MODES = ['watch', 'manage', 'play'];
 
-// The team's commands (any left out stay at the default) → the numbers the AI reads.
-export function tacticsOf(t = {}) {
-  return Object.fromEntries(Object.entries(TACTICS).map(([k, def]) => [k, def.options.includes(t[k]) ? t[k] : def.def]));
+// A command in the M5 names (pressing / Normal, width / Normal) → the bible's (press / Mid, width / Balanced).
+export function tacticAlias(key, value) {
+  const a = TACTIC_ALIASES[key];
+  return a ? [a.key, a.values[value] ?? value] : [key, value];
 }
-export function fxOf(tactics) {
+// The team's commands (any left out stay at the default; M5 names read across) → { mentality, tempo, press, … }.
+export function tacticsOf(t = {}) {
+  const src = {};
+  for (const [k, v] of Object.entries(t ?? {})) {
+    const [kk, vv] = tacticAlias(k, v);
+    src[kk] = vv;
+  }
+  return Object.fromEntries(Object.entries(TACTICS).map(([k, def]) => [k, def.options.includes(src[k]) ? src[k] : def.def]));
+}
+// Instructions combine: offsets add, factors multiply, the rest (press style, hold, zone…) the last one set wins. One
+// option on its own gives exactly its TACTIC_FX numbers. famPen: the familiarity penalty 0 (none) … 1 (a new pair).
+const ADD = new Set(['line', 'shot', 'drop', 'dribble', 'passBias', 'zip', 'shield', 'defLine', 'loft']);
+const MUL = new Set(['runs', 'push', 'progress', 'decide', 'err', 'spread', 'spreadOff', 'shift', 'crowd', 'shotErr']);
+export function fxOf(tactics, famPen = 0) {
   const fx = { ...FX_BASE };
-  for (const [k, v] of Object.entries(tactics)) Object.assign(fx, TACTIC_FX[k]?.[v] ?? {});
+  for (const [k, v] of Object.entries(tactics)) {
+    for (const [key, val] of Object.entries(TACTIC_FX[k]?.[v] ?? {})) {
+      if (ADD.has(key)) fx[key] = fx[key] - FX_BASE[key] + val;
+      else if (MUL.has(key)) fx[key] = (fx[key] / FX_BASE[key]) * val;
+      else fx[key] = val;
+    }
+  }
+  if (famPen > 0) {
+    // an unfamiliar formation / style: slower decisions, wider errors, the pressure felt more, and (matchAI) drift
+    fx.famPen = famPen;
+    fx.decide *= 1 + FAMILIARITY.decide * famPen;
+    fx.err *= 1 + FAMILIARITY.errMax * famPen;
+    fx.shotErr *= 1 + FAMILIARITY.errMax * famPen;
+    fx.crowd *= 1 + FAMILIARITY.crowd * famPen;
+  }
   return fx;
+}
+// The penalty for playing a pair this unfamiliar (0 at or above FAMILIARITY.comfortable, 1 at 0).
+export const famPenalty = (value) => (value >= FAMILIARITY.comfortable ? 0 : Math.round((1 - value / FAMILIARITY.comfortable) * 1000) / 1000);
+// A role's nudges for the AI (null for a role with none — the M3 defaults).
+export function nudgeOf(roleId) {
+  const r = ROLES[roleId];
+  if (!r) return null;
+  const { name, group, ...n } = r;
+  return Object.keys(n).length ? n : null;
+}
+// Fit eleven players to a formation's slots: the scarce slots first, each from its natural position (then the nearest
+// line), ties to the player standing nearest the slot's spot. players: [{ position, fx, fy }] → slot index per player.
+export function fitToSlots(players, formationId) {
+  const slots = formationById(formationId).slots;
+  const order = slots.map((_, i) => i).sort((a, b) => ({ GK: 0, FW: 1, DF: 2, WG: 3, MF: 4 })[slots[a].pos] - ({ GK: 0, FW: 1, DF: 2, WG: 3, MF: 4 })[slots[b].pos] || a - b);
+  const near = { GK: [], DF: ['MF', 'WG'], MF: ['DF', 'WG', 'FW'], WG: ['MF', 'FW', 'DF'], FW: ['WG', 'MF'] };
+  const left = new Set(players.map((_, i) => i));
+  const out = new Array(players.length).fill(null);
+  for (const si of order) {
+    const sl = slots[si];
+    const allowed = (p) => sl.pos === 'GK' || p.position !== 'GK' || [...left].every((i) => players[i].position === 'GK'); // a keeper plays in goal unless only keepers are left
+    let pick = null;
+    for (const want of [[sl.pos], near[sl.pos], ['GK', 'DF', 'MF', 'WG', 'FW']]) {
+      let best = Infinity;
+      for (const i of left) {
+        const p = players[i];
+        if (!want.includes(p.position) || !allowed(p)) continue;
+        const d = Math.hypot(p.fx - sl.fx, p.fy - sl.fy);
+        if (d < best) [best, pick] = [d, i];
+      }
+      if (pick != null) break;
+    }
+    if (pick == null) pick = [...left][0];
+    left.delete(pick);
+    out[pick] = si;
+  }
+  return out;
 }
 
 // start: 'watch' | 'manage' | 'play' (play = { team, inputs } is the Milestone 4 way of saying start: 'play').
@@ -45,9 +118,12 @@ export function createMatchWorld(setup, { play = null, start = play ? 'play' : '
   const rng = new Rng(`${setup.seed}:match`);
   const teams = [setup.home, setup.away];
   const players = [];
+  const formations = [0, 1].map((t) => (FORMATIONS.some((f) => f.id === setup.formation?.[t]) ? setup.formation[t] : '442'));
   teams.forEach((team, t) =>
     team.players.forEach((pl, idx) => {
-      const slot = FORMATION_442[idx];
+      const fslot = formationById(formations[t]).slots[idx];
+      const slot = formations[t] === '442' ? { ...FORMATION_442[idx], ...fslot, role: FORMATION_442[idx].role } : { ...fslot, role: fslot.line };
+      const tRole = rolesForSlot(fslot).includes(setup.roles?.[t]?.[idx]) ? setup.roles[t][idx] : fslot.role;
       players.push({
         i: players.length,
         team: t,
@@ -55,6 +131,11 @@ export function createMatchWorld(setup, { play = null, start = play ? 'play' : '
         role: slot.role,
         fx: slot.fx,
         fy: slot.fy,
+        slot: idx, // Milestone 9: the formation slot he plays in (its zone, its role)
+        zone: slot.zone ?? null,
+        tRole,
+        nudge: nudgeOf(tRole),
+        position: pl.position ?? (slot.role === 'MF' && (slot.fx < 0.2 || slot.fx > 0.8) ? 'WG' : slot.role),
         name: pl.name,
         shirt: pl.shirt,
         stats: pl.stats,
@@ -105,6 +186,15 @@ export function createMatchWorld(setup, { play = null, start = play ? 'play' : '
     timeline: timeline.map((e) => e.slice()), // [[step, 'mode', m] | [step, 'tac', team, key, value]]
     tactics: [0, 1].map((t) => tacticsOf(setup.tactics?.[t])),
     fx: null,
+    formation: formations.slice(), // Milestone 9: each side's formation now
+    possTeam: null, // who has had the ball last, and the step each side last won it (the counter)
+    wonAt: [null, null],
+    familiarity: [0, 1].map((t) => (setup.familiarity?.[t] ? { ...setup.familiarity[t] } : null)),
+    // how familiar a side is with what it plays now (100 with no map: opponents and test sides)
+    famOf(team) {
+      const m = world.familiarity[team];
+      return m ? m[pairKey(world.formation[team], world.tactics[team].build)] ?? 0 : 100;
+    },
 
     // Which way a team attacks now: -1 up the screen (towards y = 0), +1 down.
     dir(team) {
@@ -212,6 +302,11 @@ export function createMatchWorld(setup, { play = null, start = play ? 'play' : '
     // --- actions the AI calls -----------------------------------------------------------------------------------
     give(p) {
       if (world.pass && world.pass.team === p.team && world.pass.from !== p) world.stats[p.team].passesDone++;
+      if (world.possTeam !== p.team) {
+        // (M9) the moment a side wins the ball (a counter-attacking side breaks from here)
+        world.possTeam = p.team;
+        world.wonAt[p.team] = world.steps;
+      }
       world.pass = null;
       world.shot = null;
       world.owner = p;
@@ -355,7 +450,16 @@ export function createMatchWorld(setup, { play = null, start = play ? 'play' : '
   let tc = 0; // the next timeline entry to apply
   function valid(e) {
     if (e[1] === 'mode') return MODES.includes(e[2]);
-    if (e[1] === 'tac') return (e[2] === 0 || e[2] === 1) && !!TACTICS[e[3]]?.options.includes(e[4]);
+    if (e[1] === 'tac') {
+      const [k, v] = tacticAlias(e[3], e[4]);
+      return (e[2] === 0 || e[2] === 1) && !!TACTICS[k]?.options.includes(v);
+    }
+    if (e[1] === 'formation') return (e[2] === 0 || e[2] === 1) && FORMATIONS.some((x) => x.id === e[3]);
+    if (e[1] === 'role') {
+      if (!(e[2] === 0 || e[2] === 1) || !Number.isInteger(e[3])) return false;
+      const sl = formationById(world.formation[e[2]]).slots[e[3]];
+      return !!sl && rolesForSlot(sl).includes(e[4]);
+    }
     return false;
   }
   function applyDue() {
@@ -371,12 +475,44 @@ export function createMatchWorld(setup, { play = null, start = play ? 'play' : '
         world.control = null;
       }
       world.mode = m;
-    } else {
-      world.tactics[e[2]] = { ...world.tactics[e[2]], [e[3]]: e[4] };
-      world.fx[e[2]] = fxOf(world.tactics[e[2]]);
+    } else if (e[1] === 'tac') {
+      const [k, v] = tacticAlias(e[3], e[4]);
+      world.tactics[e[2]] = { ...world.tactics[e[2]], [k]: v };
+      refreshFx(e[2]);
+    } else if (e[1] === 'formation') {
+      setFormation(e[2], e[3]);
+      refreshFx(e[2]);
+    } else if (e[1] === 'role') {
+      const p = players.find((q) => q.team === e[2] && q.slot === e[3]);
+      if (p) {
+        p.tRole = e[4];
+        p.nudge = nudgeOf(e[4]);
+      }
     }
   }
-  world.fx = world.tactics.map(fxOf);
+  function refreshFx(team) {
+    world.fx[team] = fxOf(world.tactics[team], famPenalty(world.famOf(team)));
+  }
+  // Re-fit a side to a new formation: each player takes a slot (fitToSlots), its spot, line, zone and default role.
+  function setFormation(team, id) {
+    if (world.formation[team] === id) return;
+    world.formation[team] = id;
+    const side = players.filter((p) => p.team === team);
+    const fit = fitToSlots(side, id);
+    const slots = formationById(id).slots;
+    side.forEach((p, i) => {
+      const fs = slots[fit[i]];
+      const base = id === '442' ? FORMATION_442[fit[i]] : null;
+      p.slot = fit[i];
+      p.fx = base ? base.fx : fs.fx;
+      p.fy = base ? base.fy : fs.fy;
+      p.role = base ? base.role : fs.line;
+      p.zone = fs.zone ?? null;
+      p.tRole = fs.role;
+      p.nudge = nudgeOf(fs.role);
+    });
+  }
+  world.fx = [0, 1].map((t) => fxOf(world.tactics[t], famPenalty(world.famOf(t))));
 
   kickoff(0);
   if (world.start === 'play') world.control = createControl(world, { team: world.team, log: world.inputs });

@@ -3,7 +3,8 @@
 // art; a generated player's code-drawn silhouette in the kit colours), name, position, age, squad role and the
 // positional overall. Tap a row → the Player Detail sheet: the five core stats as bars, the ten derived ratings, trait,
 // contract, and the Founder tag. Drag scrolls. ‹ Club (or Back) returns to the Club Complex.
-// Milestone 8: a Training button (top right) opens the Training screen; each row shows fatigue; Player Detail gains a
+// Milestone 9: a row under the header — Tactics · Training.
+// Milestone 8: a Training button opens the Training screen; each row shows fatigue; Player Detail gains a
 // Condition section (fatigue, form, morale, injury risk stored for later) and the player's training.
 //   createSquadScreen({ layout, assets, sheet, club, onBack, onTraining })   club() → the open campaign { data } or null
 import { THEME } from '../../../../core/Theme.js';
@@ -24,19 +25,24 @@ const PAD = 24;
 const ROW_H = 150;
 const GAP = 14;
 
-export function createSquadScreen({ layout, assets, sheet, club, onBack, onTraining = () => {} }) {
+export function createSquadScreen({ layout, assets, sheet, club, onBack, onTraining = () => {}, onTactics = () => {} }) {
+  const rowY = () => layout.safeRect.y + 24 + THEME.button.minH + 14;
+  const tacticsRect = () => {
+    const sr = layout.safeRect;
+    return { x: sr.x + 24, y: rowY(), w: (sr.w - 48 - 14) / 2, h: THEME.button.minH };
+  };
   const trainingRect = () => {
     const sr = layout.safeRect;
-    return { x: sr.x + sr.w - 24 - 250, y: sr.y + 24, w: 250, h: THEME.button.minH };
+    const w = (sr.w - 48 - 14) / 2;
+    return { x: sr.x + 24 + w + 14, y: rowY(), w, h: THEME.button.minH };
   };
   const headerRect = () => {
     const sr = layout.safeRect;
     return { x: sr.x + 24, y: sr.y + 24, w: 220, h: THEME.button.minH };
   };
   const panelRect = () => {
-    const h = headerRect();
     const sr = layout.safeRect;
-    const y = h.y + h.h + 20;
+    const y = rowY() + THEME.button.minH + 16;
     return { x: sr.x + 16, y, w: sr.w - 32, h: sr.y + sr.h - 24 - y };
   };
   const scroll = new ScrollPanel({ getRect: panelRect });
@@ -186,6 +192,7 @@ export function createSquadScreen({ layout, assets, sheet, club, onBack, onTrain
     rectOf(id) {
       if (id === 'back') return headerRect();
       if (id === 'training') return trainingRect();
+      if (id === 'tactics') return tacticsRect();
       const rects = {};
       scroll.contentHeight = pass(null, null, rects).height;
       const r = rects[id];
@@ -220,6 +227,7 @@ export function createSquadScreen({ layout, assets, sheet, club, onBack, onTrain
     onTap(p) {
       if (hitRect(p, headerRect())) return void onBack();
       if (hitRect(p, trainingRect())) return void onTraining();
+      if (hitRect(p, tacticsRect())) return void onTactics();
       if (!scroll.contains(p)) return;
       const hit = pass(null, scroll.toContent(p)).hit;
       if (hit) openDetail(hit);
@@ -229,10 +237,11 @@ export function createSquadScreen({ layout, assets, sheet, club, onBack, onTrain
       const sr = layout.safeRect;
       drawButton(ctx, hr, '‹ Club', { accent: C.progress });
       drawButton(ctx, trainingRect(), 'Training', { accent: C.action });
+      drawButton(ctx, tacticsRect(), 'Tactics', { accent: C.purple });
       const sq = squad();
       const cl = club()?.data.club;
-      text(ctx, 'Squad', sr.x + sr.w / 2, hr.y + hr.h / 2 - 20, { size: S.title, bold: true, align: 'center', baseline: 'middle' });
-      text(ctx, cl ? `${sq?.players.length ?? 0} + ${sq?.watch.length ?? 0} on the watch list` : '', sr.x + sr.w / 2, hr.y + hr.h / 2 + 34, { size: S.small, color: C.textMuted, align: 'center', baseline: 'middle', maxWidth: sr.w - 560 });
+      text(ctx, 'Squad', sr.x + sr.w / 2 + 60, hr.y + hr.h / 2 - 20, { size: S.title, bold: true, align: 'center', baseline: 'middle' });
+      text(ctx, cl ? `${sq?.players.length ?? 0} + ${sq?.watch.length ?? 0} on the watch list` : '', sr.x + sr.w / 2 + 60, hr.y + hr.h / 2 + 34, { size: S.small, color: C.textMuted, align: 'center', baseline: 'middle', maxWidth: sr.w - 320 });
       const r = panelRect();
       ctx.fillStyle = C.panel;
       ctx.strokeStyle = cl ? colourById(cl.colours.primary).hex : C.outline;

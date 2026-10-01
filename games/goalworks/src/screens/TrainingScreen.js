@@ -168,8 +168,8 @@ export function createTrainingScreen({ layout, assets, sheet, club, onBack, onPl
         {
           title: `Fatigue ${Math.round(p.fatigue)} · Form ${p.form.toFixed(1)} · Morale ${Math.round(p.morale)}`,
           buttons: [
-            { id: 'ind:none', label: 'Team session only', selected: !p.focus, accent: C.progress, onTap: () => ((p.focus = null), sheet.close()) },
-            ...FOCUSES.map((f) => ({ id: `ind:${f.id}`, label: f.name, icon: f.art, selected: p.focus === f.id, accent: f.rest ? C.good : C.purple, onTap: () => ((p.focus = f.id), sheet.close()) })),
+            { id: 'ind:none', label: `${!p.focus ? '✓ ' : ''}Team session only`, selected: !p.focus, accent: C.progress, onTap: () => ((p.focus = null), sheet.close()) },
+            ...FOCUSES.map((f) => ({ id: `ind:${f.id}`, label: `${p.focus === f.id ? '✓ ' : ''}${f.name}`, icon: f.art, selected: p.focus === f.id, accent: f.rest ? C.good : C.purple, onTap: () => ((p.focus = f.id), sheet.close()) })),
           ],
         },
       ],

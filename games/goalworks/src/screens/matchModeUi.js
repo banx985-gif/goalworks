@@ -2,7 +2,8 @@
 //   top right   — the Mode button (WATCH / MANAGE / PLAY); it opens the mode picker: Watch · Manage · Play and the
 //                 Key Moments On / Off setting (the match waits while the picker is open)
 //   bottom      — Watch / Manage: 1× · 2× · Camera (Full → Follow → Close). Manage adds the team-commands panel above it:
-//                 Mentality, Pressing, Tempo, Width — three choices each, the one in force in graphite.
+//                 Mentality, Press, Tempo, Width — three choices each, the one in force in graphite — and (Milestone 9) a
+//                 Tactics button on the bar: the full sheet (formation, all seven instructions, roles; the match waits).
 //   Key Moment  — the offer panel (title, one line, Play it · Skip) at the end of the screen away from the ball; while a
 //                 moment is played, a chip under the score counts down.
 //   createModeUi({ layout, renderer }) → ui
@@ -12,7 +13,7 @@
 import { THEME, font } from '../../../../core/Theme.js';
 import { drawButton, hitRect } from '../../../../core/ui/Button.js';
 import { text } from '../../../../core/ui/Kit.js';
-import { TACTICS, KEY_MOMENTS, MATCH_TIME } from '../../data/match.js';
+import { TACTICS, KEY_MOMENTS, MATCH_TIME, QUICK_TACTICS } from '../../data/match.js';
 import { CAMERAS } from '../match/matchDirector.js';
 
 const C = THEME.color;
@@ -21,9 +22,9 @@ const BH = THEME.button.minH;
 const MODE_NAME = { watch: 'Watch', manage: 'Manage', play: 'Play' };
 const MODE_LINE = { watch: 'The team plays · camera and 1× / 2×', manage: 'The team plays to your orders', play: 'You play: stick + Pass / Shoot / Tackle' };
 const CAMERA_NAME = { full: 'Full pitch', follow: 'Follow', close: 'Close' };
-const TAC_KEYS = Object.keys(TACTICS);
+const TAC_KEYS = QUICK_TACTICS; // (Milestone 9: the four quick ones stay below the pitch; the full set is in the Tactics sheet)
 
-export function createModeUi({ layout, renderer }) {
+export function createModeUi({ layout, renderer, onTactics = null }) {
   let picker = false;
   let flash = null; // { text, t } — a short note after a team command
 
@@ -36,14 +37,15 @@ export function createModeUi({ layout, renderer }) {
     return { menu, mode, score: { x, y: r.y + 24, w: mode.x - 16 - x, h: 150 } };
   };
   const barY = () => sr().y + sr().h - 24 - BH;
-  const bar = () => {
+  const bar = (manage = false) => {
     const r = sr();
-    const ws = [150, 150, 340];
-    const gap = 20;
-    let x = r.x + (r.w - (ws[0] + ws[1] + ws[2] + gap * 2)) / 2;
+    const ids = manage && onTactics ? ['speed1', 'speed2', 'camera', 'tactics'] : ['speed1', 'speed2', 'camera'];
+    const ws = manage && onTactics ? [130, 130, 360, 240] : [150, 150, 340];
+    const gap = manage && onTactics ? 16 : 20;
+    let x = r.x + (r.w - (ws.reduce((a, b) => a + b, 0) + gap * (ws.length - 1))) / 2;
     const y = barY();
     const out = {};
-    ['speed1', 'speed2', 'camera'].forEach((id, i) => {
+    ids.forEach((id, i) => {
       out[id] = { x, y, w: ws[i], h: BH };
       x += ws[i] + gap;
     });
@@ -110,7 +112,7 @@ export function createModeUi({ layout, renderer }) {
       if (d.km?.state === 'offer') return Object.assign(out, promptRects(ballY));
       if (picker) return Object.assign(out, pickerRects());
       if (d.mode !== 'play') {
-        Object.assign(out, bar());
+        Object.assign(out, bar(d.mode === 'manage'));
         if (d.mode === 'manage') {
           out.panel = panel();
           for (const g of segs()) for (const o of g.opts) out[o.id] = o.r;
@@ -142,7 +144,8 @@ export function createModeUi({ layout, renderer }) {
         return true;
       }
       if (d.mode === 'play') return false;
-      const b = bar();
+      const b = bar(d.mode === 'manage');
+      if (b.tactics && hitRect(p, b.tactics)) return onTactics(), true;
       if (hitRect(p, b.speed1)) return d.setSpeed(1), true;
       if (hitRect(p, b.speed2)) return d.setSpeed(2), true;
       if (hitRect(p, b.camera)) return d.setCamera(CAMERAS[(CAMERAS.indexOf(d.camera) + 1) % CAMERAS.length]), true;
@@ -166,9 +169,10 @@ export function createModeUi({ layout, renderer }) {
       // the Mode button
       drawButton(ctx, t.mode, `${MODE_NAME[d.mode].toUpperCase()} ▾`, { accent: d.mode === 'play' ? C.action : d.mode === 'manage' ? C.purple : C.progress, font: font(S.small, true) });
       if (d.mode !== 'play') {
-        const b = bar();
+        const b = bar(d.mode === 'manage');
         for (const s of MATCH_TIME.speeds) drawButton(ctx, b[`speed${s}`], `${s}×`, { accent: C.progress, selected: d.speed === s, disabled: world.done });
         drawButton(ctx, b.camera, `Camera: ${CAMERA_NAME[d.camera]}`, { accent: C.progress, disabled: world.done });
+        if (b.tactics) drawButton(ctx, b.tactics, 'Tactics', { accent: C.purple, disabled: world.done });
         if (d.mode === 'manage') drawManage(ctx, d);
       }
       if (d.km?.state === 'live') drawChip(ctx, d);

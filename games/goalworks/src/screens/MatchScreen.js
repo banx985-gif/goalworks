@@ -64,7 +64,7 @@ const LINE = '#F4F8EE';
 const MINE = '#FFE14A'; // the ring under the player you control
 const CLOSE = 1.35; // the Close camera: this much nearer than Follow
 
-export function createMatchScreen({ renderer, layout, assets, bus = null, input = null, live, onMenu, onContinue, onReplay = null, onProgress = () => {} }) {
+export function createMatchScreen({ renderer, layout, assets, bus = null, input = null, live, onMenu, onContinue, onReplay = null, onProgress = () => {}, onTactics = null, held = () => false }) {
   const W = renderer.width;
   let k = 10; // pixels per metre
   let ox = 0;
@@ -80,7 +80,7 @@ export function createMatchScreen({ renderer, layout, assets, bus = null, input 
   let shown = ''; // the mode + camera the layout was fitted for
   let offMove = null;
   const controls = createMatchControls({ layout, input });
-  const ui = createModeUi({ layout, renderer });
+  const ui = createModeUi({ layout, renderer, onTactics }); // (M9: Manage's Tactics button)
   const playing = () => !!live()?.world?.control;
   const camera = () => (playing() ? 'follow' : live()?.director?.camera ?? 'full');
   let lastEvent = 0;
@@ -698,7 +698,7 @@ export function createMatchScreen({ renderer, layout, assets, bus = null, input 
       const d = lv.director;
       syncMode();
       if (world.control) controls.sweep();
-      if (!world.done && !ui.pickerOpen && !lv.hold) {
+      if (!world.done && !ui.pickerOpen && !lv.hold && !held()) {
         // one match step per loop step at 1×, two at 2× (Play: 1×, and this step's stick and buttons go in first); the
         // director may hold the match (a Key Moment offer) or change the mode between steps
         for (let i = 0; i < d.speed; i++) {

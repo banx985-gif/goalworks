@@ -11,7 +11,13 @@
 // decisions — where the block stands and how high (mentality, pressing), how many press and how often they tackle
 // (pressing), how long the carrier holds it and how the ball is played (tempo), how far across the shape reaches (width).
 // Every change is guarded so the Balanced / Normal defaults run the exact Milestone 3 arithmetic and dice.
+// Milestone 9 (bible §15): the rest of the team instructions (defensive line, attack focus, build style) through the same
+// world.fx; each player's formation slot (his zone box, p.zone) and his role's nudges (p.nudge, data/tactics.js ROLES:
+// where in his zone he stands, his runs, his choices on the ball, how often he presses, how far out a keeper stands); and
+// tactical familiarity (fx.famPen: extra positioning drift and execution error for an unfamiliar formation / style).
+// All guarded the same way: a 4-4-2 on the defaults with its default roles is still the Milestone 3 match.
 import { PITCH, MATCH_TIME } from '../../data/match.js';
+import { FAMILIARITY } from '../../data/tactics.js';
 import { predictBall, rollDistance, ballSpeed } from './ballPhysics.js';
 
 const W = PITCH.w;
@@ -38,6 +44,9 @@ export function pressureOn(world, p) {
   return crowd === 1 ? s : s * crowd; // width / tempo: how much room the team's shape and speed buy its players
 }
 
+// (M9) Is the team still in the first seconds after winning the ball (a counter-attacking side breaks then)?
+const counterOn = (world, team) => world.wonAt?.[team] != null && world.possTeam === team && (world.steps - world.wonAt[team]) * DT < world.fx[team].counter;
+
 // --- the zone: where a player stands when nothing else calls ---------------------------------------------------------
 function anchor(world, p) {
   const T = world.T;
@@ -54,11 +63,20 @@ function anchor(world, p) {
   }
   if (f.line) a += f.line * (p.role === 'FW' ? f.fwLine : 1); // mentality: the whole block higher (−) or deeper (+)
   if (f.drop && !own) a += f.drop; // pressing: where the block waits without the ball
-  const [lo, hi] = ROLE_A[p.role];
+  if (f.defLine && p.role !== 'FW') a += f.defLine * (p.role === 'DF' ? 1 : 0.5); // defensive line: the back line (and half of it for the midfield)
+  // attack focus down a flank: that side's full-back joins in (and leaves space behind him)
+  if (own && f.focusX != null && f.focusX !== 0.5 && p.role === 'DF' && Math.abs(p.fx - f.focusX) < 0.3) a -= 7;
+  const n = p.nudge; // (Milestone 9) his role
+  if (n) {
+    if (n.aShift) a += n.aShift;
+    if (own && n.aOwn) a += n.aOwn; // e.g. a wingback overlapping, a false nine dropping deep
+  }
+  const [lo, hi] = p.zone?.a ?? ROLE_A[p.role];
   a = clamp(a + p.offA, lo, hi);
   const bx = world.dir(p.team) < 0 ? ball.x : W - ball.x; // ball across, in the team's view
   const spread = own ? f.spread : f.spreadOff; // width: how far across the shape reaches (with / without the ball)
-  const x0 = spread === 1 ? p.fx * W : W / 2 + (p.fx - 0.5) * W * spread;
+  let x0 = spread === 1 ? p.fx * W : W / 2 + (p.fx - 0.5) * W * spread;
+  if (own && n?.xIn) x0 += Math.sign(W / 2 - x0) * n.xIn * W; // an inside forward cuts in, a wingback hugs the line
   const shift = f.shift === 1 ? T.shape.shiftX : T.shape.shiftX * f.shift;
   const fx = clamp((x0 + (bx - W / 2) * shift + p.offX) / W, 0.04, 0.96);
   return world.toWorld(p.team, fx, a);
@@ -69,7 +87,8 @@ function keeperSpot(world, p) {
   const g = world.ownGoal(p.team);
   const b = world.ball;
   const d = Math.max(0.01, dist(g, b));
-  const out = clamp(d * 0.12, 1.2, 5.5);
+  let out = clamp(d * 0.12, 1.2, 5.5);
+  if (p.nudge?.keeperOut) out = clamp(out * p.nudge.keeperOut, 1.2, 10); // a sweeper keeper stands further off his line
   return { x: g.x + ((b.x - g.x) / d) * out, y: g.y + ((b.y - g.y) / d) * out };
 }
 
@@ -118,15 +137,26 @@ export function think(world) {
     // Support runs: a new offset now and then (staggered by index).
     if ((s + p.i * 5) % N === 0) {
       const own = world.owner ? world.owner.team === p.team : false;
+      const f = world.fx[p.team];
       if (own && p.role !== 'GK') {
         let run = p.role === 'FW' ? 10 : p.role === 'MF' ? 6 : 2;
-        const runs = world.fx[p.team].runs;
+        const runs = f.runs;
         if (runs !== 1) run *= runs; // mentality: longer / shorter runs forward
+        if (p.nudge?.runs) run *= p.nudge.runs; // (M9) his role: a holding player barely goes, an attacking mid goes far
+        if (f.counter && counterOn(world, p.team)) run *= 1.4; // a counter: everyone breaks forward
+        if (f.focusX != null && Math.abs(p.fx - f.focusX) > 0.45) run *= 0.7; // the flank away from the focus is left thin
         p.offA = -rng.range(0, run);
         p.offX = rng.range(-5, 5);
+        if (f.focusX != null) p.offX += (f.focusX - p.fx) * W * 0.22; // support leans towards the focus
       } else {
         p.offA = 0;
         p.offX = rng.range(-2, 2);
+      }
+      if (f.famPen) {
+        // an unfamiliar shape: players drift out of position
+        const dr = FAMILIARITY.drift * f.famPen;
+        p.offA += rng.range(-dr, dr);
+        p.offX += rng.range(-dr, dr);
       }
     }
     // Tackling: a presser in reach has a go now and then.
@@ -151,7 +181,7 @@ function pickChasers(world) {
   const ball = world.ball;
   for (const team of [0, 1]) {
     const list = [];
-    for (const p of world.players) if (p.team === team && p.role !== 'GK' && p !== world.owner) list.push({ p, d: dist(p, ball) });
+    for (const p of world.players) if (p.team === team && p.role !== 'GK' && p !== world.owner) list.push({ p, d: p.nudge?.chase ? dist(p, ball) * p.nudge.chase : dist(p, ball) });
     list.sort((a, b) => a.d - b.d || a.p.i - b.p.i);
     world.chasers[team] = list.slice(0, Math.max(T.chasers, world.fx[team].press === 'double' ? 3 : 0)).map((e) => e.p);
   }
@@ -165,7 +195,7 @@ function target(world, p) {
     p.mode = 'keeper';
     const k = keeperSpot(world, p);
     // a loose ball in its own box: go and claim it
-    if (!owner && inOwnBox(world, p, ball) && ball.z < 2.4) {
+    if (!owner && (inOwnBox(world, p, ball) || (p.nudge?.keeperOut && dist(world.ownGoal(p.team), ball) < 26)) && ball.z < 2.4) {
       const q = meetBall(world, p);
       p.tx = q.x;
       p.ty = q.y;
@@ -371,7 +401,8 @@ function ownerDecide(world, p, restartType) {
   p.dribble = null;
   const best = chooseOption(world, p, restartType, press, (a, b) => rng.range(a, b), (c) => rng.next() < c);
   if (best.kind === 'shoot') return shoot(world, p, press);
-  if (best.kind === 'pass' && best.to) return pass(world, p, best.to, press, best.lane < 1.5 || best.d > T.pass.loftOver || restartType === 'corner' || restartType === 'goalkick');
+  const loftOver = world.fx[p.team].loftOver || T.pass.loftOver; // (M9) a direct side lofts it from nearer
+  if (best.kind === 'pass' && best.to) return pass(world, p, best.to, press, best.lane < 1.5 || best.d > loftOver || restartType === 'corner' || restartType === 'goalkick');
   if (best.kind === 'pass') return clear(world, p);
   p.dribble = dribbleTarget(world, p);
 }
@@ -384,6 +415,7 @@ export function chooseOption(world, p, restartType, press, noise, chance) {
   const f = world.fx[p.team];
   const g = world.goalOf(p.team);
   const dG = dist(p, g);
+  const n = p.nudge; // (M9) his role
 
   // Shoot?
   let best = { kind: 'dribble', score: -Infinity };
@@ -391,6 +423,7 @@ export function chooseOption(world, p, restartType, press, noise, chance) {
     const angle = Math.abs(p.x - W / 2) / Math.max(1, Math.abs(p.y - g.y)); // wide angles are poor
     let sc = Math.pow(1 - dG / T.shot.range, 1.1) * 1.35 + T.shot.eager + (dG < 12 ? T.shot.closeBonus : 0) - press * 0.12 - Math.max(0, angle - 0.9) * 0.6;
     if (f.shot) sc += f.shot;
+    if (n?.shot) sc += n.shot;
     sc += noise(-0.15, 0.15);
     best = { kind: 'shoot', score: sc };
   }
@@ -400,10 +433,16 @@ export function chooseOption(world, p, restartType, press, noise, chance) {
     for (const o of world.players) if (o.team !== p.team) space = Math.min(space, dist(o, p));
     let sc = 0.3 + (space / 10) * 0.45 - press * 0.25 + (p.role === 'FW' || p.role === 'MF' ? 0.05 : -0.1) + noise(-0.12, 0.12);
     if (f.dribble) sc += f.dribble;
+    if (n?.dribble) sc += n.dribble;
     if (sc > best.score) best = { kind: 'dribble', score: sc };
   }
   // Pass? (every team-mate, scored on progress, how free they are and how clear the lane is)
   const myA = world.aOf(p.team, p.y);
+  // (M9) how much a forward pass is worth now: the team's style × his role × a counter burst
+  let prog = f.progress;
+  if (n?.progress) prog *= n.progress;
+  if (f.counter && counterOn(world, p.team)) prog *= 1.5;
+  const dirX = world.dir(p.team) < 0 ? 1 / W : -1 / W; // (team view across: 0 left … 1 right)
   for (const q of world.players) {
     if (q.team !== p.team || q === p) continue;
     const d = dist(p, q);
@@ -417,8 +456,14 @@ export function chooseOption(world, p, restartType, press, noise, chance) {
       free = Math.min(free, dist(o, q));
       lane = Math.min(lane, segDist(o, p, q));
     }
-    let sc = (f.progress === 1 ? 0.45 * progress : 0.45 * f.progress * progress) + 0.5 * (free / 8) + 0.35 * (lane / 5) - d / 90 + noise(-0.18, 0.18);
+    let sc = (prog === 1 ? 0.45 * progress : 0.45 * prog * progress) + 0.5 * (free / 8) + 0.35 * (lane / 5) - d / 90 + noise(-0.18, 0.18);
     if (f.passBias && !restartType) sc += f.passBias;
+    if (n?.passBias && !restartType) sc += n.passBias;
+    if (q.nudge?.target && d > 18) sc += q.nudge.target; // a long ball up to the target forward
+    if (f.focusX != null && !restartType) {
+      const qx = dirX > 0 ? q.x * dirX : 1 + q.x * dirX; // q across, as the team sees it
+      sc += f.focusW * (1 - Math.min(1, Math.abs(qx - f.focusX) * 2.5)) - f.focusW * 0.3; // the focus side scores, the rest less
+    }
     if (restartType === 'corner') sc += inBoxOf(world, p.team, q) ? 1 : -1;
     if (restartType === 'goalkick') sc += q.role === 'MF' || q.role === 'FW' ? 0.4 : 0;
     if (restartType === 'kickoff') sc += progress < 0 ? 0.6 : -0.6;
@@ -476,7 +521,7 @@ export function pass(world, p, q, press, lofted, aim = null) {
   const d = Math.hypot(tx - p.x, ty - p.y);
   const err = aimError(world, f.err === 1 ? P.errDeg : P.errDeg * f.err, p.stats.passing, press);
   world.stats[p.team].passes++;
-  if (aim ? aim.loft : lofted && world.rng.next() < P.loftChance + (d > P.loftOver ? 0.3 : 0)) {
+  if (aim ? aim.loft : lofted && world.rng.next() < P.loftChance + (d > P.loftOver ? 0.3 : 0) + f.loft) {
     const flight = 0.7 + d / 28;
     kick(world, p, tx - p.x, ty - p.y, (d / flight) * 1.02, (T.ball.gravity * flight) / 2, err);
   } else {

@@ -35,6 +35,11 @@
 // focuses, XP into the core stats, fatigue, form and morale drifting; no training on match days or the weekly day off);
 // after a match, fatigue for the XI and form / morale from the result, minutes and role. The Training screen
 // (src/screens/TrainingScreen.js) opens from the Training Pitch sheet and the Squad screen. Condition feeds the match.
+// Milestone 9: the club's tactics (src/systems/tactics.js: formation, seven team instructions, roles, hand-picked players,
+// familiarity per formation + build style) go into each fixture; the opponent plays its own formation / style
+// (data/tactics.js CLUB_TACTICS). Changes in Manage (formation, instructions, roles) are remembered for the next match.
+// Familiarity grows on training days and matches in the chosen pair and fades for the others. The Tactics screen
+// (src/screens/TacticsScreen.js) opens from the Squad screen and the Manager Office; Manage opens a Tactics sheet.
 // Add ?debug=1 for the FPS/state overlay, ?screen=test for the scaling / tap / asset-loader test screen, ?screen=match
 // (&seed=…, &mode=watch|manage|play, &km=1 for Key Moment prompts, &stats=35,70 for flat home,away test stats) for a
 // test match between two test teams (never saved). With ?debug=1, &safe=phone|tablet stands in a notch and home bar (safe-area insets) on any screen.
@@ -72,6 +77,11 @@ import { createMatchScreen } from './screens/MatchScreen.js';
 import { createSquadScreen } from './screens/SquadScreen.js';
 import { createTrainingScreen } from './screens/TrainingScreen.js';
 import { trainDay, applyMatch, normaliseTraining } from './systems/training.js';
+import { normaliseTactics, familiarityDay, familiarityMatch, teamSide, opponentSide, setRole as setClubRole } from './systems/tactics.js';
+import { pairKey, FORMATIONS, formationById, rolesForSlot, ROLES } from '../data/tactics.js';
+import { TACTICS } from '../data/match.js';
+import { POSITIONS } from '../data/setup.js';
+import { createTacticsScreen } from './screens/TacticsScreen.js';
 import { ensureSquad, validateSquad, xiForMatch, opponentSquad } from './systems/squad.js';
 import { createMatchSetup } from './match/lineups.js';
 import { createMatchWorld, restoreMatchWorld, matchResult, MODES } from './match/matchWorld.js';
@@ -225,6 +235,7 @@ function openRun(n, data) {
   // (a save from before Milestone 7: its squad is generated once, from its Founder, and saved)
   if (ensureSquad(data)) setTimeout(() => autosave.request('squad:generated'), 0);
   normaliseTraining(data); // (an M7 save: the training plan and everyone's fatigue / form / morale start neutral)
+  normaliseTactics(data); // (an M8 save: 4-4-2 Balanced, its M5 commands carried across, familiar with that pair only)
   if (debug.enabled) {
     const errs = validateSquad(data.squad, data.club.founder.id);
     debug.log(errs.length ? `squad: ${errs.join('; ')}` : `squad: ${data.squad.players.length} + ${data.squad.watch.length} ok`);
@@ -245,6 +256,7 @@ bus.on('clock:day', () => {
   if (!open?.data?.squad || router.currentName === 'match') return;
   const c = open.calendar;
   const r = trainDay(open.data, { day: c.clock.totalDays, matchDay: c.atKickoff });
+  familiarityDay(open.data, r.kind); // (M9) the chosen formation / style grows on training days; the others fade
   if (debug.enabled && r.kind !== 'train') debug.log(`training: ${r.kind} (day ${c.clock.totalDays})`);
 });
 // Autosave (core/Autosave) at the bible §36 boundaries that exist now: each in-game week, match commitment, pre-kickoff,
@@ -473,7 +485,14 @@ function directorFor(world, saved = null) {
     prompts: prefs().keyMoments !== false,
     onChange: (why) => {
       if (why === 'prompts') prefs().keyMoments = d.prompts;
-      if (why === 'tactic' && open && match?.mode === 'fixture') open.data.tactics = { ...world.tactics[0] };
+      // the club remembers what it changed in Manage for the next match (M9: instructions, formation and roles)
+      if ((why === 'tactic' || why === 'formation' || why === 'role') && open && match?.mode === 'fixture') {
+        const t = normaliseTactics(open.data);
+        t.instr = { ...world.tactics[0] };
+        t.formation = world.formation[0];
+        const roles = world.players.filter((p) => p.team === 0);
+        for (const p of roles) setClubRole(open.data, p.slot, p.tRole);
+      }
       if (why !== 'camera' && why !== 'speed') debug.log(`match: ${why}`);
       matchProgress(world, `match:${why}`);
     },
@@ -500,8 +519,8 @@ function fixtureSides(club, opp) {
 // for this fixture).
 function fixtureXIs(data, fixture) {
   return {
-    home: xiForMatch(data.squad.players),
-    away: xiForMatch(opponentSquad({ seed: `${data.seed}:${fixture.id}`, clubId: fixture.opponent.id }).players),
+    home: teamSide(data).players, // (M9) in the club's formation, with its hand-picked players
+    away: xiForMatch(opponentSquad({ seed: `${data.seed}:${fixture.id}`, clubId: fixture.opponent.id }).players, { formation: opponentSide(fixture.opponent.id).formation }),
   };
 }
 // Kick off: the seed and line-ups are fixed now and saved with the campaign; reopening resumes the same match.
@@ -515,7 +534,13 @@ function kickOff(mode = 'watch') {
     const sides = fixtureSides(open.data.club, f.opponent);
     const xi = fixtureXIs(open.data, f);
     const setup = createMatchSetup({ seed: `${open.data.seed}:${f.id}`, home: { ...sides.home, players: xi.home }, away: { ...sides.away, players: xi.away } });
-    if (open.data.tactics) setup.tactics = [{ ...open.data.tactics }, {}];
+    // (M9) both sides' formations, instructions, our roles and familiarity
+    const ours = teamSide(open.data);
+    const theirs = opponentSide(f.opponent.id);
+    setup.formation = [ours.formation, theirs.formation];
+    setup.tactics = [ours.tactics, theirs.tactics];
+    setup.roles = [ours.roles, []];
+    setup.familiarity = [ours.familiarity, null];
     const world = createMatchWorld(setup, { start: mode });
     open.data.match = { fixtureId: f.id, ...world.serialize(), director: createMatchDirector(world, { prompts: prefs().keyMoments !== false }).serialize() };
     autosave.request('match:kickoff');
@@ -554,6 +579,8 @@ function matchFinished(world) {
   const r = matchResult(world);
   // Milestone 8: the XI tire; form and morale follow the result, minutes and roles
   if (open.data.squad) applyMatch(open.data, { xiIds: world.setup.home.players.map((p) => p.id).filter(Boolean), score: r.score, scorers: r.scorers });
+  // (M9) familiarity: the formation / style the match started in
+  if (world.setup.formation) familiarityMatch(open.data, pairKey(world.setup.formation[0], world.setup.tactics?.[0]?.build ?? 'balanced'));
   open.data.match = null;
   match = null;
   open.setupShown = false;
@@ -571,6 +598,33 @@ async function leaveMatch() {
     router.go('menu');
   }
 }
+// Milestone 9: Manage's Tactics sheet — formation, all seven team instructions and each slot's role (the one in force
+// ticked, as in the other games' sheets); the match waits while
+// it is open; every change goes through the director (logged in the match timeline, remembered by the club).
+function openMatchTactics() {
+  const d = match?.director;
+  if (!d) return;
+  sheet.open(() => {
+    const dd = match?.director;
+    if (!dd) return null;
+    const tac = dd.tactics();
+    const fm = formationById(dd.formation());
+    const roles = dd.rolesNow();
+    const w = match.world;
+    const names = w.players.filter((p) => p.team === 0).sort((a, b) => a.slot - b.slot).map((p) => p.name.split(' ').slice(-1)[0]);
+    return {
+      title: 'Tactics',
+      subtitle: `${fm.name} · the match waits while this is open`,
+      art: 'training_tactic_14',
+      accent: COL.purple,
+      sections: [
+        { title: 'Formation', columns: 4, buttons: FORMATIONS.map((x) => ({ id: `m:formation:${x.id}`, label: `${x.id === fm.id ? '✓ ' : ''}${x.name}`, selected: x.id === fm.id, accent: COL.progress, onTap: () => dd.setFormation(x.id) })) },
+        ...Object.entries(TACTICS).map(([k, def]) => ({ title: def.label, columns: def.options.length, buttons: def.options.map((o, i) => ({ id: `m:${k}:${o}`, label: `${tac[k] === o ? '✓ ' : ''}${def.names[i]}`, selected: tac[k] === o, accent: COL.purple, onTap: () => dd.setTactic(k, o) })) })),
+        ...fm.slots.map((sl, i) => ({ title: `${i + 1}. ${names[i] ?? ''} · ${POSITIONS[sl.pos].name}`, columns: 3, buttons: rolesForSlot(sl).map((r) => ({ id: `m:role:${i}:${r}`, label: `${roles[i] === r ? '✓ ' : ''}${ROLES[r].name}`, selected: roles[i] === r, accent: COL.action, onTap: () => dd.setRole(i, r) })) })),
+      ],
+    };
+  });
+}
 const matchScreen = createMatchScreen({
   renderer,
   layout,
@@ -582,6 +636,8 @@ const matchScreen = createMatchScreen({
   onContinue: (world) => matchFinished(world),
   onReplay: () => startTestMatch(`test-${Date.now()}`, match?.director?.userMode ?? 'watch'),
   onProgress: (world, reason) => matchProgress(world, reason),
+  onTactics: () => openMatchTactics(),
+  held: () => sheet.active, // (the match waits while a sheet is open over it)
 });
 function playPlaceholder() {
   const r = open?.calendar.playResult();
@@ -589,13 +645,20 @@ function playPlaceholder() {
   open.setupShown = false;
   sheet.close();
 }
-const squadScreen = createSquadScreen({ layout, assets, sheet, club: () => open, onBack: () => router.go('club'), onTraining: () => openTraining('squad') });
+const squadScreen = createSquadScreen({ layout, assets, sheet, club: () => open, onBack: () => router.go('club'), onTraining: () => openTraining('squad'), onTactics: () => openTactics('squad') });
 let trainingBack = 'club';
 function openTraining(from = 'club') {
   trainingBack = from;
   sheet.close();
   router.go('training');
 }
+let tacticsBack = 'club';
+function openTactics(from = 'club') {
+  tacticsBack = from;
+  sheet.close();
+  router.go('tactics');
+}
+const tacticsScreen = createTacticsScreen({ layout, assets, sheet, club: () => open, onBack: () => router.go(tacticsBack), onPlayer: (id) => squadScreen.openDetail(id) });
 const trainingScreen = createTrainingScreen({ layout, assets, sheet, club: () => open, onBack: () => router.go(trainingBack), onPlayer: (id) => squadScreen.openDetail(id) });
 const clubScreen = createClubScreen({
   renderer,
@@ -609,7 +672,7 @@ const clubScreen = createClubScreen({
   calendar,
   onMatchSetup: () => openMatchSetup(),
   onTeam: () => router.go('squad'),
-  extraSections: (id) => (id === 'pitch' ? [{ title: 'Training', lines: ['Team session, intensity and individual focuses.'], buttons: [{ id: 'training', label: 'Training', accent: COL.action, onTap: () => openTraining('club') }] }] : id === 'office' ? [{ title: 'Fixtures', lines: ['Temporary Test Challenge until the league arrives.'], buttons: [{ id: 'fixtures', label: 'Fixtures (test)', accent: COL.action, onTap: () => openFixtures() }] }] : []),
+  extraSections: (id) => (id === 'pitch' ? [{ title: 'Training', lines: ['Team session, intensity and individual focuses.'], buttons: [{ id: 'training', label: 'Training', accent: COL.action, onTap: () => openTraining('club') }] }] : id === 'office' ? [{ title: 'Tactics', lines: ['Formation, team instructions, roles and familiarity.'], buttons: [{ id: 'tactics', label: 'Tactics', accent: COL.purple, onTap: () => openTactics('club') }] }, { title: 'Fixtures', lines: ['Temporary Test Challenge until the league arrives.'], buttons: [{ id: 'fixtures', label: 'Fixtures (test)', accent: COL.action, onTap: () => openFixtures() }] }] : []),
 });
 
 // ---------------------------------------------------------------------------
@@ -656,11 +719,12 @@ router
   .register('match', matchScreen)
   .register('squad', squadScreen)
   .register('training', trainingScreen)
+  .register('tactics', tacticsScreen)
   .register('test', createTestScreen({ renderer, layout, assets, openSheet: () => sheet.open(testSheet), onTapLogged: (p) => window.__gw?.taps.push({ x: p.x, y: p.y }) }));
 
 // ?debug=1: a test hook for automated checks.
 if (debug.enabled) {
-  window.__gw = { renderer, layout, input, loop, router, assets, sheet, dialog, systemBack, textPrompt, splashScreen, menuScreen, slotsScreen, setupScreen, clubScreen, squadScreen, trainingScreen, openTraining, playSlot, startClub, deleteSlot, newGame, openFixtures, openMatchSetup, playPlaceholder, kickOff, startTestMatch, matchScreen, restoreMatchWorld, get match() { return match; }, toggleSpeedFlag, autosave, saveRun, get account() { return account; }, taps: [], get campaigns() { return campaigns; }, get open() { return open; } };
+  window.__gw = { renderer, layout, input, loop, router, assets, sheet, dialog, systemBack, textPrompt, splashScreen, menuScreen, slotsScreen, setupScreen, clubScreen, squadScreen, trainingScreen, openTraining, tacticsScreen, openTactics, openMatchTactics, playSlot, startClub, deleteSlot, newGame, openFixtures, openMatchSetup, playPlaceholder, kickOff, startTestMatch, matchScreen, restoreMatchWorld, get match() { return match; }, toggleSpeedFlag, autosave, saveRun, get account() { return account; }, taps: [], get campaigns() { return campaigns; }, get open() { return open; } };
 }
 
 router.go('boot');

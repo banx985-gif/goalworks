@@ -100,18 +100,37 @@ export const TUNING = {
 //   Defensive 0.74–0.89 · Attacking 2.58–2.60 · Low press 1.02–1.03 · High press 1.64–2.00 · Slow 1.43–1.36 (fewer
 //   passes, more of the ball) · Fast 1.15–1.15 (more passes, less of the ball) · Narrow 0.98–0.91 · Wide 1.36–1.53.
 // (The full tactics library — formations, roles, familiarity — is Milestone 9.)
+// Milestone 9 (bible §15, the full set): seven team instructions. Pressing became Press (Normal → Mid) and Width's Normal
+// became Balanced; Defensive line, Attack focus and Build style are new. TACTIC_ALIASES maps the M5 names so old saves
+// and timelines read across. The new ones, in the same terms as above:
+//   line       defLine: metres the back line sits deeper (+) or higher (−) (the midfield follows by half) · deep: the block
+//              also drops (drop) and stands off a little (zone); high: steps up to squeeze (tackleEvery)
+//   focus      focusX: where across (its own view, 0 left … 1 right) the team looks to play: support runs lean that way
+//              and a pass there scores focusW more; the other flank is left thin (runs elsewhere shorter); play funnelled
+//              into one zone meets a crowded box (shotErr ×) and more pressure on the ball (crowd ×)
+//   build      possession: patient short passing (passBias, progress ×, err ×, hold) · counter: after winning the ball a
+//              quick forward burst (counter: seconds it lasts; progress × and runs × during it), and a deeper wait
+//              without the ball · direct: straight up the pitch, early long balls (progress ×, loft: + lofted chance,
+//              loftOver: lofts from this far, err ×)
 export const TACTICS = {
   mentality: { label: 'Mentality', options: ['defensive', 'balanced', 'attacking'], names: ['Defensive', 'Balanced', 'Attacking'], def: 'balanced' },
-  pressing: { label: 'Pressing', options: ['low', 'normal', 'high'], names: ['Low', 'Normal', 'High'], def: 'normal' },
   tempo: { label: 'Tempo', options: ['slow', 'normal', 'fast'], names: ['Slow', 'Normal', 'Fast'], def: 'normal' },
-  width: { label: 'Width', options: ['narrow', 'normal', 'wide'], names: ['Narrow', 'Normal', 'Wide'], def: 'normal' },
+  press: { label: 'Press', options: ['low', 'mid', 'high'], names: ['Low', 'Mid', 'High'], def: 'mid' },
+  line: { label: 'Defensive line', options: ['deep', 'normal', 'high'], names: ['Deep', 'Normal', 'High'], def: 'normal' },
+  width: { label: 'Width', options: ['narrow', 'balanced', 'wide'], names: ['Narrow', 'Balanced', 'Wide'], def: 'balanced' },
+  focus: { label: 'Attack focus', options: ['left', 'centre', 'right', 'mixed'], names: ['Left', 'Centre', 'Right', 'Mixed'], def: 'mixed' },
+  build: { label: 'Build style', options: ['possession', 'counter', 'direct', 'balanced'], names: ['Possession', 'Counter', 'Direct', 'Balanced'], def: 'balanced' },
 };
+// The M5 names → the bible's (a save, a timeline or the club's remembered commands from before Milestone 9).
+export const TACTIC_ALIASES = { pressing: { key: 'press', values: { normal: 'mid' } }, width: { key: 'width', values: { normal: 'balanced' } } };
+// The four quick commands the Manage panel keeps below the pitch (the rest live in the Tactics sheet).
+export const QUICK_TACTICS = ['mentality', 'press', 'tempo', 'width'];
 export const TACTIC_FX = {
   mentality: {
     defensive: { line: 4, fwLine: 0, runs: 0.85, push: 0.8 },
     attacking: { line: -4, runs: 1.3, push: 1.35, shot: 0.05, progress: 1.15 },
   },
-  pressing: {
+  press: {
     low: { press: 'contain', zone: 45, drop: 6, tackleEvery: 11 },
     high: { press: 'double', zone: 50, drop: -3, tackleEvery: 7 },
   },
@@ -123,9 +142,23 @@ export const TACTIC_FX = {
     narrow: { spread: 0.92, spreadOff: 0.9, shift: 1.1, shotErr: 2.0, runs: 0.9 },
     wide: { spread: 1.1, spreadOff: 1.03, shift: 0.9, shotErr: 0.6, runs: 1.25 },
   },
+  line: {
+    deep: { defLine: 7, drop: 3 },
+    high: { defLine: -7, tackleEvery: 8 },
+  },
+  focus: {
+    left: { focusX: 0.2, focusW: 0.09, shotErr: 1.2, crowd: 1.08 },
+    centre: { focusX: 0.5, focusW: 0.09, shotErr: 1.4, crowd: 1.1 },
+    right: { focusX: 0.8, focusW: 0.09, shotErr: 1.2, crowd: 1.08 },
+  },
+  build: {
+    possession: { passBias: 0.05, progress: 0.85, err: 0.8, hold: 10, shield: 0.05 },
+    counter: { counter: 4, drop: 3 },
+    direct: { progress: 1.3, loft: 0.3, loftOver: 16, err: 1.2 },
+  },
 };
-// The Balanced / Normal values every option starts from (the Milestone 3 engine exactly).
-export const FX_BASE = { line: 0, runs: 1, push: 1, shot: 0, progress: 1, press: 'normal', drop: 0, tackleEvery: 9, decide: 1, hold: 8, dribble: 0, passBias: 0, err: 1, zip: 0, spread: 1, spreadOff: 1, shift: 1, crowd: 1, fwLine: 0.6, zone: 40, shotErr: 1, shield: 0 };
+// The Balanced / Normal / Mid / Mixed values every option starts from (the Milestone 3 engine exactly).
+export const FX_BASE = { line: 0, runs: 1, push: 1, shot: 0, progress: 1, press: 'normal', drop: 0, tackleEvery: 9, decide: 1, hold: 8, dribble: 0, passBias: 0, err: 1, zip: 0, spread: 1, spreadOff: 1, shift: 1, crowd: 1, fwLine: 0.6, zone: 40, shotErr: 1, shield: 0, defLine: 0, focusX: null, focusW: 0, counter: 0, loft: 0, loftOver: 0, famPen: 0 };
 
 // Key Moments (Milestone 5, bible §17): in Watch / Manage the match pauses and offers a short jump into Play. A moment
 // lasts at least minSec of play (unless the half ends) and at most maxSec, and after minSec it hands back at the next dead

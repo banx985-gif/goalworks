@@ -5,7 +5,7 @@
 //     d.userMode — the mode the human chose ('watch' | 'manage' | 'play'); d.mode — the mode on screen now (Play during
 //     a Key Moment)   d.speed (1 | 2, Play is always 1×)   d.camera ('full' | 'follow' | 'close')   d.prompts (bool)
 //     d.km — null, or { type, state: 'offer' | 'live', at, start, back, backSpeed, turn }: the Key Moment offered / played
-//     d.setMode(m)  d.setTactic(key, value)  d.setSpeed(s)  d.setCamera(c)  d.setPrompts(on)  d.accept()  d.skip()
+//     d.setMode(m)  d.setTactic(key, value)  d.setFormation(id)  d.setRole(slot, role)  (M9)  d.setSpeed(s)  d.setCamera(c)  d.setPrompts(on)  d.accept()  d.skip()
 //     d.tick() — before each world.step(): false = don't step (a Key Moment is waiting for an answer, or the match is over)
 //     d.secondsLeft — a live Key Moment's time left (to its longest)   d.serialize() → plain data for the match save
 // A Key Moment is only looked for in Watch / Manage with prompts on: the match pauses on the offer; Play it switches to
@@ -98,6 +98,23 @@ export function createMatchDirector(world, { saved = null, prompts = true, speed
       if (!TACTICS[key]?.options.includes(value) || world.tactics[team][key] === value) return false;
       world.command(['tac', team, key, value]);
       changed('tactic');
+      return true;
+    },
+    // Milestone 9: the formation (the eleven re-fit to its slots) and one slot's player role, any time in the match
+    formation() {
+      return world.formation[team];
+    },
+    rolesNow() {
+      return world.players.filter((p) => p.team === team).sort((a, b) => a.slot - b.slot).map((p) => p.tRole);
+    },
+    setFormation(id) {
+      if (world.formation[team] === id || !world.command(['formation', team, id])) return false;
+      changed('formation');
+      return true;
+    },
+    setRole(slot, role) {
+      if (!world.command(['role', team, slot, role])) return false;
+      changed('role');
       return true;
     },
     setSpeed(s) {

@@ -2,31 +2,40 @@
 // players), the 3-person youth watch list, basic contracts, the best XI for a match, and an opponent's generated side.
 //   createStartingSquad({ founderId, seed, area }) → squad { players[18], watch[3], nextId }
 //   validateSquad(squad, founderId?) → [] or the rules it breaks (Node tests, and ?debug=1 on load)
-//   bestXI(players) → 11 players in the 4-4-2's slot order (keeper first): the best of each slot's own position,
+//   bestXI(players, formation = '442', fixed) → 11 players in the formation's slot order (keeper first): the best of each slot's own position,
 //                     playing someone out of position only when that position has nobody left
 //   xiForMatch(players) → the 11 as match set-up players { name, shirt, stats } (stats: the engine's six numbers)
 //   opponentSquad({ seed, clubId }) → a generated 18 of the same Regional level (names from the club's area)
 //   ensureSquad(data) → true when it had to generate one (a Milestone 0–6 save: once, from its stored Founder)
 import { Rng } from '../../../../core/Rng.js';
 import { SQUAD, GEN, CONTRACT, ROLES, POSITION_ORDER, CLUB_AREAS, FEATURED_NAMES } from '../../data/players.js';
-import { FORMATION_442 } from '../../data/match.js';
+import { formationById } from '../../data/tactics.js';
 import { founderPlayer, generatePlayer, overall, matchStats } from './players.js';
 import { conditionFactor, normaliseSquad } from './training.js';
 
-// The 4-4-2's slots as positions to rate at: the wide midfield slots want wingers.
-const SLOT_POS = FORMATION_442.map((s) => (s.role === 'MF' && (s.fx < 0.2 || s.fx > 0.8) ? 'WG' : s.role));
-// Fill the scarce slots first: keeper, strikers, back four, centre midfield, then the wide slots.
-const FILL_ORDER = [0, 9, 10, 1, 2, 3, 4, 6, 7, 5, 8];
+// Milestone 9: any formation (data/tactics.js). Each slot is rated at its natural position (slot.pos: wide midfield and
+// wide forward slots want wingers), and the scarce slots fill first: keeper, strikers, the back line, centre midfield, then
+// the wide slots.
+const RANK = { GK: 0, FW: 1, DF: 2, MF: 3, WG: 4 };
+const fillOrder = (slots) => slots.map((_, i) => i).sort((x, y) => RANK[slots[x].pos] - RANK[slots[y].pos] || x - y);
 
-// Who may fill a slot before anyone plays out of position: its own position (wide midfield: wingers or midfielders; up
+// Who may fill a slot before anyone plays out of position: its own position (wide slots: wingers or midfielders; up
 // front: strikers, then wingers).
 const NATURAL = { GK: ['GK'], DF: ['DF'], MF: ['MF'], WG: ['WG', 'MF'], FW: ['FW', 'WG'] };
 
-export function bestXI(players) {
+// fixed: [playerId | null per slot] — players picked by hand for their slots (the rest pick themselves around them).
+export function bestXI(players, formation = '442', fixed = null) {
+  const slots = formationById(formation).slots;
   const left = players.slice();
-  const xi = new Array(11).fill(null);
-  for (const i of FILL_ORDER) {
-    const at = SLOT_POS[i];
+  const xi = new Array(slots.length).fill(null);
+  if (fixed)
+    fixed.forEach((id, i) => {
+      const j = id ? left.findIndex((p) => p.id === id) : -1;
+      if (j >= 0) xi[i] = left.splice(j, 1)[0];
+    });
+  for (const i of fillOrder(slots)) {
+    if (xi[i]) continue;
+    const at = slots[i].pos;
     const pick = (ok) => {
       let best = -1;
       let bestR = -Infinity;
@@ -46,8 +55,9 @@ export function bestXI(players) {
 }
 
 // Milestone 8: each player's six numbers × his condition (fatigue, form, morale — exactly 1 at neutral).
-export const xiForMatch = (players) =>
-  bestXI(players).map((p) => {
+// Milestone 9: in the club's formation, with any hand-picked players: xiForMatch(players, { formation, lineup }).
+export const xiForMatch = (players, { formation = '442', lineup = null } = {}) =>
+  bestXI(players, formation, lineup).map((p) => {
     const k = conditionFactor(p);
     const stats = matchStats(p);
     for (const key of Object.keys(stats)) stats[key] = Math.round(stats[key] * k);
