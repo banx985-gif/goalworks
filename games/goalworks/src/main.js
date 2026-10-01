@@ -40,6 +40,11 @@
 // (data/tactics.js CLUB_TACTICS). Changes in Manage (formation, instructions, roles) are remembered for the next match.
 // Familiarity grows on training days and matches in the chosen pair and fades for the others. The Tactics screen
 // (src/screens/TacticsScreen.js) opens from the Squad screen and the Manager Office; Manage opens a Tactics sheet.
+// Milestone 10: the Regional League (src/systems/league.js) replaces the Test Challenge. Each club day the six Regional
+// clubs may issue challenges (by reputation and cooldown); the League sheet (Manager Office, Squad screen) lists them and
+// Accept is the M2 commitment — the calendar only takes a challenge the league issued. A result adds to the Regional
+// record, reputation (Club Rank E–S) and the Credits placeholder (shown on the result screen); 4 distinct clubs beaten +
+// 8 Regional wins unlock the Promotion Match, and winning it brings the County promotion offer (County League: M17).
 // Add ?debug=1 for the FPS/state overlay, ?screen=test for the scaling / tap / asset-loader test screen, ?screen=match
 // (&seed=…, &mode=watch|manage|play, &km=1 for Key Moment prompts, &stats=35,70 for flat home,away test stats) for a
 // test match between two test teams (never saved). With ?debug=1, &safe=phone|tablet stands in a notch and home bar (safe-area insets) on any screen.
@@ -71,7 +76,9 @@ import { createSlotsScreen } from './screens/SlotsScreen.js';
 import { createSetupScreen } from './screens/SetupScreen.js';
 import { createClubScreen } from './screens/ClubScreen.js';
 import { createTestScreen } from './screens/TestScreen.js';
-import { fixturesSheet, matchSetupSheet } from './screens/fixtureSheets.js';
+import { leagueSheet, countyOfferSheet, matchSetupSheet } from './screens/fixtureSheets.js';
+import * as LG from './systems/league.js';
+import { REGIONAL_CLUBS as LEAGUE_CLUBS } from '../data/fixtures.js';
 import { createCalendar } from './systems/calendar.js';
 import { createMatchScreen } from './screens/MatchScreen.js';
 import { createSquadScreen } from './screens/SquadScreen.js';
@@ -232,6 +239,7 @@ const speedFlags = () => (account.speedUnlocks ??= { perm2x: false, perm4x: fals
 
 // A campaign's calendar from its save (a save from before Milestone 2 starts on Year 1 · Month 1 · Day 1).
 function openRun(n, data) {
+  LG.normaliseLeague(data); // (an M9 save: no Regional record yet, reputation 0)
   // (a save from before Milestone 7: its squad is generated once, from its Founder, and saved)
   if (ensureSquad(data)) setTimeout(() => autosave.request('squad:generated'), 0);
   normaliseTraining(data); // (an M7 save: the training plan and everyone's fatigue / form / morale start neutral)
@@ -240,7 +248,7 @@ function openRun(n, data) {
     const errs = validateSquad(data.squad, data.club.founder.id);
     debug.log(errs.length ? `squad: ${errs.join('; ')}` : `squad: ${data.squad.players.length} + ${data.squad.watch.length} ok`);
   }
-  open = { n, data, calendar: createCalendar({ bus, saved: data.calendar ?? null, flags: speedFlags() }), setupShown: false };
+  open = { n, data, calendar: createCalendar({ bus, saved: data.calendar ?? null, flags: speedFlags(), isIssued: (o) => !!open && LG.isIssued(open.data, o) }), setupShown: false };
 }
 // The run save: the calendar written into the campaign data (and the date on the slot card).
 function saveRun() {
@@ -257,6 +265,7 @@ bus.on('clock:day', () => {
   const c = open.calendar;
   const r = trainDay(open.data, { day: c.clock.totalDays, matchDay: c.atKickoff });
   familiarityDay(open.data, r.kind); // (M9) the chosen formation / style grows on training days; the others fade
+  LG.leagueDay(open.data, c.clock.totalDays); // (M10) clubs issue / expire challenges; the Promotion Match once unlocked
   if (debug.enabled && r.kind !== 'train') debug.log(`training: ${r.kind} (day ${c.clock.totalDays})`);
 });
 // Autosave (core/Autosave) at the bible §36 boundaries that exist now: each in-game week, match commitment, pre-kickoff,
@@ -416,22 +425,55 @@ async function leaveClub() {
   await campaigns.refresh();
   open = null;
 }
-// Milestone 2 sheets: the Manager Office's temporary Fixtures row, and Match Setup on kickoff day.
-let fixtureMsg = null; // the last commit's answer, shown in the Fixtures sheet
+// Milestone 10: the League sheet (replaces M2's Fixtures / Test Challenge sheet), and the County offer.
+let leagueMsg = null; // the last Accept's answer, shown in the sheet
 const calendar = () => open?.calendar ?? null;
-function openFixtures() {
-  fixtureMsg = null;
-  sheet.open(
-    fixturesSheet({
-      calendar,
-      message: () => fixtureMsg,
-      onCommit: (offer) => {
-        const r = open.calendar.commit(offer);
-        fixtureMsg = r.ok ? null : r.why; // (on success the sheet shows the scheduled match itself)
-      },
-      debugFlags: debug.enabled ? (id) => toggleSpeedFlag(id) : null,
-    }),
-  );
+function leagueApi() {
+  if (!open) return null;
+  const d = open.data;
+  return {
+    offers: () => LG.openOffers(d),
+    rank: () => LG.rank(d),
+    reputation: () => LG.reputation(d),
+    record: () => LG.record(d),
+    promotion: () => LG.promotion(d),
+    promotionOpponent: () => LG.promotionOpponent(d),
+    credits: () => d.league.credits,
+    clubs: () => LEAGUE_CLUBS,
+    club: (id) => LEAGUE_CLUBS.find((c) => c.id === id),
+    calendarOffer: LG.calendarOffer,
+    rewardOf: (id, promo) => LG.previewReward(d, id, [1, 0], promo),
+    clubState: (id) => {
+      const c = LEAGUE_CLUBS.find((x) => x.id === id);
+      const st = d.league.clubs[id];
+      const today = open.calendar.today;
+      if (LG.reputation(d).total < c.rep) return `wants reputation ${c.rep}`;
+      if (LG.openOffers(d).some((o) => o.clubId === id)) return 'challenging you now';
+      if (st.cooldownUntil > today) return `cooling down (${st.cooldownUntil - today} days)`;
+      return 'may challenge you soon';
+    },
+    onAccept: (offerId) => {
+      const r = LG.accept(d, offerId, open.calendar);
+      leagueMsg = r.ok ? null : r.why;
+      if (r.ok) debug.log(`challenge accepted: ${r.fixture.opponent.name} on day ${r.fixture.matchDay}`);
+    },
+    onDecline: (offerId) => LG.decline(d, offerId, open.calendar.today),
+    onCounty: (yes) => answerCounty(yes),
+  };
+}
+function openLeague() {
+  leagueMsg = null;
+  sheet.open(leagueSheet({ calendar, league: leagueApi, message: () => leagueMsg, debugFlags: debug.enabled ? (id) => toggleSpeedFlag(id) : null }));
+}
+function answerCounty(yes) {
+  if (yes && open && LG.acceptCounty(open.data)) {
+    debug.log('County offer accepted (County League: Milestone 17)');
+    autosave.request('league:county');
+  }
+  sheet.close();
+}
+function openCountyOffer() {
+  sheet.open(countyOfferSheet({ clubName: () => open?.data.club.name ?? '', onAnswer: (yes) => answerCounty(yes) }));
 }
 async function toggleSpeedFlag(id) {
   const f = speedFlags();
@@ -577,6 +619,9 @@ function matchProgress(world, reason) {
 function matchFinished(world) {
   if (match?.mode !== 'fixture' || !open) return;
   const r = matchResult(world);
+  // (M10) the Regional League: record, reputation, Credits, promotion — before the calendar closes the fixture
+  const fx = open.calendar.fixture;
+  const league = fx?.source === 'league' ? LG.recordResult(open.data, fx, r.score, open.calendar.today) : null;
   // Milestone 8: the XI tire; form and morale follow the result, minutes and roles
   if (open.data.squad) applyMatch(open.data, { xiIds: world.setup.home.players.map((p) => p.id).filter(Boolean), score: r.score, scorers: r.scorers });
   // (M9) familiarity: the formation / style the match started in
@@ -587,6 +632,8 @@ function matchFinished(world) {
   open.calendar.playResult({ score: r.score, scorers: r.scorers });
   debug.log(`full time: ${r.score.join('–')}`);
   router.go('club');
+  if (league?.promotionWon) setTimeout(() => openCountyOffer(), 0);
+  else if (league?.promotionUnlocked) debug.log('Promotion Match unlocked');
 }
 async function leaveMatch() {
   if (match?.mode === 'fixture') {
@@ -637,6 +684,15 @@ const matchScreen = createMatchScreen({
   onReplay: () => startTestMatch(`test-${Date.now()}`, match?.director?.userMode ?? 'watch'),
   onProgress: (world, reason) => matchProgress(world, reason),
   onTactics: () => openMatchTactics(),
+  // (M10) the rewards line on the result panel, before Continue records them
+  resultLines: (world) => {
+    if (match?.mode !== 'fixture' || !open) return null;
+    const fx = open.calendar.fixture;
+    if (fx?.source !== 'league') return null;
+    const p = LG.previewReward(open.data, fx.opponent.id, world.score, fx.promotion);
+    const rep = p.history + p.momentum;
+    return [`${fx.promotion ? 'Promotion Match · ' : ''}+${p.credits} Credits (placeholder) · reputation ${rep >= 0 ? '+' : ''}${Math.round(rep)}`, fx.promotion && p.res === 'win' ? 'Promotion earned: the County offer is waiting.' : null].filter(Boolean);
+  },
   held: () => sheet.active, // (the match waits while a sheet is open over it)
 });
 function playPlaceholder() {
@@ -645,7 +701,7 @@ function playPlaceholder() {
   open.setupShown = false;
   sheet.close();
 }
-const squadScreen = createSquadScreen({ layout, assets, sheet, club: () => open, onBack: () => router.go('club'), onTraining: () => openTraining('squad'), onTactics: () => openTactics('squad') });
+const squadScreen = createSquadScreen({ layout, assets, sheet, club: () => open, onBack: () => router.go('club'), onTraining: () => openTraining('squad'), onTactics: () => openTactics('squad'), onLeague: () => openLeague() });
 let trainingBack = 'club';
 function openTraining(from = 'club') {
   trainingBack = from;
@@ -672,7 +728,7 @@ const clubScreen = createClubScreen({
   calendar,
   onMatchSetup: () => openMatchSetup(),
   onTeam: () => router.go('squad'),
-  extraSections: (id) => (id === 'pitch' ? [{ title: 'Training', lines: ['Team session, intensity and individual focuses.'], buttons: [{ id: 'training', label: 'Training', accent: COL.action, onTap: () => openTraining('club') }] }] : id === 'office' ? [{ title: 'Tactics', lines: ['Formation, team instructions, roles and familiarity.'], buttons: [{ id: 'tactics', label: 'Tactics', accent: COL.purple, onTap: () => openTactics('club') }] }, { title: 'Fixtures', lines: ['Temporary Test Challenge until the league arrives.'], buttons: [{ id: 'fixtures', label: 'Fixtures (test)', accent: COL.action, onTap: () => openFixtures() }] }] : []),
+  extraSections: (id) => (id === 'pitch' ? [{ title: 'Training', lines: ['Team session, intensity and individual focuses.'], buttons: [{ id: 'training', label: 'Training', accent: COL.action, onTap: () => openTraining('club') }] }] : id === 'office' ? [{ title: 'Regional League', lines: ['Challenges, your Club Rank and the road to County.'], buttons: [{ id: 'league', label: 'League', accent: COL.good, onTap: () => openLeague() }] }, { title: 'Tactics', lines: ['Formation, team instructions, roles and familiarity.'], buttons: [{ id: 'tactics', label: 'Tactics', accent: COL.purple, onTap: () => openTactics('club') }] }] : []),
 });
 
 // ---------------------------------------------------------------------------
@@ -722,9 +778,25 @@ router
   .register('tactics', tacticsScreen)
   .register('test', createTestScreen({ renderer, layout, assets, openSheet: () => sheet.open(testSheet), onTapLogged: (p) => window.__gw?.taps.push({ x: p.x, y: p.y }) }));
 
+// ?debug=1 (tests): accept a challenge from a club — if it has none open, it issues one first (as leagueDay would).
+function issueChallenge(clubId = 'REG01') {
+  if (!open) return null;
+  const d = open.data;
+  let o = LG.openOffers(d).find((x) => x.clubId === clubId);
+  if (!o) {
+    d.league.clubs[clubId].cooldownUntil = 0;
+    d.league.offers.push({ id: `o${d.league.nextId++}`, clubId, issuedDay: open.calendar.today, until: open.calendar.today + 6, home: d.league.clubs[clubId].meetings % 2 === 0, promotion: false, state: 'open' });
+    o = LG.openOffers(d).find((x) => x.clubId === clubId);
+  }
+  return o;
+}
+function acceptChallenge(clubId = 'REG01') {
+  const o = issueChallenge(clubId);
+  return o ? LG.accept(open.data, o.id, open.calendar) : { ok: false };
+}
 // ?debug=1: a test hook for automated checks.
 if (debug.enabled) {
-  window.__gw = { renderer, layout, input, loop, router, assets, sheet, dialog, systemBack, textPrompt, splashScreen, menuScreen, slotsScreen, setupScreen, clubScreen, squadScreen, trainingScreen, openTraining, tacticsScreen, openTactics, openMatchTactics, playSlot, startClub, deleteSlot, newGame, openFixtures, openMatchSetup, playPlaceholder, kickOff, startTestMatch, matchScreen, restoreMatchWorld, get match() { return match; }, toggleSpeedFlag, autosave, saveRun, get account() { return account; }, taps: [], get campaigns() { return campaigns; }, get open() { return open; } };
+  window.__gw = { renderer, layout, input, loop, router, assets, sheet, dialog, systemBack, textPrompt, splashScreen, menuScreen, slotsScreen, setupScreen, clubScreen, squadScreen, trainingScreen, openTraining, tacticsScreen, openTactics, openMatchTactics, playSlot, startClub, deleteSlot, newGame, openLeague, openCountyOffer, acceptChallenge, issueChallenge, openMatchSetup, playPlaceholder, kickOff, startTestMatch, matchScreen, restoreMatchWorld, get match() { return match; }, toggleSpeedFlag, autosave, saveRun, get account() { return account; }, taps: [], get campaigns() { return campaigns; }, get open() { return open; } };
 }
 
 router.go('boot');

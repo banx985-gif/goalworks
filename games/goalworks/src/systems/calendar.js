@@ -1,23 +1,26 @@
 // The club calendar and fixture scheduler (Milestone 2, bible §3 / §21), on the series Clock (core/Clock.js).
-//   createCalendar({ bus, saved, flags, sources }) → cal
+//   createCalendar({ bus, saved, flags, sources, isIssued }) → cal
 //     saved   a campaign's calendar save (cal.serialize()), or null for Year 1 · Month 1 · Day 1
 //     flags   the account's speed unlocks { perm2x, perm4x } (the same object is read live, so a change counts at once)
 //     sources the fixture sources that count (default data/fixtures.js FIXTURE_SOURCES; tests pass their own)
+//     isIssued(offer) → bool   Milestone 10: a league offer only counts when the league actually issued it (an open
+//                              challenge — src/systems/league.js isIssued); with no isIssued, no league offer counts
 // Rules:
 //   • Pause and 1× always; 2× only while a valid fixture is pending (or with perm2x); 4× only with perm4x.
-//   • A fixture only comes from an offer made by a live recognised source (the Test Challenge now). commit(offer) sets
-//     matchDay = today + 7. While a fixture is pending a second commit is refused (one match per 7 days).
+//   • A fixture only comes from an offer made by a live recognised source (Milestone 10: a Regional League challenge
+//     that was issued and is still open). commit(offer) sets matchDay = today + 7. While a fixture is pending a second
+//     commit is refused (one match per 7 days).
 //   • Kickoff day: the calendar pauses by itself and stays paused until playResult(). After the result temporary 2×
 //     closes (2× drops to 1×) unless another valid fixture is already pending (e.g. the next round of a tournament chain).
 // Bus events (as well as the clock's own clock:day / clock:month / clock:year / clock:speed):
 //   calendar:week {…now}   fixture:committed {fixture}   fixture:kickoff {fixture}   fixture:result {fixture, result}
 import { Clock } from '../../../../core/Clock.js';
-import { CALENDAR, FIXTURE_SOURCES, REGIONAL_CLUBS, clubById } from '../../data/fixtures.js';
+import { CALENDAR, FIXTURE_SOURCES, clubById } from '../../data/fixtures.js';
 import { chainFixture, chainResult } from './tournamentChain.js';
 
 const HISTORY_KEEP = 30;
 
-export function createCalendar({ bus = null, saved = null, flags = {}, sources = FIXTURE_SOURCES } = {}) {
+export function createCalendar({ bus = null, saved = null, flags = {}, sources = FIXTURE_SOURCES, isIssued = null } = {}) {
   const sourceOf = (id) => sources.find((s) => s.id === id) ?? null;
   let fixture = null; // { id, source, opponent: { id, name }, committedDay, matchDay, chain? }
   let chain = null; // an active tournament chain (tournamentChain.js), or null
@@ -64,6 +67,7 @@ export function createCalendar({ bus = null, saved = null, flags = {}, sources =
     if (offer.source === 'tournament') {
       if (!offer.chain || offer.chain.status !== 'active') return { ok: false, why: 'That tournament is not running.' };
     } else if (!clubById(offer.opponent?.id)) return { ok: false, why: 'Unknown opponent.' };
+    if (offer.source === 'league' && !isIssued?.(offer)) return { ok: false, why: 'Only a challenge a club has issued can be accepted.' };
     return { ok: true, why: null };
   }
 
@@ -76,6 +80,7 @@ export function createCalendar({ bus = null, saved = null, flags = {}, sources =
       matchDay,
     };
     if (offer.chain) fixture.chain = { id: offer.chain.id, round: offer.chain.round };
+    if (offer.offerId) Object.assign(fixture, { offerId: offer.offerId, home: offer.home !== false, promotion: !!offer.promotion }); // (M10)
     return fixture;
   }
 
@@ -112,10 +117,9 @@ export function createCalendar({ bus = null, saved = null, flags = {}, sources =
       return !flags.perm2x && !!fixture;
     },
 
-    // The Test Challenge (temporary league stand-in): the next Regional League club in turn.
-    testChallenge() {
-      const opp = REGIONAL_CLUBS[history.filter((h) => h.source === 'test').length % REGIONAL_CLUBS.length];
-      return { source: 'test', opponent: { id: opp.id, name: opp.name } };
+    // (Milestone 10: the Test Challenge is retired — fixtures come from the Regional League's issued challenges.)
+    set isIssued(fn) {
+      isIssued = fn;
     },
 
     canCommit(offer) {
@@ -143,6 +147,7 @@ export function createCalendar({ bus = null, saved = null, flags = {}, sources =
       const text = score ? `${score[0] > score[1] ? 'Won' : score[0] < score[1] ? 'Lost' : 'Drew'} ${score[0]}–${score[1]}` : 'Match played';
       const result = { text, won, ...(score ? { score: [...score] } : {}) };
       const entry = { id: played.id, source: played.source, opponent: played.opponent, matchDay: played.matchDay, playedDay: clock.totalDays, result: result.text };
+      if (played.promotion) entry.promotion = true;
       if (score) Object.assign(entry, { score: [...score], scorers: (scorers ?? []).map((s) => ({ ...s })) });
       history.push(entry);
       if (history.length > HISTORY_KEEP) history = history.slice(-HISTORY_KEEP);

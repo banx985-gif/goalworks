@@ -33,6 +33,7 @@ import { text } from '../../../../core/ui/Kit.js';
 import { characterPose, drawCharacter } from '../../../../core/CharacterMotion.js';
 import { drawClubFlag } from '../ui/kitArt.js';
 import { drawBadge } from '../ui/clubArt.js';
+import { rank as clubRank } from '../systems/league.js';
 import { founderById, colourById, POSITIONS } from '../../data/setup.js';
 import { COMPLEX, STATIONS, PATHS, TREES, PROPS, GATE_COL, PERSON, LOOK as L, CLUBHOUSE, REST_SPOTS, DRILL } from '../../data/complex.js';
 import { FRONT_BODIES, KEEPER_BODIES, BODY_ART } from '../../data/kits.js';
@@ -250,7 +251,7 @@ export function createClubScreen({ renderer, layout, assets, bus, sheet, club, o
       return slotN;
     },
     openSheet,
-    // Tests: 'menu', 'plate', 'shortcut', 'done', 'banner'.
+    // Tests: 'menu', 'plate', 'shortcut', 'done', 'banner'. (The plate shows the Club Rank — Milestone 10.)
     rectOf(id) {
       return { menu: menuRect(), plate: plateRect(), shortcut: shortcutRect(), team: teamRect(), done: doneRect(), banner: bannerRect(), calendar: calRect(), speed0: speedRect(0), speed1: speedRect(1), speed2: speedRect(2), speed4: speedRect(4) }[id] ?? null;
     },
@@ -792,8 +793,22 @@ export function createClubScreen({ renderer, layout, assets, bus, sheet, club, o
     ctx.restore();
     const bh = r.h - 16;
     drawBadge(ctx, { x: r.x + 14, y: r.y + 8, w: bh * 0.84, h: bh }, { ...c.badge, primary: c.colours.primary, secondary: c.colours.secondary });
+    // (M10) the Club Rank chip on the right
+    const rk = club()?.data.league ? clubRank(club().data).id : 'E';
+    const chip = { x: r.x + r.w - 20 - 120, y: r.y + 18, w: 120, h: r.h - 36 };
+    ctx.save();
+    ctx.fillStyle = 'rgba(255,255,255,0.92)';
+    ctx.strokeStyle = C.outline;
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.roundRect(chip.x, chip.y, chip.w, chip.h, chip.h / 2);
+    ctx.fill();
+    ctx.stroke();
+    ctx.restore();
+    text(ctx, `Rank ${rk}`, chip.x + chip.w / 2, chip.y + chip.h / 2 + 1, { size: S.small, bold: true, color: C.text, align: 'center', baseline: 'middle', maxWidth: chip.w - 12 });
     const tx = r.x + 14 + bh * 0.84 + 12;
-    text(ctx, c.name, tx + (r.x + r.w - 20 - tx) / 2, r.y + r.h / 2, { size: S.body, bold: true, color: prim.ink, align: 'center', baseline: 'middle', maxWidth: r.x + r.w - 20 - tx });
+    const tr = chip.x - 12;
+    text(ctx, c.name, tx + (tr - tx) / 2, r.y + r.h / 2, { size: S.body, bold: true, color: prim.ink, align: 'center', baseline: 'middle', maxWidth: tr - tx });
   }
   // The calendar strip's words: the date, the speed, and the next match (or why a speed was refused).
   function calendarLines() {

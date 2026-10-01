@@ -3,6 +3,7 @@
 import { founderById, colourById, areaById, shapeById, symbolById, POSITIONS, FOUNDER_FLAG } from '../../data/setup.js';
 import { patternById } from '../../data/kits.js';
 import { createStartingSquad } from './squad.js';
+import { rank as clubRank } from './league.js';
 
 // Milestone 7: the run also gets its starting squad (squad: { players, watch, nextId }).
 export function newCampaign(setup, now = Date.now()) {
@@ -47,8 +48,8 @@ export function slotSummary(data) {
     founderPosition: founder ? POSITIONS[founder.position].name : '',
     year: data.date.year,
     month: data.date.month,
-    league: null,
-    rank: null,
+    league: data.league ? 'Regional' : null, // (Milestone 10: the Regional League and the Club Rank E–S)
+    rank: data.league ? clubRank(data).id : null,
     ngPlus: data.ngPlus ?? 0,
     playSec: data.playSec ?? 0,
     grade: null,

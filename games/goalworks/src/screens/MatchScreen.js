@@ -64,7 +64,7 @@ const LINE = '#F4F8EE';
 const MINE = '#FFE14A'; // the ring under the player you control
 const CLOSE = 1.35; // the Close camera: this much nearer than Follow
 
-export function createMatchScreen({ renderer, layout, assets, bus = null, input = null, live, onMenu, onContinue, onReplay = null, onProgress = () => {}, onTactics = null, held = () => false }) {
+export function createMatchScreen({ renderer, layout, assets, bus = null, input = null, live, onMenu, onContinue, onReplay = null, onProgress = () => {}, onTactics = null, held = () => false, resultLines = () => null }) {
   const W = renderer.width;
   let k = 10; // pixels per metre
   let ox = 0;
@@ -599,13 +599,18 @@ export function createMatchScreen({ renderer, layout, assets, bus = null, input 
       text(ctx, String(world.score[t]), cx, p.y + 350, { size: 120, bold: true, color: C.text, align: 'center', baseline: 'middle' });
     }
     text(ctx, '–', p.x + col, p.y + 350, { size: 96, bold: true, align: 'center', baseline: 'middle' });
-    text(ctx, 'Goal scorers', p.x + p.w / 2, p.y + 456, { size: S.heading, bold: true, color: C.actionDark, align: 'center', baseline: 'middle' });
+    // (M10) the league rewards for this result (Credits placeholder, reputation)
+    const extra = resultLines(world);
+    if (extra?.length) extra.forEach((line, i) => text(ctx, line, p.x + p.w / 2, p.y + 436 + i * 40, { size: S.small, bold: i === 0, color: i === 0 ? C.good : C.purple, align: 'center', baseline: 'middle', maxWidth: p.w - 60 }));
+    const off = extra?.length ? 24 + extra.length * 44 : 0; // (the reward lines sit under the score)
+    text(ctx, 'Goal scorers', p.x + p.w / 2, p.y + 456 + off, { size: S.heading, bold: true, color: C.actionDark, align: 'center', baseline: 'middle' });
     for (const t of [0, 1]) {
       const list = world.scorers.filter((s) => s.team === t);
       const cx = p.x + col * t + col / 2;
-      if (!list.length) text(ctx, '—', cx, p.y + 524, { size: S.body, color: C.textFaint, align: 'center', baseline: 'middle' });
-      list.slice(0, 5).forEach((s, i) => text(ctx, `${s.name}${s.own ? ' (og)' : ''} ${s.minute}'`, cx, p.y + 524 + i * 46, { size: S.small, align: 'center', baseline: 'middle', maxWidth: col - 30 }));
-      if (list.length > 5) text(ctx, `+${list.length - 5} more`, cx, p.y + 524 + 5 * 46, { size: S.small, color: C.textFaint, align: 'center', baseline: 'middle' });
+      const sy = p.y + 524 + off;
+      if (!list.length) text(ctx, '—', cx, sy, { size: S.body, color: C.textFaint, align: 'center', baseline: 'middle' });
+      list.slice(0, 4).forEach((s, i) => text(ctx, `${s.name}${s.own ? ' (og)' : ''} ${s.minute}'`, cx, sy + i * 46, { size: S.small, align: 'center', baseline: 'middle', maxWidth: col - 30 }));
+      if (list.length > 4) text(ctx, `+${list.length - 4} more`, cx, sy + 4 * 46, { size: S.small, color: C.textFaint, align: 'center', baseline: 'middle' });
     }
     for (const b of resultButtons()) drawButton(ctx, b.r, b.label, { accent: b.accent });
   }

@@ -1,6 +1,10 @@
-// The Milestone 2 placeholder sheets (standard bottom sheets, style guide §3):
-//   fixturesSheet — from the Manager Office: the temporary "Test Challenge" row (the league stands in until Milestone 10)
-//                   with Commit; the refusal reason while a match is pending. ?debug=1 adds the account speed toggles.
+// The fixture sheets (standard bottom sheets, style guide §3):
+//   leagueSheet — Milestone 10 (replaces M2's temporary Fixtures / Test Challenge sheet): from the Manager Office and the
+//                   Squad screen. The open challenges (crest, club, strength hint, reward, home / away, "available until",
+//                   Accept — locked with the reason while a match is pending — and Decline), the scheduled match, Club
+//                   Rank + reputation + the Credits placeholder, the Regional record (per club W/D/L, total wins, distinct
+//                   clubs beaten, the promotion conditions), the County offer once won, and each club's status (wants more
+//                   reputation / cooling down / challenging). ?debug=1 adds the account speed toggles.
 //   matchSetupSheet — opens by itself on kickoff day: the opponent and Kick off (Milestone 3: the 11 v 11 match; its
 //                   score goes back to the calendar at full time). ?debug=1 keeps the Milestone 2 "Match played" skip.
 //                   Milestone 4: Kick off · Watch (first, the default) or Kick off · Play (you control our side);
@@ -55,25 +59,76 @@ const dateText = (cal, day) => {
   return `Year ${d.year} · Month ${d.month} · Day ${d.day}`;
 };
 
-export function fixturesSheet({ calendar, onCommit, debugFlags = null, message = () => null }) {
+// the strength hint: a word for the club's strength (data/fixtures.js 0.88 … 1.09)
+const strengthHint = (k) => (k < 0.9 ? 'Easy' : k < 0.95 ? 'Steady' : k < 0.99 ? 'Even' : k < 1.03 ? 'Tough' : k < 1.07 ? 'Strong' : 'Strongest');
+// leagueSheet({ calendar, league: () => api }) where api = { offers, accepted, record, reputation, rank, promotion,
+// promotionOpponent, credits, clubState(id), onAccept(offerId), onDecline(offerId), onCounty(yes) }
+export function leagueSheet({ calendar, league, debugFlags = null, message = () => null }) {
   return () => {
     const cal = calendar();
-    if (!cal) return null;
-    const offer = cal.testChallenge();
-    const can = cal.canCommit(offer);
+    const L = league();
+    if (!cal || !L) return null;
     const f = cal.fixture;
-    const src = sourceById('test');
-    // Pending: the scheduled match and why Commit is locked. Otherwise: the offer on the table.
-    const lines = f
-      ? [`Scheduled: ${f.opponent.name} on ${dateText(cal, f.matchDay)} (${cal.atKickoff ? 'today' : `in ${plural(cal.daysToMatch, 'day')}`}).`, can.why]
-      : [`Opponent: ${offer.opponent.name} (Regional League)`, 'Kickoff is 7 days after you commit.'];
-    if (!f && !can.ok) lines.push(can.why);
+    const rk = L.rank();
+    const rp = L.reputation();
+    const pr = L.promotion();
+    const rec = L.record();
+    const sections = [];
+    sections.push({
+      title: `Club Rank ${rk.id} · ${rk.line}`,
+      lines: [`Reputation ${Math.round(rp.total)} (history ${Math.round(rp.history)} + form ${Math.round(rp.momentum)})`, `Credits ${L.credits().toLocaleString('en-GB')} (placeholder until the club's money arrives)`],
+    });
+    if (f) sections.push({ title: f.promotion ? 'Scheduled: Promotion Match' : 'Scheduled', lines: [`${f.opponent.name} · ${f.home === false ? 'away' : 'home'} · ${dateText(cal, f.matchDay)} (${cal.atKickoff ? 'today' : `in ${plural(cal.daysToMatch, 'day')}`})`] });
+    const offers = L.offers();
     const msg = message();
-    if (msg) lines.push(msg);
-    const sections = [
-      { title: 'Test Challenge', lines, buttons: [{ id: 'commit', label: 'Commit to match', locked: !can.ok, accent: C.good, onTap: () => can.ok && onCommit(offer) }], columns: 1 },
-      { title: 'Temporary', lines: [src.line, 'Only league, tournament and event fixtures count. There are no free friendlies.'] },
-    ];
+    sections.push({
+      title: 'Challenges',
+      lines: [
+        ...(offers.length ? [] : ['No club is challenging you right now. Challenges come and go; check back in a few days.']),
+        ...(f && offers.length ? ['One match per 7 days: accept the next once this one is played.'] : []),
+        ...(msg ? [msg] : []),
+      ],
+      columns: 1,
+      buttons: offers.flatMap((o) => {
+        const c = L.club(o.clubId);
+        const r = L.rewardOf(o.clubId, o.promotion);
+        const can = cal.canCommit(L.calendarOffer(o));
+        return [
+          {
+            id: `accept:${o.clubId}`,
+            label: `${o.promotion ? 'PROMOTION MATCH · ' : ''}${c.name}`,
+            sub: `${strengthHint(c.strength)} · ${o.home ? 'home' : `away at ${c.ground}`} · win: ${r.credits} Cr, +${r.rep} rep · ${o.until == null ? 'open until played' : `until ${dateText(cal, o.until)}`}`,
+            icon: c.crest,
+            accent: o.promotion ? C.purple : C.good,
+            locked: !can.ok,
+            onTap: () => can.ok && L.onAccept(o.id),
+          },
+          ...(o.promotion ? [] : [{ id: `decline:${o.clubId}`, label: `Decline ${c.name}`, accent: C.progress, locked: false, onTap: () => L.onDecline(o.id) }]),
+        ];
+      }),
+    });
+    const county = pr.county;
+    if (county === 'offered' || county === 'accepted') {
+      sections.push({
+        title: 'County promotion offer',
+        lines: county === 'accepted' ? ['Accepted. County League coming soon — you stay in the Regional League until it opens.'] : ['You won the Promotion Match: the County League wants you.'],
+        buttons: county === 'offered' ? [{ id: 'county:accept', label: 'Accept County offer', accent: C.purple, onTap: () => L.onCounty(true) }, { id: 'county:later', label: 'Later', accent: C.progress, onTap: () => L.onCounty(false) }] : [],
+      });
+    }
+    sections.push({
+      title: 'Regional record',
+      lines: [
+        `${rec.wins} Regional wins (${pr.need.wins} needed) · ${rec.distinct} of 6 clubs beaten (${pr.need.distinct} needed)`,
+        pr.won ? 'Promotion Match won.' : pr.unlocked ? `Promotion Match unlocked: against ${L.promotionOpponent().name}.` : 'Promotion Match: beat 4 different clubs and win 8 Regional matches to unlock it.',
+      ],
+    });
+    sections.push({
+      title: 'Clubs',
+      lines: L.clubs().map((c) => {
+        const r = rec.clubs[c.id];
+        return `${c.name} ${strengthHint(c.strength)} · W${r.w} D${r.d} L${r.l} · ${L.clubState(c.id)}`;
+      }),
+    });
     if (debugFlags) {
       const flags = cal.flags;
       sections.push({
@@ -82,8 +137,22 @@ export function fixturesSheet({ calendar, onCommit, debugFlags = null, message =
         buttons: Object.entries(SPEED_FLAGS).map(([id, def]) => ({ id: `flag_${id}`, label: `${def.label}: ${flags[id] ? 'ON' : 'off'}`, selected: !!flags[id], onTap: () => debugFlags(id) })),
       });
     }
-    return { title: 'Fixtures', subtitle: 'Placeholder until the league arrives', art: 'facility_f03', accent: C.progress, tag: { text: 'TEST' }, sections };
+    return { title: 'Regional League', subtitle: `Challenges from the six Regional clubs · Rank ${rk.id}`, art: 'facility_f03', accent: C.good, tag: { text: `RANK ${rk.id}`, color: C.good }, sections };
   };
+}
+
+// The County promotion offer (Milestone 10): opens once, after the Promotion Match is won.
+export function countyOfferSheet({ clubName, onAnswer }) {
+  return () => ({
+    title: 'County promotion offer',
+    subtitle: `${clubName()} — promotion earned`,
+    art: 'facility_f03',
+    accent: C.purple,
+    tag: { text: 'PROMOTION', color: C.purple },
+    sections: [
+      { title: 'You won the Promotion Match', lines: ['Four Regional clubs beaten, eight Regional wins, and now the Promotion Match. The County League is offering you a place.', 'County League coming soon: accepting records it, and you keep playing the Regional League until it opens.'], buttons: [{ id: 'county:accept', label: 'Accept', accent: C.purple, onTap: () => onAnswer(true) }, { id: 'county:later', label: 'Later', accent: C.progress, onTap: () => onAnswer(false) }] },
+    ],
+  });
 }
 
 // resuming() → null (no match yet) | 'watch' | 'manage' | 'play' (the match under way).  onKickOff(mode)
@@ -103,8 +172,8 @@ export function matchSetupSheet({ calendar, clubName, kits = () => null, onKickO
           { id: 'kickoffPlay', label: 'Kick off · Play', sub: 'You play: stick + Pass / Shoot / Tackle', accent: C.action, onTap: () => onKickOff('play') },
         ];
     return {
-      title: 'Match Setup',
-      subtitle: `${clubName()} vs ${f.opponent.name}`,
+      title: f.promotion ? 'Promotion Match' : 'Match Setup',
+      subtitle: `${clubName()} vs ${f.opponent.name}${f.home === false ? ' (away)' : ''}`,
       art: 'facility_f01',
       accent: C.action,
       tag: { text: 'MATCH DAY', color: C.action },

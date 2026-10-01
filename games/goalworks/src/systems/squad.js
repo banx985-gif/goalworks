@@ -10,6 +10,7 @@
 import { Rng } from '../../../../core/Rng.js';
 import { SQUAD, GEN, CONTRACT, ROLES, POSITION_ORDER, CLUB_AREAS, FEATURED_NAMES } from '../../data/players.js';
 import { formationById } from '../../data/tactics.js';
+import { clubById } from '../../data/fixtures.js';
 import { founderPlayer, generatePlayer, overall, matchStats } from './players.js';
 import { conditionFactor, normaliseSquad } from './training.js';
 
@@ -120,9 +121,12 @@ export function createStartingSquad({ founderId, seed, area = 'fen' }) {
   return normaliseSquad({ players, watch, nextId: next });
 }
 
+// Milestone 10: a club's squad is as strong as its data says (REGIONAL_CLUBS strength: × every core stat).
 export function opponentSquad({ seed, clubId }) {
   const rng = new Rng(`${seed}:opponent:${clubId}`);
   const { players } = generateSide(rng, { area: CLUB_AREAS[clubId] ?? 'fen' });
+  const k = clubById(clubId)?.strength ?? 1;
+  if (k !== 1) for (const p of players) for (const key of Object.keys(p.stats)) p.stats[key] = Math.max(10, Math.round(p.stats[key] * k));
   assignRoles(rng, players, []);
   return { players, watch: [], nextId: players.length + 1 };
 }

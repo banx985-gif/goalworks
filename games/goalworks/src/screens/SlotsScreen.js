@@ -109,7 +109,7 @@ export function createSlotsScreen({ layout, assets, cards, last, onBack, onPlay,
       ty += 52 * k;
       text(ctx, `Founder: ${m.founderPosition}`, tx, ty, { size: S.small, color: C.textMuted, maxWidth: tw });
       ty += 46 * k;
-      text(ctx, `Year ${m.year} · Month ${m.month}`, tx, ty, { size: S.body, bold: true, color: C.actionDark, maxWidth: tw });
+      text(ctx, `Year ${m.year} · Month ${m.month}${m.rank ? ` · Rank ${m.rank}` : ""}`, tx, ty, { size: S.body, bold: true, color: C.actionDark, maxWidth: tw }); // (M10: the Club Rank)
     }
   }
 
