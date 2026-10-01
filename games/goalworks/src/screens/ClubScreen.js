@@ -1,26 +1,29 @@
-// The Club Complex (Milestone 1, bible §6): a small grassroots ground on a hidden 14×18 grid in the 3/4 dollhouse view.
-// Grass, gravel paths, the fence and a few trees are drawn by code; the Starter Training Pitch, Manager Office and
-// Scout Desk are their art at one scale. The run's Founder walks the loop pitch → office → scout desk → pitch along the
-// paths (src/systems/complexWorld.js). Drag pans, pinch / wheel zooms (clamped to the ground); tapping the Founder or a
-// station opens its bottom sheet (header + what is happening now). A temporary Training Pitch shortcut opens the same
-// sheet as tapping the pitch. A long press on empty grass enters a placeholder Build Mode (banner + Done). ‹ Menu (or
-// Back) returns to the Main Menu.
-// Milestone 2: under the top row, the calendar in simple code text (date + speed) until the real top bar arrives, the
-// speed buttons (Pause · 1× · 2× only while a valid fixture is pending · 4× locked) and "Next match: … in N days". The
-// Founder walks at the calendar's speed (and stands still while it is paused). On match day the shortcut becomes
-// Match Setup. The Manager Office sheet gets the temporary Fixtures row (extraSections).
-// Milestone 6: an art pass — early props on the grass off every walkway (cones, mannequins, the ball rack by the pitch, a
-// laptop by the Scout Desk, a contract folder by the Office; data/complex.js PROPS), the club flag by the gate in the
-// club colour with the badge on it, fence rails in the club colours, and the Founder walks with a gentle bob and breathes
-// while standing (core/CharacterMotion; the bob only while actually walking, so they never glide).
-// Milestone 7: a temporary Team button beside the shortcut opens the Squad screen (the five-button bar comes later).
-// Milestone 8: squad players train on the pitch in a drill that follows today's team focus (shuttle runs between
-// cones, passing / marking pairs, keepers in front of goal — data/complex.js DRILL), with core/CharacterMotion's bob; the
-// players resting today (their own Rest focus, a Rest day, the day off) stand by the Clubhouse (facility_f02, scenery).
-// Plan space lives in the world; only drawing and tapping go through the IsoProjection here.
-//   createClubScreen({ renderer, layout, assets, bus, sheet, club, onMenu, debug, calendar, onMatchSetup, extraSections, onTeam })
-//     club() → { n, data } or null     calendar() → the open club's calendar (src/systems/calendar.js) or null
-//     onMatchSetup() opens Match Setup     extraSections(stationId) → more sheet sections for that station
+// The Club Complex (Milestone 1, bible §6; rebuilt on the facility layout in Milestone 12): the club's ground on a hidden
+// grid in the 3/4 dollhouse view. Grass, the worn paths (gate → every facility), the fence and the trees are drawn by
+// code; every facility is its art at one scale (data/facilities.js ART_LOOK). The run's Founder walks the loop pitch →
+// office → scout desk → pitch, and the squad walk to the place for their session today and drill there
+// (src/systems/complexWorld.js). Drag pans, pinch / wheel zooms (clamped to the ground); tapping the Founder or a
+// facility opens its sheet (Milestone 12: the Facility Detail sheet — picture, effect, unlock, who is using it, Move /
+// Sell). ‹ Menu (or Back) returns to the Main Menu.
+// Milestone 2: under the top row, the calendar in simple code text (date + speed), the speed buttons (Pause · 1× · 2×
+// only while a valid fixture is pending · 4× locked) and "Next match: … in N days". People walk at the calendar's speed
+// (and stand still while it is paused). On match day the shortcut becomes Match Setup.
+// Milestone 6: props by their facilities (cones, mannequins, the ball rack by the pitch, a laptop by the Scout Desk, a
+// folder by the Office; data/complex.js PROPS), the club flag by the gate, fence rails in the club colours, the
+// Founder's gentle walking bob (core/CharacterMotion).
+// Milestone 7: Team (bottom left) opens the Squad screen. Milestone 8: the squad drill on a training pitch by today's
+// team focus (shuttle runs, pairs, keepers in front of goal — data/complex.js DRILL); resting players stand by the
+// Clubhouse (since M12: the Recovery Pool / Clubhouse they walk to).
+// Milestone 12: Build Mode (long press on empty grass, or Build in the bottom row): a banner with Shop and Done; Shop
+// (main's sheet, src/screens/buildSheets.js) or Move gives a ghost — its footprint green where it may stand, red with
+// the reason where it may not; drag the ghost (or drag any facility straight away) to move it; tap a facility to pick
+// it, then Move or Sell (50% back, after a confirm). The ground grows with the Club Rank; the camera keeps its spot.
+//   createClubScreen({ renderer, layout, assets, bus, sheet, club, onMenu, debug, calendar, onMatchSetup, extraSections,
+//                      onTeam, onShop, detailSheet, confirm, onLayoutChanged })
+//     club() → { n, data, layout } or null     calendar() → the open club's calendar or null
+//     extraSections(defId, station) → more Facility Detail sections (Training, League …)
+//     onShop() opens the Shop sheet          detailSheet(station, api) → the Facility Detail sheet menu
+//     confirm({ title, body, yes, danger, onYes })    onLayoutChanged(reason) → save
 import { THEME, font } from '../../../../core/Theme.js';
 import { IsoProjection } from '../../../../core/IsoProjection.js';
 import { Camera } from '../../../../core/Camera.js';
@@ -35,9 +38,9 @@ import { drawClubFlag } from '../ui/kitArt.js';
 import { drawBadge } from '../ui/clubArt.js';
 import { rank as clubRank } from '../systems/league.js';
 import { founderById, colourById, POSITIONS } from '../../data/setup.js';
-import { COMPLEX, STATIONS, PATHS, TREES, PROPS, GATE_COL, PERSON, LOOK as L, CLUBHOUSE, REST_SPOTS, DRILL } from '../../data/complex.js';
+import { COMPLEX, TREES, PROPS, PERSON, LOOK as L, DRILL } from '../../data/complex.js';
+import { facilityById, ART_LOOK, ART_TWEAK, PITCHES } from '../../data/facilities.js';
 import { FRONT_BODIES, KEEPER_BODIES, BODY_ART } from '../../data/kits.js';
-import { focusById } from '../../data/training.js';
 import { bodyKey, headOf } from '../ui/kitArt.js';
 import { kitFromColour } from '../match/kits.js';
 import { createComplexWorld } from '../systems/complexWorld.js';
@@ -46,39 +49,63 @@ const C = THEME.color;
 const S = THEME.size;
 // Sprite detail steps: the smallest step at or above the camera zoom, so pictures are cached near the size they are
 // drawn (a few cached sizes per picture, remade once when a pinch crosses a step).
-const DETAIL_STEPS = [0.5, 0.7, 1.0, 1.4];
+const DETAIL_STEPS = [0.35, 0.5, 0.7, 1.0, 1.4];
 const detailFor = (zoom) => DETAIL_STEPS.find((d) => d >= zoom - 1e-3) ?? DETAIL_STEPS[DETAIL_STEPS.length - 1];
-const TOP_OVERHANG = 360; // room above the grid's back corner for the pitch's floodlights
+const TOP_OVERHANG = 420; // room above the grid's back corner for a building's roof and the pitch's floodlights
+const fmt = (n) => Math.round(n).toLocaleString('en-GB');
 
-export function createClubScreen({ renderer, layout, assets, bus, sheet, club, onMenu, debug = null, calendar = () => null, onMatchSetup = () => {}, extraSections = () => [], onTeam = () => {} }) {
+export function createClubScreen({ renderer, layout, assets, bus, sheet, club, onMenu, debug = null, calendar = () => null, onMatchSetup = () => {}, extraSections = () => [], onTeam = () => {}, onResearch = () => {}, onShop = () => {}, detailSheet = null, confirm = null, onLayoutChanged = () => {} }) {
   const W = renderer.width;
-  const { cols, rows, cellSize: CELL, margin, fenceH } = COMPLEX;
+  const { cellSize: CELL, margin, fenceH } = COMPLEX;
   const { halfW: HW, halfH: HH } = COMPLEX.view;
-  const iso = new IsoProjection({ tileSize: CELL, halfW: HW, halfH: HH, originX: margin + rows * HW, originY: margin + TOP_OVERHANG });
-  const worldW = (cols + rows) * HW + margin * 2;
-  const worldH = (cols + rows) * HH + TOP_OVERHANG + margin * 2;
-  const camera = new Camera({ viewW: W, viewH: renderer.height, worldW, worldH });
+  // The ground's size (cols × rows) is the club's stage; everything projected hangs off it.
+  let cols = 11;
+  let rows = 12;
+  let iso = null;
+  let worldW = 0;
+  let worldH = 0;
+  const camera = new Camera({ viewW: W, viewH: renderer.height, worldW: 100, worldH: 100 });
   camera.minZoom = COMPLEX.zoom.min;
   camera.maxZoom = COMPLEX.zoom.max;
-  const groundLayer = new CachedLayer({ width: worldW, height: worldH, draw: drawGround });
-  const groundCap = Math.sqrt(COMPLEX.floorMaxPixels / (worldW * worldH));
-  const groundScale = () => Math.min(renderer.pixelScale * detailFor(camera.zoom), groundCap);
+  const groundLayer = new CachedLayer({ width: 100, height: 100, draw: drawGround });
+  const groundScale = () => Math.min(renderer.pixelScale * detailFor(camera.zoom), Math.sqrt(COMPLEX.floorMaxPixels / (worldW * worldH)));
+  function setGround(c, r) {
+    // keep the camera on the same plan spot when the ground grows
+    const mid = iso ? iso.toPlan(camera.x + camera.visibleW / 2, camera.y + camera.visibleH / 2) : null;
+    cols = c;
+    rows = r;
+    iso = new IsoProjection({ tileSize: CELL, halfW: HW, halfH: HH, originX: margin + rows * HW, originY: margin + TOP_OVERHANG });
+    worldW = (cols + rows) * HW + margin * 2;
+    worldH = (cols + rows) * HH + TOP_OVERHANG + margin * 2;
+    camera.minZoom = Math.min(COMPLEX.zoom.min, (W / worldW) * 1.05); // (pinch out far enough to see the whole ground)
+    camera.setWorld(worldW, worldH);
+    groundLayer.resize(worldW, worldH);
+    groundLayer.invalidate();
+    if (mid) {
+      const w = iso.toWorld(mid.x, mid.y);
+      camera.centerOn(w.x, w.y);
+    }
+  }
+  setGround(cols, rows);
 
   let world = null;
   let slotN = null;
   let founder = null;
+  let layoutSeen = -1; // the layout version the ground picture and the tap list were made for
 
   // --- where things are drawn (projected world) ------------------------------------------------------------------
-  // A station's art: its width follows its footprint's diamond, and the footprint's front corner sits at look.foot.
-  const artRect = (st) => {
-    const { fp, look, art } = st.def;
+  const lookOf = (def) => ({ ...ART_LOOK, ...(ART_TWEAK[def.id] ?? {}) });
+  // A facility's art: its width follows its footprint's diamond (one scale for all), the footprint's front corner sits
+  // at look.foot down the picture.
+  const artRectFp = (def, fp) => {
+    const look = lookOf(def);
     const w = (fp.w + fp.h) * HW * look.width;
-    const h = w / assets.aspect(art);
+    const h = w / assets.aspect(def.art);
     const cx = iso.corner(fp.col + fp.w / 2, fp.row + fp.h / 2).x;
     const front = iso.corner(fp.col + fp.w, fp.row + fp.h).y;
-    const y = front - h * look.foot;
-    return { x: cx - w / 2, y, w, h };
+    return { x: cx - w / 2, y: front - h * look.foot, w, h };
   };
+  const artRect = (st) => artRectFp(st.def, st.fp);
   const feetOf = (p) => iso.toWorld(p.agent.x, p.agent.y);
   const personRect = (p) => {
     const f = feetOf(p);
@@ -86,7 +113,7 @@ export function createClubScreen({ renderer, layout, assets, bus, sheet, club, o
     const w = h * assets.aspect(p.art);
     return { x: f.x - w / 2, y: f.y - h * PERSON.feet, w, h };
   };
-  // The Founder is tapped on their body (the picture's transparent sides left out); a station on its art, less the
+  // The Founder is tapped on their body (the picture's transparent sides left out); a facility on its art, less the
   // empty corners of the square picture.
   const tapRect = (it) => {
     if (it.kind === 'player') {
@@ -94,21 +121,17 @@ export function createClubScreen({ renderer, layout, assets, bus, sheet, club, o
       return { x: r.x + r.w * 0.24, y: r.y + r.h * 0.05, w: r.w * 0.52, h: r.h * (PERSON.feet - 0.05) };
     }
     const r = artRect(it);
-    const foot = it.def.look.foot;
-    return { x: r.x + r.w * 0.08, y: r.y + r.h * 0.1, w: r.w * 0.84, h: r.h * (foot - 0.1) };
+    const foot = lookOf(it.def).foot;
+    return { x: r.x + r.w * 0.1, y: r.y + r.h * 0.12, w: r.w * 0.8, h: r.h * (foot - 0.12) };
   };
-  // Draw order: plan x + y (further back first); a station by its footprint's middle.
+  // Draw order: plan x + y (further back first); a facility by its footprint's middle.
   const depthOf = (it) => {
-    if (it.kind === 'player') return it.agent.x + it.agent.y;
+    if (it.kind === 'player' || it.kind === 'walker') return it.agent.x + it.agent.y;
     if (it.kind === 'tree' || it.kind === 'prop') return (it.col + it.row) * CELL;
     if (it.kind === 'drill') return it.depth;
-    if (it.kind === 'clubhouse') return (CLUBHOUSE.col + CLUBHOUSE.w / 2 + CLUBHOUSE.row + CLUBHOUSE.h / 2) * CELL;
     return (it.fp.col + it.fp.w / 2 + it.fp.row + it.fp.h / 2) * CELL;
   };
   const selection = new Selection(bus, { boundsOf: tapRect, depthOf: (it) => depthOf(it) + (it.kind === 'player' ? 100000 : 0), minHitSize: 90 });
-  const trees = TREES.map((t) => ({ kind: 'tree', ...t }));
-  const props = PROPS.map((p) => ({ kind: 'prop', ...p }));
-  let fenceFor = ''; // the club colours the cached back fence was drawn in
   let time = 0;
   const pose = { bob: 0, tilt: 0, flip: 1 };
   let drillTime = 0;
@@ -125,20 +148,20 @@ export function createClubScreen({ renderer, layout, assets, bus, sheet, club, o
     const sr = layout.safeRect;
     return { x: m.x + m.w + 20, y: m.y, w: sr.x + sr.w - 24 - (m.x + m.w + 20), h: m.h };
   };
-  // The temporary shortcut (Milestone 1): opens the Training Pitch sheet, like tapping the pitch. The five-button bar
-  // replaces it later.
-  // Milestone 7: the bottom row is Team (left) and the shortcut (right).
-  const bottomW = () => Math.min(500, (layout.safeRect.w - 48 - 20) / 2);
-  const shortcutRect = () => {
+  // The bottom row: Team · Build · Research (Milestone 13) · the shortcut (Training Pitch, or Match Setup on match day).
+  // The five-button bar replaces it later.
+  const BOTTOM_N = 4;
+  const bottomW = () => Math.min(400, (layout.safeRect.w - 48 - 20 * (BOTTOM_N - 1)) / BOTTOM_N);
+  const bottomRect = (i) => {
     const sr = layout.safeRect;
     const w = bottomW();
-    return { x: sr.x + sr.w / 2 + 10, y: sr.y + sr.h - 24 - 130, w, h: 130 };
+    const x0 = sr.x + sr.w / 2 - (w * BOTTOM_N + 20 * (BOTTOM_N - 1)) / 2;
+    return { x: x0 + i * (w + 20), y: sr.y + sr.h - 24 - 130, w, h: 130 };
   };
-  const teamRect = () => {
-    const sr = layout.safeRect;
-    const w = bottomW();
-    return { x: sr.x + sr.w / 2 - 10 - w, y: sr.y + sr.h - 24 - 130, w, h: 130 };
-  };
+  const teamRect = () => bottomRect(0);
+  const buildRect = () => bottomRect(1);
+  const researchRect = () => bottomRect(2);
+  const shortcutRect = () => bottomRect(3);
   // The calendar strip (Milestone 2): date + speed text, the four speed buttons, the next-match line.
   const calRect = () => {
     const m = menuRect();
@@ -154,18 +177,15 @@ export function createClubScreen({ renderer, layout, assets, bus, sheet, club, o
     return { x: r.x + 16 + i * (w + gap), y: r.y + 72, w, h: THEME.button.minH };
   };
   let note = null; // { text, t } — why a speed tap was refused, shown for a moment on the next-match line
+  // Build Mode's banner: title + Credits, a message line, and its buttons along the bottom.
   const bannerRect = () => {
     const sr = layout.safeRect;
-    return { x: sr.x + 24, y: sr.y + 24, w: sr.w - 48, h: 190 };
+    return { x: sr.x + 24, y: sr.y + 24, w: sr.w - 48, h: 340 };
   };
-  const doneRect = () => {
-    const b = bannerRect();
-    return { x: b.x + b.w - 250, y: b.y + (b.h - 120) / 2, w: 226, h: 120 };
-  };
-  const onUi = (p) => (buildMode ? hitRect(p, bannerRect()) : hitRect(p, menuRect()) || hitRect(p, plateRect()) || hitRect(p, calRect()) || hitRect(p, shortcutRect()) || hitRect(p, teamRect()));
+  const onUi = (p) => (buildMode ? hitRect(p, bannerRect()) : hitRect(p, menuRect()) || hitRect(p, plateRect()) || hitRect(p, calRect()) || hitRect(p, shortcutRect()) || hitRect(p, teamRect()) || hitRect(p, buildRect()) || hitRect(p, researchRect()));
   const overSheet = (p) => sheet.active && p.y >= sheet.rect().y;
 
-  // The camera sees the ground between the calendar strip and the shortcut; grass fills the rest.
+  // The camera sees the ground between the calendar strip and the bottom row; grass fills the rest.
   function fitView() {
     const top = calRect();
     const bottom = shortcutRect();
@@ -176,7 +196,8 @@ export function createClubScreen({ renderer, layout, assets, bus, sheet, club, o
   function resetView() {
     fitView();
     camera.zoom = COMPLEX.zoom.start;
-    const c = iso.cellCenter(7, 8.5); // the crossroads of the paths, the pitch above and the office to the right
+    const g = world?.layout.gate ?? { col: 5, row: 11 };
+    const c = iso.cellCenter(Math.min(cols / 2, g.col), rows * 0.55); // the middle of the ground, nearer the gate
     camera.centerOn(c.x, c.y);
   }
 
@@ -188,14 +209,18 @@ export function createClubScreen({ renderer, layout, assets, bus, sheet, club, o
     const w = camera.screenToWorld(sx, sy);
     return selection.pick(w.x, w.y);
   };
-  const cellAt = (sx, sy) => {
+  const planAt = (sx, sy) => {
     const w = camera.screenToWorld(sx, sy);
-    const plan = iso.toPlan(w.x, w.y);
+    return iso.toPlan(w.x, w.y);
+  };
+  const cellAt = (sx, sy) => {
+    const plan = planAt(sx, sy);
     const c = { col: Math.floor(plan.x / CELL), row: Math.floor(plan.y / CELL) };
     return world?.grid.inBounds(c.col, c.row) ? c : null;
   };
+  const stationAtCell = (c) => (c ? world.stations.find((s) => c.col >= s.fp.col && c.col < s.fp.col + s.fp.w && c.row >= s.fp.row && c.row < s.fp.row + s.fp.h) ?? null : null);
 
-  // --- sheets (style guide §3: header only for now — picture, name, one line, and what is happening now) ----------
+  // --- sheets: the Founder's, and the Facility Detail sheet --------------------------------------------------------
   function menuFor(it) {
     const clubColour = colourById(club()?.data.club.colours.primary)?.hex ?? C.progress;
     if (it.kind === 'player') {
@@ -209,26 +234,219 @@ export function createClubScreen({ renderer, layout, assets, bus, sheet, club, o
         sections: [{ title: 'Now', lines: [world.stateOf(it)] }],
       };
     }
-    return {
-      title: it.def.name,
-      subtitle: it.def.line,
-      art: it.def.art,
-      accent: C.progress,
-      tag: { text: it.def.role.toUpperCase() },
-      sections: [{ title: 'Now', lines: [world.stateOf(it)] }, ...extraSections(it.id)],
+    const users = world.usersOf(it.uid).map((w) => w.p.name);
+    if (world.player.at === it.id || (!world.player.at && world.stateOf(it).includes('on the way'))) users.unshift(`${world.player.name} (Founder)`);
+    const api = {
+      now: world.stateOf(it),
+      users,
+      onMove: () => {
+        sheet.close();
+        startMove(it.uid);
+      },
+      onSell: () => askSell(it.uid),
+      canSell: world.layout.canSell(it.uid),
+      extra: extraSections(it.def.id, it),
     };
+    if (detailSheet) return detailSheet(it, api);
+    return { title: it.def.name, subtitle: it.def.effect, art: it.def.art, accent: C.progress, tag: { text: it.def.role.toUpperCase() }, sections: [{ title: 'Now', lines: [api.now] }, ...api.extra] };
   }
   function openSheet(id) {
     const it = world?.byId(id);
     if (!it) return;
     selection.select(it);
-    sheet.open(() => (world?.byId(id) === it ? menuFor(it) : null));
+    sheet.open(() => (world?.byId(id) === it || (it.kind === 'station' && world?.byUid(it.uid)) ? menuFor(it.kind === 'station' ? world.byUid(it.uid) : it) : null));
     debug?.log(`sheet: ${id}`);
+  }
+
+  // The tap list: every facility and the Founder (redone when the layout changes).
+  function syncSelection() {
+    for (const it of [...selection.items]) selection.remove(it);
+    for (const it of [...world.stations, ...world.people]) selection.add(it);
+    layoutSeen = world.layout.version;
+    groundLayer.invalidate();
+    paths = null;
+  }
+  // The layout changed (Build Mode, or the ground grew): the world re-paths, the ground is redrawn.
+  function layoutChanged(reason) {
+    const st = world.layout.stage;
+    if (st.cols !== cols || st.rows !== rows) setGround(st.cols, st.rows);
+    world.refreshLayout();
+    syncSelection();
+    if (reason) onLayoutChanged(reason);
+  }
+
+  // --- Build Mode (Milestone 12) -------------------------------------------------------------------------------------
+  // ghost: { defId, uid (a facility being moved) | null (a new one), col, row, res ({ ok, reason }) }
+  // picked: the uid of the facility tapped in Build Mode (Move / Sell in the banner)
+  // press / drag: a finger that went down on the ghost or a facility (dragging it moves it, not the camera)
+  const B = { ghost: null, picked: null, press: null, drag: null, msg: null };
+  const say = (t, bad = false) => (B.msg = { text: t, bad, t: 4 });
+  function ghostAt(col, row) {
+    const g = B.ghost;
+    const def = facilityById(g.defId);
+    g.col = Math.max(0, Math.min(cols - def.w, col));
+    g.row = Math.max(0, Math.min(rows - def.h, row));
+    g.res = world.layout.check(g.defId, g.col, g.row, g.uid);
+    B.msg = null; // (the banner shows whether it fits here now)
+    if (g.res.ok && g.uid == null) {
+      const can = world.layout.canBuy(g.defId);
+      if (!can.ok) g.res = can;
+    }
+  }
+  function centerOnCells(col, row, w, h) {
+    const c = iso.corner(col + w / 2, row + h / 2);
+    camera.centerOn(c.x, c.y);
+  }
+  // From the Shop: a ghost of the new facility at the nearest free spot to the middle of the view.
+  function startBuild(defId) {
+    if (!world) return;
+    sheet.close();
+    screen.setBuildMode(true);
+    const def = facilityById(defId);
+    const mid = planAt(W / 2, camera.viewY + camera.viewH / 2);
+    const near = { col: Math.floor(mid.x / CELL), row: Math.floor(mid.y / CELL) };
+    const at = world.layout.findSpot(defId, near) ?? { col: Math.max(0, near.col - 1), row: Math.max(0, near.row - 1) };
+    B.picked = null;
+    B.ghost = { defId, uid: null };
+    ghostAt(at.col, at.row);
+    centerOnCells(B.ghost.col, B.ghost.row, def.w, def.h);
+    say(B.ghost.res.ok ? 'Drag it where you want it, then Place.' : B.ghost.res.reason, !B.ghost.res.ok);
+    debug?.log(`build: ${defId}`);
+  }
+  function startMove(uid) {
+    const it = world?.layout.item(uid);
+    if (!it) return;
+    screen.setBuildMode(true);
+    B.picked = null;
+    B.ghost = { defId: it.def.id, uid };
+    ghostAt(it.col, it.row);
+    say('Drag it to its new spot, then Move here.');
+  }
+  // Place the ghost (a new facility: pay for it) or finish moving it.
+  function commitGhost() {
+    const g = B.ghost;
+    if (!g) return false;
+    const def = facilityById(g.defId);
+    const r = g.uid == null ? world.layout.place(g.defId, g.col, g.row) : world.layout.move(g.uid, g.col, g.row);
+    if (!r.ok) {
+      say(r.reason, true);
+      return false;
+    }
+    B.ghost = null;
+    layoutChanged(g.uid == null ? 'facility:built' : 'facility:moved');
+    say(g.uid == null ? `${def.name} built (−${fmt(def.cost)} Credits).` : `${def.name} moved.`);
+    debug?.log(`${g.uid == null ? 'built' : 'moved'} ${g.defId} at ${g.col},${g.row}`);
+    return true;
+  }
+  function askSell(uid) {
+    const it = world?.layout.item(uid);
+    if (!it) return;
+    const can = world.layout.canSell(uid);
+    if (!can.ok) {
+      say(can.reason, true);
+      return;
+    }
+    const doSell = () => {
+      const r = world.layout.sell(uid);
+      if (!r.ok) return say(r.reason, true);
+      sheet.close();
+      if (B.picked === uid) B.picked = null;
+      layoutChanged('facility:sold');
+      say(`${it.def.name} sold (+${fmt(r.refund)} Credits).`);
+      debug?.log(`sold ${it.def.id} +${r.refund}`);
+    };
+    if (confirm) confirm({ title: `Sell the ${it.def.name}?`, body: `You get ${fmt(can.refund)} Credits back (half of ${fmt(it.def.cost)}). Its effect stops at once.`, yes: 'Sell', danger: true, onYes: doSell });
+    else doSell();
+  }
+  // The banner's buttons for what Build Mode is doing now.
+  function bannerButtons() {
+    const b = bannerRect();
+    const list = [];
+    if (B.ghost) {
+      const g = B.ghost;
+      const def = facilityById(g.defId);
+      list.push({ id: 'place', label: g.uid == null ? `Place · ${fmt(def.cost)}` : 'Move here', accent: C.good, disabled: !g.res?.ok, onTap: () => commitGhost() });
+      list.push({ id: 'cancel', label: 'Cancel', accent: C.progress, onTap: () => (B.ghost = null) });
+    } else if (B.picked != null) {
+      const can = world.layout.canSell(B.picked);
+      list.push({ id: 'move', label: 'Move', accent: C.action, onTap: () => startMove(B.picked) });
+      list.push({ id: 'sell', label: can.ok ? `Sell +${fmt(can.refund)}` : 'Sell', accent: C.bad, disabled: !can.ok, onTap: () => askSell(B.picked) });
+      list.push({ id: 'done', label: 'Done', accent: C.good, onTap: () => screen.setBuildMode(false) });
+    } else {
+      list.push({ id: 'shop', label: 'Shop', accent: C.action, onTap: () => onShop() });
+      list.push({ id: 'done', label: 'Done', accent: C.good, onTap: () => screen.setBuildMode(false) });
+    }
+    const gap = 20;
+    const bw = Math.min(330, (b.w - 48 - gap * (list.length - 1)) / list.length);
+    const x0 = b.x + b.w - 24 - (bw * list.length + gap * (list.length - 1));
+    list.forEach((x, i) => (x.rect = { x: x0 + i * (bw + gap), y: b.y + b.h - 24 - 120, w: bw, h: 120 }));
+    return list;
+  }
+  function bannerText() {
+    if (B.msg) return { text: B.msg.text, color: B.msg.bad ? '#FFB4A8' : C.textOnDark };
+    if (B.ghost) {
+      const r = B.ghost.res;
+      return { text: r?.ok ? 'Fits here. Drag to move it.' : r?.reason ?? '', color: r?.ok ? '#B8F5BE' : '#FFB4A8' };
+    }
+    if (B.picked != null) {
+      const it = world.layout.item(B.picked);
+      return { text: `${it?.def.name ?? ''} — drag it to move, or Move / Sell`, color: C.textOnDark };
+    }
+    return { text: `Tap a facility to move or sell it · Shop to build · ${world.layout.stage.name} ${cols}×${rows}`, color: C.textOnDark };
+  }
+  // A tap in Build Mode: the banner's buttons, then the ghost (move it to the tapped spot), then a facility (pick it).
+  function buildTap(p) {
+    const btn = bannerButtons().find((x) => hitRect(p, x.rect));
+    if (btn) {
+      if (!btn.disabled) btn.onTap();
+      return btn.id;
+    }
+    if (hitRect(p, bannerRect())) return 'banner';
+    if (!screen.inView(p.x, p.y)) return null;
+    const c = cellAt(p.x, p.y);
+    if (B.ghost) {
+      if (!c) return null;
+      const def = facilityById(B.ghost.defId);
+      ghostAt(c.col - Math.floor(def.w / 2), c.row - Math.floor(def.h / 2));
+      B.msg = null;
+      return 'ghost';
+    }
+    const picked = pickAt(p.x, p.y);
+    const st = picked?.kind === 'station' ? picked : stationAtCell(c);
+    B.picked = st ? st.uid : null;
+    B.msg = null;
+    return st ? `pick:${st.id}` : null;
+  }
+  // What a finger pressed in Build Mode: the ghost, or a facility (dragging either moves it).
+  function grabAt(p) {
+    const c = cellAt(p.x, p.y);
+    const plan = planAt(p.x, p.y);
+    if (B.ghost) {
+      const def = facilityById(B.ghost.defId);
+      const g = B.ghost;
+      const inFp = plan.x >= g.col * CELL && plan.x < (g.col + def.w) * CELL && plan.y >= g.row * CELL && plan.y < (g.row + def.h) * CELL;
+      const w = camera.screenToWorld(p.x, p.y);
+      const ar = artRectFp(def, { col: g.col, row: g.row, w: def.w, h: def.h });
+      if (inFp || hitRect(w, { x: ar.x + ar.w * 0.15, y: ar.y + ar.h * 0.2, w: ar.w * 0.7, h: ar.h * 0.65 })) return { kind: 'ghost', at: { col: g.col, row: g.row }, plan };
+      return null;
+    }
+    const picked = pickAt(p.x, p.y);
+    const st = picked?.kind === 'station' ? picked : stationAtCell(c);
+    return st ? { kind: 'facility', uid: st.uid, at: { col: st.fp.col, row: st.fp.row }, plan } : null;
+  }
+  function dragGhostTo(p) {
+    const d = B.drag;
+    const plan = planAt(p.x, p.y);
+    const col = d.at.col + Math.round((plan.x - d.plan.x) / CELL);
+    const row = d.at.row + Math.round((plan.y - d.plan.y) / CELL);
+    if (col !== B.ghost.col || row !== B.ghost.row) ghostAt(col, row);
   }
 
   const screen = {
     camera,
-    iso,
+    get iso() {
+      return iso;
+    },
     selection,
     taps,
     get world() {
@@ -236,30 +454,55 @@ export function createClubScreen({ renderer, layout, assets, bus, sheet, club, o
     },
     // Tests: who is drilling / resting now ({ kind, focus, pitch: [ids], resting: [ids] }).
     drillState() {
-      const items = drillItems();
-      return { kind: drillKind(), focus: club()?.data.training?.focus ?? null, pitch: items.filter((i) => !i.resting && !i.cone).map((i) => i.id), resting: items.filter((i) => i.resting).map((i) => i.id) };
+      const ws = world?.walkers ?? [];
+      const onPitch = ws.filter((w) => PITCHES.includes(world.byUid(w.uid)?.def.id) && !w.resting);
+      const resting = ws.filter((w) => w.resting);
+      const first = onPitch[0];
+      const kind = !ws.length ? 'none' : !onPitch.length && resting.length ? 'rest' : drillKindOf(first?.focus);
+      return { kind, focus: club()?.data.training?.focus ?? null, pitch: onPitch.map((w) => w.id), resting: resting.map((w) => w.id) };
     },
-    // Tests: the Founder's pose this frame ({ bob, tilt, flip }) and the props.
+    // Tests: the Founder's pose this frame ({ bob, tilt, flip }) and the props shown.
     get founderPose() {
       return { ...pose };
     },
-    props,
+    get props() {
+      return propsNow();
+    },
     get buildMode() {
       return buildMode;
+    },
+    get build() {
+      return B;
     },
     get slot() {
       return slotN;
     },
+    get ground() {
+      return { cols, rows };
+    },
     openSheet,
-    // Tests: 'menu', 'plate', 'shortcut', 'done', 'banner'. (The plate shows the Club Rank — Milestone 10.)
+    openFacility(uid) {
+      const st = world?.byUid(uid);
+      if (st) openSheet(st.id);
+    },
+    startBuild,
+    startMove,
+    askSell,
+    commitGhost,
+    ghostTo: (col, row) => B.ghost && ghostAt(col, row), // (tests)
+    bannerButtonsForTests: () => (buildMode ? bannerButtons().map((x) => ({ id: x.id, label: x.label, disabled: !!x.disabled, rect: x.rect })) : []),
+    bannerTextForTests: () => (buildMode ? bannerText().text : null),
+    // Tests: 'menu', 'plate', 'shortcut', 'team', 'build', 'research', 'done', 'banner', calendar rects. (The plate shows the Club Rank.)
     rectOf(id) {
-      return { menu: menuRect(), plate: plateRect(), shortcut: shortcutRect(), team: teamRect(), done: doneRect(), banner: bannerRect(), calendar: calRect(), speed0: speedRect(0), speed1: speedRect(1), speed2: speedRect(2), speed4: speedRect(4) }[id] ?? null;
+      const bb = buildMode ? bannerButtons().find((x) => x.id === id) : null;
+      if (bb) return bb.rect;
+      return { menu: menuRect(), plate: plateRect(), shortcut: shortcutRect(), team: teamRect(), build: buildRect(), research: researchRect(), banner: bannerRect(), calendar: calRect(), speed0: speedRect(0), speed1: speedRect(1), speed2: speedRect(2), speed4: speedRect(4) }[id] ?? null;
     },
     // The words on the calendar strip (tests): { date, speed, next }.
     calendarText() {
       return calendarLines();
     },
-    // Screen point on the Founder's body or a station's art (tests): the visible middle of what a finger would tap.
+    // Screen point on the Founder's body or a facility's art (tests): the visible middle of what a finger would tap.
     screenPointOf(id) {
       const it = world.byId(id);
       const r = tapRect(it);
@@ -269,6 +512,8 @@ export function createClubScreen({ renderer, layout, assets, bus, sheet, club, o
       const w = iso.cellCenter(col, row);
       return camera.worldToScreen(w.x, w.y);
     },
+    // Tests: centre the camera on a block of tiles.
+    centerOnCells,
     inView(sx, sy) {
       return sx >= 0 && sx <= W && sy >= camera.viewY && sy <= camera.viewY + camera.viewH;
     },
@@ -278,6 +523,7 @@ export function createClubScreen({ renderer, layout, assets, bus, sheet, club, o
     setBuildMode(on) {
       if (buildMode === on) return;
       buildMode = on;
+      Object.assign(B, { ghost: null, picked: null, press: null, drag: null, msg: null });
       if (on) {
         sheet.close();
         selection.clear();
@@ -290,21 +536,19 @@ export function createClubScreen({ renderer, layout, assets, bus, sheet, club, o
       const o = club();
       if (!o) return;
       const f = founderById(o.data.club.founder.id);
-      // A new world when another club is opened (positions start at the pitch); the same slot reopened keeps its view.
-      if (!world || slotN !== o.n || founder !== f) {
+      // A new world when another club is opened (positions start fresh); the same slot reopened keeps its view.
+      if (!world || slotN !== o.n || founder !== f || world.layout !== o.layout) {
         const sameSlot = slotN === o.n;
         founder = f;
-        world = createComplexWorld({ founder: f });
-        for (const it of [...selection.items]) selection.remove(it);
-        for (const it of [...world.stations, ...world.people]) selection.add(it);
+        const st = o.layout.stage;
+        if (st.cols !== cols || st.rows !== rows || !world) setGround(st.cols, st.rows);
+        world = createComplexWorld({ founder: f, layout: o.layout, run: () => club()?.data ?? null });
+        syncSelection();
         slotN = o.n;
         if (!sameSlot) screen.viewSet = false;
       }
-      const cols = `${o.data.club.colours.primary}/${o.data.club.colours.secondary}`;
-      if (cols !== fenceFor) {
-        fenceFor = cols;
-        groundLayer.invalidate(); // the back fence wears the club colours
-      }
+      fenceFor = null; // (the back fence wears the club colours)
+      groundLayer.invalidate();
       screen.resize();
       if (!screen.viewSet) {
         screen.viewSet = true;
@@ -326,32 +570,72 @@ export function createClubScreen({ renderer, layout, assets, bus, sheet, club, o
       camera.centerOn(cx, cy);
     },
     update(dt) {
-      world?.update(dt * (calendar()?.clock.speed ?? 1)); // the Founder keeps the calendar's pace; still while paused
+      if (world) {
+        const st = world.layout.stage;
+        if (st.cols !== cols || st.rows !== rows || world.layout.version !== layoutSeen) layoutChanged(null); // (the ground grew)
+      }
+      const speed = calendar()?.clock.paused ? 0 : calendar()?.clock.speed ?? 1;
+      world?.update(dt * (calendar() ? speed : 1)); // people keep the calendar's pace; still while paused
       time += dt;
-      drillTime += dt * (calendar()?.clock.paused ? 0 : calendar()?.clock.speed ?? 1); // the drill runs with the calendar
+      drillTime += dt * speed; // the drill runs with the calendar
       if (note && (note.t -= dt) <= 0) note = null;
+      if (B.msg && (B.msg.t -= dt) <= 0) B.msg = null;
       if (!sheet.active && selection.selected) selection.clear();
     },
     onBack() {
-      if (buildMode) screen.setBuildMode(false);
+      if (buildMode && B.ghost) B.ghost = null;
+      else if (buildMode && B.picked != null) B.picked = null;
+      else if (buildMode) screen.setBuildMode(false);
       else onMenu();
       return true;
     },
 
     onDown(p) {
       if (overSheet(p) || onUi(p)) return; // the buttons, the banner and the sheet never pan or pinch the ground
+      if (buildMode && !gestures.fingers) {
+        const g = grabAt(p);
+        if (g) {
+          B.press = { id: p.id, ...g }; // (a drag from here moves the ghost / the facility)
+          return;
+        }
+      }
       gestures.down(p);
     },
     onUp(p) {
+      if (B.press?.id === p.id && !B.drag) B.press = null;
       gestures.up(p);
     },
     onDragStart(p) {
+      if (B.press && B.press.id === p.id && world) {
+        const g = B.press;
+        if (g.kind === 'facility') {
+          B.picked = null;
+          B.ghost = { defId: world.layout.item(g.uid).def.id, uid: g.uid };
+          ghostAt(g.at.col, g.at.row);
+        }
+        B.drag = { id: p.id, at: { col: B.ghost.col, row: B.ghost.row }, plan: g.plan, fromFacility: g.kind === 'facility' };
+        B.press = null;
+        B.msg = null;
+        return;
+      }
       gestures.dragStart(p);
     },
     onDrag(p) {
+      if (B.drag && B.drag.id === p.id && B.ghost) return dragGhostTo(p);
       gestures.drag(p);
     },
     onDragEnd(p) {
+      if (B.drag && B.drag.id === p.id) {
+        const from = B.drag.fromFacility;
+        B.drag = null;
+        // a facility dragged straight away moves when let go somewhere it fits
+        if (from && B.ghost?.uid != null && B.ghost.res?.ok) {
+          const it = world.layout.item(B.ghost.uid);
+          if (it && (it.col !== B.ghost.col || it.row !== B.ghost.row)) commitGhost();
+          else B.ghost = null;
+        }
+        return;
+      }
       gestures.dragEnd(p);
     },
     onWheel(p) {
@@ -363,10 +647,7 @@ export function createClubScreen({ renderer, layout, assets, bus, sheet, club, o
         taps.push({ x: p.x, y: p.y, picked });
         if (taps.length > 50) taps.shift();
       };
-      if (buildMode) {
-        if (hitRect(p, doneRect())) screen.setBuildMode(false);
-        return log(hitRect(p, doneRect()) ? 'done' : null);
-      }
+      if (buildMode) return log(buildTap(p));
       if (hitRect(p, menuRect())) {
         onMenu();
         return log('menu');
@@ -374,6 +655,14 @@ export function createClubScreen({ renderer, layout, assets, bus, sheet, club, o
       if (hitRect(p, teamRect())) {
         onTeam();
         return log('team');
+      }
+      if (hitRect(p, buildRect())) {
+        screen.setBuildMode(true);
+        return log('build');
+      }
+      if (hitRect(p, researchRect())) {
+        onResearch();
+        return log('research');
       }
       if (hitRect(p, shortcutRect())) {
         if (calendar()?.atKickoff) {
@@ -398,13 +687,13 @@ export function createClubScreen({ renderer, layout, assets, bus, sheet, club, o
       else selection.clear();
       log(picked?.id ?? null);
     },
-    // Long press on empty grass → Build Mode. On the Founder or a station it opens their sheet, like a tap.
+    // Long press on empty grass → Build Mode. On the Founder or a facility it opens their sheet, like a tap.
     onHold(p) {
       if (!world || gestures.multiTouch || gestures.fingers > 1 || buildMode || onUi(p) || overSheet(p)) return;
       if (!screen.inView(p.x, p.y)) return;
       const picked = pickAt(p.x, p.y);
       if (picked) openSheet(picked.id);
-      else if (cellAt(p.x, p.y)) screen.setBuildMode(true);
+      else if (cellAt(p.x, p.y) && !stationAtCell(cellAt(p.x, p.y))) screen.setBuildMode(true);
     },
 
     render(ctx) {
@@ -414,24 +703,32 @@ export function createClubScreen({ renderer, layout, assets, bus, sheet, club, o
         drawButton(ctx, menuRect(), '‹ Menu', { accent: C.progress });
         return;
       }
+      const cc = club()?.data.club;
+      const fence = cc ? `${cc.colours.primary}/${cc.colours.secondary}` : '';
+      if (fence !== fenceFor) {
+        fenceFor = fence;
+        groundLayer.invalidate();
+      }
       camera.apply(ctx);
       groundLayer.setPixelScale(groundScale());
       groundLayer.renderView(ctx, { x: camera.x, y: camera.y, w: camera.visibleW, h: camera.visibleH });
       assets.detail = detailFor(camera.zoom);
       if (buildMode) drawBuildGrass(ctx);
       drawSelectionMark(ctx);
-      const items = [...world.stations, ...trees, ...props, { kind: 'clubhouse' }, ...drillItems(), ...world.people].sort((a, b) => depthOf(a) - depthOf(b));
+      const hidden = B.ghost?.uid ?? null; // (a facility being moved is drawn as its ghost)
+      const items = [...world.stations.filter((s) => s.uid !== hidden), ...treesNow(), ...propsNow(), ...drillItems(), ...world.people].sort((a, b) => depthOf(a) - depthOf(b));
       for (const it of items) {
         if (it.kind === 'station') {
           const r = artRect(it);
           assets.draw(ctx, it.def.art, r.x, r.y, r.w, r.h);
         } else if (it.kind === 'tree') drawTree(ctx, it);
         else if (it.kind === 'prop') drawProp(ctx, it);
-        else if (it.kind === 'clubhouse') drawClubhouse(ctx);
         else if (it.kind === 'drill') drawDrill(ctx, it);
         else drawPlayer(ctx, it);
       }
       drawFrontFence(ctx);
+      if (buildMode) drawPicked(ctx);
+      if (buildMode && B.ghost) drawGhost(ctx);
       assets.detail = 1;
       camera.restore(ctx);
       for (const p of world.people) drawTag(ctx, p);
@@ -441,11 +738,42 @@ export function createClubScreen({ renderer, layout, assets, bus, sheet, club, o
         drawPlate(ctx);
         drawCalendar(ctx);
         drawButton(ctx, teamRect(), 'Team', { accent: C.purple });
+        drawButton(ctx, buildRect(), 'Build', { accent: C.gold });
+        drawButton(ctx, researchRect(), 'Research', { accent: C.progress });
         if (calendar()?.atKickoff) drawButton(ctx, shortcutRect(), 'Match Setup', { accent: C.good });
         else drawButton(ctx, shortcutRect(), 'Training Pitch', { accent: C.action });
       }
     },
   };
+  let fenceFor = null; // the club colours the cached back fence was drawn in
+
+  // --- the worn paths: from the gate to the front of every facility (shortest walks over free tiles) ----------------
+  let paths = null; // Set of "c,r"
+  function pathCells() {
+    if (paths) return paths;
+    paths = new Set();
+    if (!world) return paths;
+    const Lay = world.layout;
+    const g = Lay.gate;
+    const prev = new Map([[`${g.col},${g.row}`, null]]);
+    const queue = [g];
+    for (let i = 0; i < queue.length; i++) {
+      const c = queue[i];
+      for (const [dc, dr] of [[0, -1], [-1, 0], [1, 0], [0, 1]]) {
+        const n = { col: c.col + dc, row: c.row + dr };
+        const k = `${n.col},${n.row}`;
+        if (prev.has(k) || !Lay.isOpenCell(n.col, n.row)) continue;
+        prev.set(k, `${c.col},${c.row}`);
+        queue.push(n);
+      }
+    }
+    paths.add(`${g.col},${g.row}`);
+    for (const s of world.stations) {
+      const d = Lay.accessCells(s.uid)[0];
+      for (let k = d ? `${d.col},${d.row}` : null; k && !paths.has(k); k = prev.get(k)) paths.add(k);
+    }
+    return paths;
+  }
 
   // --- drawing ---------------------------------------------------------------------------------------------------
   function patch(g, pts, fill, stroke = null, lw = 2) {
@@ -458,23 +786,34 @@ export function createClubScreen({ renderer, layout, assets, bus, sheet, club, o
       g.stroke();
     }
   }
-  // Grass in mown stripes, the gravel paths and the back fence — drawn once into the cached layer.
+  // Grass in mown stripes, the worn paths, soft shade under the facilities and the back fence — drawn once into the
+  // cached layer (again when the layout changes).
   function drawGround(g) {
     g.fillStyle = L.outside;
     g.fillRect(0, 0, worldW, worldH);
     g.lineJoin = 'round';
-    for (let r = 0; r < rows; r++)
-      for (let c = 0; c < cols; c++) patch(g, iso.outline(c, r), Math.floor(c / 2) % 2 ? L.grassA : L.grassB);
+    for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) patch(g, iso.outline(c, r), Math.floor(c / 2) % 2 ? L.grassA : L.grassB);
     g.strokeStyle = L.grassLine;
     g.lineWidth = 1.2;
     for (let c = 0; c <= cols; c += 2) line(g, iso.corner(c, 0), iso.corner(c, rows));
-    // Paths: gravel with a darker edge.
-    for (const p of PATHS) patch(g, iso.outline(p.col + 0.08, p.row + 0.08, p.w - 0.16, p.h - 0.16), L.pathEdge);
-    for (const p of PATHS) patch(g, iso.outline(p.col + 0.16, p.row + 0.16, p.w - 0.32, p.h - 0.32), L.path);
-    // The gate: the long path runs out through the front fence.
-    patch(g, [iso.corner(GATE_COL + 0.16, rows - 0.2), iso.corner(GATE_COL + 0.84, rows - 0.2), iso.corner(GATE_COL + 0.84, rows + 0.9), iso.corner(GATE_COL + 0.16, rows + 0.9)], L.path);
-    // Soft shade under the stations (the art has its own base; this just seats it on the grass).
-    for (const st of STATIONS) patch(g, iso.outline(st.fp.col - 0.05, st.fp.row - 0.05, st.fp.w + 0.1, st.fp.h + 0.1), L.fenceShade);
+    // Paths: gravel with a darker edge, joined across neighbouring tiles.
+    const P = pathCells();
+    const has = (c, r) => P.has(`${c},${r}`);
+    for (const pass of [0, 1]) {
+      const inset = pass ? 0.2 : 0.1;
+      const fill = pass ? L.path : L.pathEdge;
+      for (const k of P) {
+        const [c, r] = k.split(',').map(Number);
+        patch(g, iso.outline(c + inset, r + inset, 1 - inset * 2, 1 - inset * 2), fill);
+        if (has(c + 1, r)) patch(g, iso.outline(c + 1 - inset, r + inset, inset * 2, 1 - inset * 2), fill);
+        if (has(c, r + 1)) patch(g, iso.outline(c + inset, r + 1 - inset, 1 - inset * 2, inset * 2), fill);
+      }
+    }
+    // The gate: the path runs out through the front fence.
+    const gt = world?.layout.gate;
+    if (gt) patch(g, [iso.corner(gt.col + 0.2, rows - 0.2), iso.corner(gt.col + 0.8, rows - 0.2), iso.corner(gt.col + 0.8, rows + 0.9), iso.corner(gt.col + 0.2, rows + 0.9)], L.path);
+    // Soft shade under the facilities (the art has its own base; this just seats it on the grass).
+    for (const st of world?.stations ?? []) patch(g, iso.outline(st.fp.col - 0.05, st.fp.row - 0.05, st.fp.w + 0.1, st.fp.h + 0.1), L.fenceShade);
     // The back fence along row 0 and col 0.
     fence(g, 'row', 0, 0, cols);
     fence(g, 'col', 0, 0, rows);
@@ -502,16 +841,17 @@ export function createClubScreen({ renderer, layout, assets, bus, sheet, club, o
       for (const h of [fenceH * 0.45, fenceH * 0.85]) {
         g.strokeStyle = h > fenceH * 0.5 ? top : L.fenceRail; // the top rail in the club's first colour
         g.lineWidth = 7;
-        line(g, P(t, h), P(t + 1, h));
+        line(g, P(t, h), P(t + 0.5, h));
+        line(g, P(t + 0.5, h), P(t + 1, h));
       }
     }
     g.strokeStyle = L.fencePost;
     g.lineWidth = 9;
-    for (let t = a; t <= b; t++) line(g, P(t, 0), P(t, fenceH));
+    for (let t = a; t <= b; t += 0.5) line(g, P(t, 0), P(t, fenceH));
     g.fillStyle = cap; // post caps in the second colour
     g.strokeStyle = L.outline;
     g.lineWidth = 2;
-    for (let t = a; t <= b; t++) {
+    for (let t = a; t <= b; t += 0.5) {
       const p = P(t, fenceH);
       g.beginPath();
       g.arc(p.x, p.y, 6.5, 0, Math.PI * 2);
@@ -523,7 +863,44 @@ export function createClubScreen({ renderer, layout, assets, bus, sheet, club, o
   // The front fence (col = cols, and row = rows with the gate) goes over everything on the ground.
   function drawFrontFence(ctx) {
     fence(ctx, 'col', cols, 0, rows);
-    fence(ctx, 'row', rows, 0, cols, GATE_COL);
+    fence(ctx, 'row', rows, 0, cols, world?.layout.gate.col ?? null);
+  }
+  // Trees just outside the back fence (they move out with it when the ground grows).
+  let treeList = null;
+  let treeFor = '';
+  function treesNow() {
+    if (treeFor !== `${cols}x${rows}`) {
+      treeFor = `${cols}x${rows}`;
+      treeList = [];
+      let i = 0;
+      for (let c = 0.8; c < cols; c += TREES.every) treeList.push({ kind: 'tree', col: c + TREES.jitter[i++ % TREES.jitter.length], row: -TREES.out, r: TREES.r * (1 + (i % 3) * 0.15) });
+      for (let r = 1.2; r < rows; r += TREES.every) treeList.push({ kind: 'tree', col: -TREES.out, row: r + TREES.jitter[i++ % TREES.jitter.length], r: TREES.r * (1 + (i % 3) * 0.15) });
+    }
+    return treeList;
+  }
+  // Props beside the facility they belong to; left out where a facility, a worn path or the gate is.
+  function propsNow() {
+    if (!world) return [];
+    const P = pathCells();
+    const out = [];
+    for (const pr of PROPS) {
+      let base = null;
+      if (pr.at === 'gate') base = world.layout.gate;
+      else {
+        const st = world.stations.find((s) => s.def.id === pr.at);
+        if (st) base = { col: st.fp.col, row: st.fp.row };
+      }
+      if (!base) continue;
+      const col = base.col + pr.u;
+      const row = base.row + pr.v;
+      const c = Math.floor(col);
+      const r = Math.floor(row);
+      if (c < 0 || r < 0 || c >= cols || (r >= rows && !pr.flag)) continue;
+      if (!pr.flag && (P.has(`${c},${r}`) || stationAtCell({ col: c, row: r }))) continue;
+      if (pr.flag && stationAtCell({ col: c, row: Math.min(r, rows - 1) })) continue;
+      out.push({ kind: 'prop', ...pr, col, row });
+    }
+    return out;
   }
   function drawTree(ctx, t) {
     const f = iso.corner(t.col, t.row);
@@ -562,74 +939,84 @@ export function createClubScreen({ renderer, layout, assets, bus, sheet, club, o
     ctx.save();
     ctx.fillStyle = L.fenceShade;
     ctx.beginPath();
-    ctx.ellipse(f.x, f.y, HW * 0.42, HH * 0.42, 0, 0, Math.PI * 2);
+    ctx.ellipse(f.x, f.y, HW * 0.21, HH * 0.21, 0, 0, Math.PI * 2);
     ctx.fill();
     ctx.restore();
     characterPose({ state: walking ? 'walking' : 'idle', facing: sx }, time, 1, pose);
     drawCharacter(ctx, assets, p.art, r.x + r.w / 2, r.y + r.h, r.w, r.h, pose);
   }
-  // --- Milestone 8: the drill and the Clubhouse -------------------------------------------------------------------------
-  const PITCH_DEPTH = (STATIONS[0].fp.col + STATIONS[0].fp.w / 2 + STATIONS[0].fp.row + STATIONS[0].fp.h / 2) * CELL;
-  // Is the whole squad off today (a Rest session, the day off or match day)?
-  function drillKind() {
-    const d = club()?.data;
-    const tr = d?.training;
-    if (!d?.squad || !tr) return 'none';
-    const today = d.squad.players[0]?.today?.kind;
-    if (today === 'dayoff' || today === 'match' || focusById(tr.focus).rest) return 'rest';
-    return DRILL.kindOf[tr.focus] ?? 'shuttle';
-  }
-  // The figures now: up to DRILL.maxOnPitch training (the XI first, the Founder walks on his own) and up to
-  // DRILL.maxResting by the Clubhouse. Positions are plan units; everyone faces and bobs as they move.
+  // --- the squad: walking to their places and drilling there (Milestones 8 / 12) ----------------------------------------
+  const drillKindOf = (focus) => (focus === 'rest' ? 'rest' : DRILL.kindOf[focus] ?? 'shuttle');
+  // The figures now: every walker (on the way, or at his place: on a pitch in the drill of his session, on another
+  // open-air place jogging a short lane, at a building standing at its front), plus the cones of each shuttle drill.
   function drillItems() {
-    const d = club()?.data;
-    if (!d?.squad) return [];
-    const kind = drillKind();
-    const byShirt = d.squad.players.filter((p) => !p.founder).slice().sort((a, b) => (a.shirt ?? 99) - (b.shirt ?? 99));
-    const rests = (p) => kind === 'rest' || p.focus === 'rest';
-    const training = byShirt.filter((p) => !rests(p)).slice(0, DRILL.maxOnPitch);
-    const resting = byShirt.filter(rests).slice(0, DRILL.maxResting);
+    if (!world) return [];
     const out = [];
-    const at = (col, row) => ({ x: col * CELL, y: row * CELL });
-    training.forEach((p, i) => {
-      let pos;
-      let walking = false;
-      let face = 1;
-      if (kind === 'shuttle') {
-        const lane = DRILL.lanes[i % DRILL.lanes.length] + Math.floor(i / DRILL.lanes.length) * 0.5;
-        const span = DRILL.laneTo - DRILL.laneFrom;
-        const t = drillTime * DRILL.runSpeed + i * 0.9;
-        const k = (t % (span * 2)) / span; // 0 → 2 and back
-        const u = k <= 1 ? k : 2 - k;
-        pos = at(DRILL.laneFrom + span * u, lane);
-        walking = !calendar()?.clock.paused;
-        face = k <= 1 ? 1 : -1; // plan +col is screen right-down
-      } else if (kind === 'pairs') {
-        const pair = DRILL.pairs[Math.floor(i / 2) % DRILL.pairs.length];
-        const spot = pair[i % 2];
-        const sway = Math.sin(drillTime * 2 + i) * 0.15;
-        pos = at(spot.col, spot.row + sway);
-        face = i % 2 ? -1 : 1;
-      } else {
-        const spot = p.position === 'GK' ? DRILL.keeper : DRILL.shooters[i % DRILL.shooters.length];
-        pos = at(spot.col + (p.position === 'GK' ? Math.sin(drillTime * 1.6) * 0.8 : 0), spot.row);
-        walking = p.position === 'GK' && !calendar()?.clock.paused;
+    const paused = !!calendar()?.clock.paused;
+    const shuttles = new Map(); // pitch uid → lanes in use
+    const pitchIdx = new Map(); // pitch uid → walkers there so far
+    for (const w of world.walkers) {
+      const st = world.byUid(w.uid);
+      let pos = { x: w.agent.x, y: w.agent.y };
+      let walking = !paused && (w.phase === 'path' || w.phase === 'enter' || w.phase === 'exit');
+      let face = w.faceLast ?? 1;
+      let depth = null;
+      if (walking) {
+        face = screenDirOf(w);
+        w.faceLast = face;
+      } else if (w.phase === 'at' && st?.def.open) {
+        const { col, row } = st.fp;
+        const at = (u, v) => ({ x: (col + u) * CELL, y: (row + v) * CELL });
+        if (PITCHES.includes(st.def.id) && !w.resting) {
+          const i = pitchIdx.get(st.uid) ?? 0;
+          pitchIdx.set(st.uid, i + 1);
+          const kind = drillKindOf(w.focus);
+          if (kind === 'shuttle') {
+            const lane = DRILL.lanes[i % DRILL.lanes.length] + Math.floor(i / DRILL.lanes.length) * 0.22;
+            const span = DRILL.laneTo - DRILL.laneFrom;
+            const t = drillTime * DRILL.runSpeed + i * 0.9;
+            const k = (t % (span * 2)) / span; // 0 → 2 and back
+            const u = k <= 1 ? k : 2 - k;
+            pos = at(DRILL.laneFrom + span * u, Math.min(st.fp.h - 0.3, lane));
+            walking = !paused;
+            face = k <= 1 ? 1 : -1; // plan +col is screen right-down
+            shuttles.set(st.uid, Math.max(shuttles.get(st.uid) ?? 0, Math.min(DRILL.lanes.length, i + 1)));
+          } else if (kind === 'pairs') {
+            const pair = DRILL.pairs[Math.floor(i / 2) % DRILL.pairs.length];
+            const spot = pair[i % 2];
+            const sway = Math.sin(drillTime * 2 + i) * 0.12;
+            const extra = Math.floor(i / (DRILL.pairs.length * 2)) * 0.35;
+            pos = at(spot.u + sway + extra, spot.v);
+            face = i % 2 ? -1 : 1;
+          } else {
+            const gk = w.p.position === 'GK';
+            const spot = gk ? DRILL.keeper : DRILL.shooters[i % DRILL.shooters.length];
+            pos = at(spot.u, spot.v + (gk ? Math.sin(drillTime * 1.6) * 0.5 : Math.floor(i / DRILL.shooters.length) * 0.3));
+            walking = gk && !paused;
+          }
+          depth = Math.max(depthOf(st) + 1, pos.x + pos.y);
+        } else if (!w.resting) {
+          // another open-air place: a short jog back and forth around his spot
+          const t = drillTime * 0.8 + (w.slot ?? 0) * 1.3;
+          const k = (t % 2) - 1;
+          pos = { x: w.spot.x + Math.abs(k) * CELL * 0.5 - CELL * 0.25, y: w.spot.y };
+          walking = !paused;
+          face = Math.floor(t) % 2 ? -1 : 1;
+          depth = Math.max(depthOf(st) + 1, pos.x + pos.y);
+        } else depth = Math.max(depthOf(st) + 1, pos.x + pos.y);
       }
-      out.push({ kind: 'drill', id: p.id, p, ...pos, walking, face, resting: false, depth: Math.max(PITCH_DEPTH + 1, pos.x + pos.y) });
-    });
+      out.push({ kind: 'drill', id: w.id, p: w.p, ...pos, walking, face, resting: w.resting && w.phase === 'at', working: w.phase === 'at' && !w.resting, depth: depth ?? pos.x + pos.y });
+    }
     // cones (prop_01) at both ends of each shuttle lane in use
-    if (kind === 'shuttle')
-      DRILL.lanes.slice(0, Math.min(DRILL.lanes.length, training.length)).forEach((lane, j) => {
-        for (const col of [DRILL.laneFrom - 0.25, DRILL.laneTo + 0.25]) {
-          const pos = at(col, lane);
-          out.push({ kind: 'drill', id: `cone${j}:${col}`, cone: true, ...pos, depth: PITCH_DEPTH + 0.5 + (pos.x + pos.y) / 1e4 });
+    for (const [uid, n] of shuttles) {
+      const st = world.byUid(uid);
+      DRILL.lanes.slice(0, n).forEach((lane, j) => {
+        for (const u of [DRILL.laneFrom - 0.2, DRILL.laneTo + 0.2]) {
+          const pos = { x: (st.fp.col + u) * CELL, y: (st.fp.row + lane) * CELL };
+          out.push({ kind: 'drill', id: `cone${uid}:${j}:${u}`, cone: true, ...pos, depth: depthOf(st) + 0.5 + (pos.x + pos.y) / 1e4 });
         }
       });
-    resting.forEach((p, i) => {
-      const spot = REST_SPOTS[i % REST_SPOTS.length];
-      const pos = at(spot.col, spot.row);
-      out.push({ kind: 'drill', id: p.id, p, ...pos, walking: false, face: i % 2 ? -1 : 1, resting: true, depth: pos.x + pos.y });
-    });
+    }
     return out;
   }
   // A figure: the match body in the club kit (keepers in their colour) with a head, on a soft shadow, bobbing.
@@ -651,10 +1038,10 @@ export function createClubScreen({ renderer, layout, assets, bus, sheet, club, o
     ctx.save();
     ctx.fillStyle = L.fenceShade;
     ctx.beginPath();
-    ctx.ellipse(f.x, f.y, HW * 0.3, HH * 0.3, 0, 0, Math.PI * 2);
+    ctx.ellipse(f.x, f.y, HW * 0.15, HH * 0.15, 0, 0, Math.PI * 2);
     ctx.fill();
     ctx.restore();
-    characterPose({ state: it.walking ? 'walking' : it.resting ? 'idle' : 'working', facing: it.face }, time, (it.p.shirt ?? 0) + 3, drillPose);
+    characterPose({ state: it.walking ? 'walking' : it.working ? 'working' : 'idle', facing: it.face }, time, (it.p.shirt ?? 0) + 3, drillPose);
     drawCharacter(ctx, assets, key, f.x, f.y + h * 0.06, h, h, drillPose);
     const head = BODY_ART[body]?.head;
     if (head && assets.has(headOf({ name: c.name }, it.p))) {
@@ -667,14 +1054,6 @@ export function createClubScreen({ renderer, layout, assets, bus, sheet, club, o
       assets.draw(ctx, headOf({ name: c.name }, it.p), -h / 2 + head.x * h - hs / 2, -h + head.y * h - hs * 0.56, hs, hs);
       ctx.restore();
     }
-  }
-  function drawClubhouse(ctx) {
-    const { col, row, w: fw, h: fh, look, art } = CLUBHOUSE;
-    const w = (fw + fh) * HW * look.width;
-    const h = w / assets.aspect(art);
-    const cx = iso.corner(col + fw / 2, row + fh / 2).x;
-    const front = iso.corner(col + fw, row + fh).y;
-    assets.draw(ctx, art, cx - w / 2, front - h * look.foot, w, h);
   }
 
   // A prop: its picture standing at its spot (on a small table for the laptop and folder); the flag in club colours.
@@ -717,8 +1096,15 @@ export function createClubScreen({ renderer, layout, assets, bus, sheet, club, o
   // Which way the next step goes on screen: plan x grows to the right, plan y to the left.
   function screenDir(p) {
     const n = p.agent.path[0];
+    if (!n) return p.faceLast ?? 1;
     const sx = n.x - p.agent.x - (n.y - p.agent.y);
     return Math.abs(sx) < 0.5 ? (p.faceLast ?? 1) : sx > 0 ? 1 : -1;
+  }
+  function screenDirOf(w) {
+    const n = w.phase === 'path' ? w.agent.path[0] : w.phase === 'exit' ? w.exit : w.spot;
+    if (!n) return w.faceLast ?? 1;
+    const sx = n.x - w.agent.x - (n.y - w.agent.y);
+    return Math.abs(sx) < 0.5 ? (w.faceLast ?? 1) : sx > 0 ? 1 : -1;
   }
   function drawSelectionMark(ctx) {
     const it = selection.selected;
@@ -729,7 +1115,7 @@ export function createClubScreen({ renderer, layout, assets, bus, sheet, club, o
     if (it.kind === 'player') {
       const f = feetOf(it);
       ctx.beginPath();
-      ctx.ellipse(f.x, f.y, HW * 0.55, HH * 0.55, 0, 0, Math.PI * 2);
+      ctx.ellipse(f.x, f.y, HW * 0.28, HH * 0.28, 0, 0, Math.PI * 2);
       ctx.stroke();
     } else {
       isoPath(ctx, iso.outline(it.fp.col, it.fp.row, it.fp.w, it.fp.h));
@@ -737,18 +1123,46 @@ export function createClubScreen({ renderer, layout, assets, bus, sheet, club, o
     }
     ctx.restore();
   }
+  // Build Mode: every free tile outlined (the gate tile marked), and the picked facility's footprint.
   function drawBuildGrass(ctx) {
-    const onStation = (c, r) => STATIONS.some((s) => c >= s.fp.col && c < s.fp.col + s.fp.w && r >= s.fp.row && r < s.fp.row + s.fp.h);
+    const gt = world.layout.gate;
     ctx.save();
     ctx.lineWidth = 1.5;
     world.grid.forEachTile((c, r) => {
-      if (onStation(c, r)) return;
+      if (stationAtCell({ col: c, row: r })) return;
       isoPath(ctx, iso.outline(c, r, 1, 1));
-      ctx.fillStyle = L.buildTint;
+      ctx.fillStyle = c === gt.col && r === gt.row ? 'rgba(255, 210, 63, 0.45)' : L.buildTint;
       ctx.fill();
       ctx.strokeStyle = L.buildLine;
       ctx.stroke();
     });
+    ctx.restore();
+  }
+  function drawPicked(ctx) {
+    const st = B.picked != null ? world.byUid(B.picked) : null;
+    if (!st || B.ghost) return;
+    ctx.save();
+    isoPath(ctx, iso.outline(st.fp.col, st.fp.row, st.fp.w, st.fp.h));
+    ctx.strokeStyle = L.picked;
+    ctx.lineWidth = 10;
+    ctx.stroke();
+    ctx.restore();
+  }
+  // The ghost: its footprint green (it fits) or red (it doesn't), its picture faded on top.
+  function drawGhost(ctx) {
+    const g = B.ghost;
+    const def = facilityById(g.defId);
+    const ok = !!g.res?.ok;
+    ctx.save();
+    isoPath(ctx, iso.outline(g.col, g.row, def.w, def.h));
+    ctx.fillStyle = ok ? L.ok : L.bad;
+    ctx.fill();
+    ctx.strokeStyle = ok ? L.okLine : L.badLine;
+    ctx.lineWidth = 8;
+    ctx.stroke();
+    ctx.globalAlpha = 0.72;
+    const r = artRectFp(def, { col: g.col, row: g.row, w: def.w, h: def.h });
+    assets.draw(ctx, def.art, r.x, r.y, r.w, r.h);
     ctx.restore();
   }
   // The name tag over the Founder: a fixed size on screen at every zoom (text 28).
@@ -847,6 +1261,7 @@ export function createClubScreen({ renderer, layout, assets, bus, sheet, club, o
     if (t.note) text(ctx, t.note, r.x + 28, lineY, { size: S.small, bold: true, color: C.bad, baseline: 'middle', maxWidth: r.w - 56 });
     else text(ctx, t.next + (cal.temporary2x && !cal.atKickoff ? '  ·  2× open until kickoff' : ''), r.x + 28, lineY, { size: S.small, bold: !!cal.fixture, color: cal.fixture ? C.text : C.textFaint, baseline: 'middle', maxWidth: r.w - 56 });
   }
+  // Build Mode's banner: "Build Mode" (or what is being placed / moved), the Credits, a message line, its buttons.
   function drawBanner(ctx) {
     const b = bannerRect();
     ctx.save();
@@ -855,10 +1270,18 @@ export function createClubScreen({ renderer, layout, assets, bus, sheet, club, o
     ctx.roundRect(b.x, b.y, b.w, b.h, THEME.panel.radius);
     ctx.fill();
     ctx.restore();
-    const tw = doneRect().x - b.x - 60;
-    text(ctx, 'Build Mode', b.x + 36, b.y + 62, { size: S.title, bold: true, color: C.textOnDark, baseline: 'middle', maxWidth: tw });
-    text(ctx, 'Nothing to build yet. Tap Done to leave.', b.x + 36, b.y + 132, { size: S.small, color: C.textOnDark, baseline: 'middle', maxWidth: tw });
-    drawButton(ctx, doneRect(), 'Done', { accent: C.good });
+    const g = B.ghost;
+    const title = g ? `${g.uid == null ? 'Build' : 'Move'}: ${facilityById(g.defId).name}` : 'Build Mode';
+    const cr = `${fmt(club()?.data.league?.credits ?? 0)} Credits`;
+    ctx.save();
+    ctx.font = font(S.body, true);
+    const crW = ctx.measureText(cr).width;
+    ctx.restore();
+    text(ctx, title, b.x + 36, b.y + 58, { size: S.title, bold: true, color: C.textOnDark, baseline: 'middle', maxWidth: b.w - crW - 110 });
+    text(ctx, cr, b.x + b.w - 36, b.y + 58, { size: S.body, bold: true, color: C.gold, align: 'right', baseline: 'middle' });
+    const t = bannerText();
+    text(ctx, t.text, b.x + 36, b.y + 128, { size: S.small, bold: true, color: t.color, baseline: 'middle', maxWidth: b.w - 72 });
+    for (const x of bannerButtons()) drawButton(ctx, x.rect, x.label, { accent: x.accent, disabled: !!x.disabled });
   }
 
   return screen;

@@ -15,6 +15,7 @@ import { FORMATIONS, formationById, ROLES, rolesForSlot, FAMILIARITY } from '../
 import { POSITION_ORDER } from '../../data/players.js';
 import { overall } from '../systems/players.js';
 import { normaliseTactics, familiarity, rolesOf, xiIds, setFormation, setInstruction, setRole, placePlayer, clearLineup } from '../systems/tactics.js';
+import { formationLock } from '../systems/research.js';
 
 const C = THEME.color;
 const S = THEME.size;
@@ -59,10 +60,16 @@ export function createTacticsScreen({ layout, assets, sheet, club, onBack, onPla
     const fw = (cw - GAP * 3) / 4;
     FORMATIONS.forEach((fm, i) => {
       const r = { x: PAD + (i % 4) * (fw + GAP), y: y + Math.floor(i / 4) * (BH + GAP), w: fw, h: BH };
-      if (ctx) drawButton(ctx, r, fm.name, { accent: C.progress, selected: t.formation === fm.id });
+      if (ctx) drawButton(ctx, r, fm.name, { accent: C.progress, selected: t.formation === fm.id, locked: !!formationLock(d, fm.id) }); // (M13) locked until R25
       box(`formation:${fm.id}`, r);
     });
     y += 2 * (BH + GAP) + 6;
+    // (M13) the formations still locked, and what opens them
+    const shut = FORMATIONS.filter((fm) => formationLock(d, fm.id));
+    if (shut.length) {
+      if (ctx) text(ctx, `Locked until Research R25 Formation Library: ${shut.map((fm) => fm.name).join(', ')}`, PAD, y + 14, { size: S.small, color: C.textMuted, baseline: 'middle', maxWidth: cw });
+      y += 56;
+    }
     // --- familiarity ---
     const fam = familiarity(d);
     if (ctx) {
@@ -343,6 +350,7 @@ export function createTacticsScreen({ layout, assets, sheet, club, onBack, onPla
       if (!id || !d) return;
       const [kind, a, b] = id.split(':');
       if (kind === 'formation') {
+        if (formationLock(d, a)) return; // (M13) locked until R25 Formation Library
         setFormation(d, a);
         selected = null;
       } else if (kind === 'instr') setInstruction(d, a, b);

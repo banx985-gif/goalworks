@@ -25,6 +25,7 @@ import { normalisePlayer } from './training.js';
 import { normaliseLeague, rank as clubRank } from './league.js';
 import { createTalk, respond, askTerms } from './negotiation.js';
 import { normaliseScouting, scoutDay } from './scouting.js';
+import { scoutingFac } from './effects.js';
 
 const YEAR = 336;
 const WEEK = 7;
@@ -537,7 +538,7 @@ export function transfersDay(data, day) {
   if (T.lastDay === day) return { saved: false };
   const rng = new Rng(`${data.seed}:transfers:${day}`);
   let changed = false;
-  scoutDay(T, day, (region) => pool(data, region), rng);
+  scoutDay(T, day, (region) => pool(data, region), rng, scoutingFac(data)); // (M12) Video Room / Recruitment Office, (M13) research
   // bids: expire, and bids for players no longer here
   for (const b of T.bids) if (b.talk.state === 'open' && (day > b.until || !data.squad.players.some((p) => p.id === b.playerId))) b.talk.state = 'over';
   T.bids = T.bids.filter((b) => b.talk.state === 'open' || day - b.day <= AI.bidOpenDays * 2);

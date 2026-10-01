@@ -5,6 +5,8 @@
 //                                     in 4-4-2 Balanced, its commands carried across, familiar with that pair only
 //   pair(data) → '442:balanced'       familiarity(data, pairKey?) → 0–100
 //   familiarityDay(data, kind)        a club day: the chosen pair grows on training days, every other pair fades
+//                                     (Milestone 12: the Tactics Board Room's +% on every gain; Milestone 13: research's
+//                                     +% on every gain and a slower fade)
 //   familiarityMatch(data, pair)      after a match played in that pair
 //   rolesOf(data, formation?) → [role per slot]      setRole(data, slot, role)
 //   lineupOf(data, formation?) → [playerId | null per slot]   placePlayer(data, slot, playerId)   clearLineup(data)
@@ -14,6 +16,7 @@ import { TACTICS } from '../../data/match.js';
 import { FORMATIONS, formationById, DEFAULT_FORMATION, rolesForSlot, FAMILIARITY, pairKey, CLUB_TACTICS } from '../../data/tactics.js';
 import { tacticsOf } from '../match/matchWorld.js';
 import { xiForMatch } from './squad.js';
+import { effect as bonus } from './effects.js';
 
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const round1 = (v) => Math.round(v * 100) / 100; // (two decimals: the daily fade is 0.15)
@@ -42,13 +45,15 @@ export const familiarity = (data, key = pair(data)) => normaliseTactics(data).fa
 export function familiarityDay(data, kind) {
   const t = normaliseTactics(data);
   const now = pair(data);
-  for (const k of Object.keys(t.familiarity)) if (k !== now) t.familiarity[k] = round1(Math.max(0, t.familiarity[k] - FAMILIARITY.fade));
-  if (kind === 'train') t.familiarity[now] = round1(clamp((t.familiarity[now] ?? 0) + FAMILIARITY.training, 0, 100));
+  const fade = FAMILIARITY.fade * Math.max(0, 1 + bonus(data, 'familiarityFadePct') / 100); // (M13) research fades it slower
+  for (const k of Object.keys(t.familiarity)) if (k !== now) t.familiarity[k] = round1(Math.max(0, t.familiarity[k] - fade));
+  // (M12) the Tactics Board Room: familiarity grows faster
+  if (kind === 'train') t.familiarity[now] = round1(clamp((t.familiarity[now] ?? 0) + FAMILIARITY.training * (1 + bonus(data, 'familiarityPct') / 100), 0, 100));
   for (const k of Object.keys(t.familiarity)) if (t.familiarity[k] <= 0 && k !== now) delete t.familiarity[k];
 }
 export function familiarityMatch(data, key) {
   const t = normaliseTactics(data);
-  t.familiarity[key] = round1(clamp((t.familiarity[key] ?? 0) + FAMILIARITY.match, 0, 100));
+  t.familiarity[key] = round1(clamp((t.familiarity[key] ?? 0) + FAMILIARITY.match * (1 + bonus(data, 'familiarityPct') / 100), 0, 100));
 }
 
 export function rolesOf(data, formation = normaliseTactics(data).formation) {

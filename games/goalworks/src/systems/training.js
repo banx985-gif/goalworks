@@ -10,11 +10,17 @@
 // The Founder perk (data/setup.js FOUNDERS[].perk.effects) switches on here: dev* speed their own stats' XP for the whole
 // squad, finishingDrillXpPct speeds Attack sessions, cleanSheetConfidencePct lifts morale after a clean sheet; effects
 // whose systems are not built yet (familiarity, fans) stay stored with live: false.
+// Milestone 12: facilities (src/systems/facilities.js bonus): facilityEffect = the Sports Science Lab's +% on every
+// session; each session part gets its own facility's +% (Small Gym → Physical, Skills Cage → Technique …); the Recovery
+// Pool and Nutrition Kitchen speed fatigue recovery, the Clubhouse lifts morale a little each day and rest days recover more.
+// Milestone 13: research adds to the same keys (src/systems/effects.js effect = facilities + research): more XP by session,
+// faster recovery, and trainingLoadPct (sessions tire players less).
 import { Rng } from '../../../../core/Rng.js';
 import { CORE } from '../../data/players.js';
 import { founderById } from '../../data/setup.js';
 import { FOCUSES, focusById, DEFAULT_FOCUS, INTENSITY, DEFAULT_INTENSITY, XP, FATIGUE, FORM, MORALE, MATCH_CONDITION, PERKS } from '../../data/training.js';
 import { overall } from './players.js';
+import { effect as bonus } from './effects.js';
 
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const round1 = (v) => Math.round(v * 10) / 10;
@@ -67,12 +73,13 @@ function partsOf(p, training) {
   return [{ focus: team, share: XP.teamShare }, { focus: focusById(p.focus), share: 1 - XP.teamShare }];
 }
 
-export function dailyXp(p, training, founderId = null) {
+// fac: the run save whose facilities count (null: none, as before Milestone 12).
+export function dailyXp(p, training, founderId = null, fac = null) {
   const intensity = INTENSITY[training.intensity] ?? INTENSITY.normal;
   const factors = {
     baseXP: XP.base,
     coachEffect: XP.coachEffect,
-    facilityEffect: XP.facilityEffect,
+    facilityEffect: XP.facilityEffect * (1 + bonus(fac, 'xp:all') / 100),
     moraleFactor: moraleFactor(p.morale),
     ageFactor: ageFactor(p.age),
     workloadFactor: intensity.xp * tiredFactor(p.fatigue),
@@ -82,9 +89,10 @@ export function dailyXp(p, training, founderId = null) {
   const parts = partsOf(p, training).map(({ focus, share }) => {
     if (focus.rest) return { focus: focus.id, share, xp: 0, stats: {} };
     const keeperCut = focus.keepers && p.position !== 'GK' ? XP.outfieldKeeping : 1;
+    const place = 1 + bonus(fac, `xp:${focus.id}`) / 100; // (M12) the facility for this kind of session
     const stats = {};
-    for (const [k, w] of Object.entries(focus.stats)) stats[k] = total * share * keeperCut * w * perkXp(effects, p, k, focus.id);
-    return { focus: focus.id, share, xp: Object.values(stats).reduce((a, b) => a + b, 0), stats };
+    for (const [k, w] of Object.entries(focus.stats)) stats[k] = total * share * keeperCut * w * place * perkXp(effects, p, k, focus.id);
+    return { focus: focus.id, share, place, xp: Object.values(stats).reduce((a, b) => a + b, 0), stats };
   });
   return { total, factors, parts, xp: parts.reduce((a, x) => a + x.xp, 0) };
 }
@@ -129,6 +137,11 @@ export function trainDay(data, { day, matchDay = false }) {
   const kind = matchDay ? 'match' : dayOff ? 'dayoff' : 'train';
   const rng = new Rng(`${data.seed}:train:${day}`);
   const intensity = INTENSITY[training.intensity] ?? INTENSITY.normal;
+  // (M12) facilities: faster recovery, more on rest days, a little morale every day
+  const recover = 1 + bonus(data, 'recoveryPct') / 100;
+  const restMore = 1 + bonus(data, 'restPct') / 100;
+  const moraleDay = bonus(data, 'moraleDay');
+  const loadCut = Math.max(0, 1 + bonus(data, 'trainingLoadPct') / 100); // (M13) research: sessions tire players less
   const out = [];
   for (const p of squad.players) {
     let xp = 0;
@@ -136,11 +149,11 @@ export function trainDay(data, { day, matchDay = false }) {
     let restShare = kind === 'dayoff' ? 1 : 0;
     let load = 0;
     if (kind === 'train') {
-      const d = dailyXp(p, training, founderId);
+      const d = dailyXp(p, training, founderId, data);
       for (const part of d.parts) {
         const f = focusById(part.focus);
         if (f.rest) restShare += part.share;
-        load += f.load * part.share * intensity.load;
+        load += f.load * part.share * intensity.load * loadCut;
         for (const [k, v] of Object.entries(part.stats)) {
           const g = addXp(p, k, v);
           if (g) gains[k] = (gains[k] ?? 0) + g;
@@ -151,10 +164,10 @@ export function trainDay(data, { day, matchDay = false }) {
       const lean = (1 - p.fatigue / 100) * (intensity === INTENSITY.heavy ? 0.6 : 1) - 0.45;
       p.form += (rng.next() - 0.5 + lean * 0.5) * 2 * FORM.training * (1 - restShare);
     }
-    p.fatigue = clamp(p.fatigue + load - FATIGUE.recoverDay - FATIGUE.restExtra * restShare, 0, 100);
+    p.fatigue = clamp(p.fatigue + load - FATIGUE.recoverDay * recover - FATIGUE.restExtra * restShare * recover * restMore, 0, 100);
     p.risk = riskOf(p.fatigue);
     p.form = clamp(p.form - Math.sign(p.form) * Math.min(Math.abs(p.form), FORM.drift), FORM.min, FORM.max);
-    p.morale = clamp(p.morale - Math.sign(p.morale - MORALE.neutral) * Math.min(Math.abs(p.morale - MORALE.neutral), MORALE.drift), 0, 100);
+    p.morale = clamp(p.morale - Math.sign(p.morale - MORALE.neutral) * Math.min(Math.abs(p.morale - MORALE.neutral), MORALE.drift) + moraleDay, 0, 100);
     p.fatigue = round1(p.fatigue);
     p.form = round1(p.form);
     p.morale = round1(p.morale);
