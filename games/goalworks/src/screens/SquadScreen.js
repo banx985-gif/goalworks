@@ -3,7 +3,9 @@
 // art; a generated player's code-drawn silhouette in the kit colours), name, position, age, squad role and the
 // positional overall. Tap a row → the Player Detail sheet: the five core stats as bars, the ten derived ratings, trait,
 // contract, and the Founder tag. Drag scrolls. ‹ Club (or Back) returns to the Club Complex.
-// Milestone 9: a row under the header — Tactics · Training (Milestone 10: · League).
+// Milestone 9: a row under the header — Tactics · Training (Milestone 10: · League; Milestone 11: · Transfers).
+// Milestone 11: Player Detail's Contract section shows the release clause, a loan and the potential range (your own
+// players are known exactly), and a Manage contract button (renew, release, sell, loan out — the Transfers flows).
 // Milestone 8: a Training button opens the Training screen; each row shows fatigue; Player Detail gains a
 // Condition section (fatigue, form, morale, injury risk stored for later) and the player's training.
 //   createSquadScreen({ layout, assets, sheet, club, onBack, onTraining })   club() → the open campaign { data } or null
@@ -25,16 +27,17 @@ const PAD = 24;
 const ROW_H = 150;
 const GAP = 14;
 
-export function createSquadScreen({ layout, assets, sheet, club, onBack, onTraining = () => {}, onTactics = () => {}, onLeague = () => {} }) {
+export function createSquadScreen({ layout, assets, sheet, club, onBack, onTraining = () => {}, onTactics = () => {}, onLeague = () => {}, onTransfers = () => {}, onContract = null }) {
   const rowY = () => layout.safeRect.y + 24 + THEME.button.minH + 14;
   const rowRect = (i) => {
     const sr = layout.safeRect;
-    const w = (sr.w - 48 - 28) / 3;
+    const w = (sr.w - 48 - 42) / 4;
     return { x: sr.x + 24 + i * (w + 14), y: rowY(), w, h: THEME.button.minH };
   };
   const tacticsRect = () => rowRect(0);
   const trainingRect = () => rowRect(1);
   const leagueRect = () => rowRect(2);
+  const transfersRect = () => rowRect(3);
   const headerRect = () => {
     const sr = layout.safeRect;
     return { x: sr.x + 24, y: sr.y + 24, w: 220, h: THEME.button.minH };
@@ -91,7 +94,7 @@ export function createSquadScreen({ layout, assets, sheet, club, onBack, onTrain
     ctx.fill();
     ctx.restore();
     text(ctx, p.position, tx + 38, r.y + 101, { size: S.small, bold: true, color: '#FFFFFF', align: 'center', baseline: 'middle' });
-    const role = p.founder ? `Founder · ${p.contract.role}` : p.contract.role;
+    const role = p.founder ? `Founder · ${p.contract.role}` : p.loan ? `On loan · ${p.contract.role}` : p.contract.role;
     const tired = p.fatigue > FATIGUE.riskFrom ? ' · tired' : '';
     text(ctx, `Age ${p.age} · ${role}${tired}`, tx + 92, r.y + 101, { size: S.small, color: tired ? C.bad : C.textMuted, baseline: 'middle', maxWidth: tw - 92 });
     // the overall
@@ -165,7 +168,14 @@ export function createSquadScreen({ layout, assets, sheet, club, onBack, onTrain
         },
         {
           title: 'Contract',
-          lines: [`${c.role} · ${c.years} year${c.years === 1 ? '' : 's'} left · ${c.salary.toLocaleString('en-GB')} a week`, 'Potential: not scouted yet'],
+          lines: [
+            p.loan ? `On loan from ${p.loan.fromName ?? 'another club'} · ${c.role} · ${c.salary.toLocaleString('en-GB')} a week` : `${c.role} · ${c.years} year${c.years === 1 ? '' : 's'} left · ${c.salary.toLocaleString('en-GB')} a week${c.years <= 1 && !p.watch ? ' · final year' : ''}`,
+            ...(c.clause ? [`Release clause: ${c.clause.toLocaleString('en-GB')} Credits`] : []),
+            ...(c.promised ? [`Promised a ${c.role} role: he expects to play.`] : []),
+            `Potential: ${p.potential.low}–${p.potential.high}`,
+          ],
+          buttons: onContract && !p.watch ? [{ id: 'contract', label: 'Manage contract', sub: 'Renew · release · sell · loan out', accent: C.action, onTap: () => onContract(p.id) }] : [],
+          columns: 1,
         },
       ],
     };
@@ -193,6 +203,7 @@ export function createSquadScreen({ layout, assets, sheet, club, onBack, onTrain
       if (id === 'training') return trainingRect();
       if (id === 'tactics') return tacticsRect();
       if (id === 'league') return leagueRect();
+      if (id === 'transfers') return transfersRect();
       const rects = {};
       scroll.contentHeight = pass(null, null, rects).height;
       const r = rects[id];
@@ -229,6 +240,7 @@ export function createSquadScreen({ layout, assets, sheet, club, onBack, onTrain
       if (hitRect(p, trainingRect())) return void onTraining();
       if (hitRect(p, tacticsRect())) return void onTactics();
       if (hitRect(p, leagueRect())) return void onLeague();
+      if (hitRect(p, transfersRect())) return void onTransfers();
       if (!scroll.contains(p)) return;
       const hit = pass(null, scroll.toContent(p)).hit;
       if (hit) openDetail(hit);
@@ -240,6 +252,7 @@ export function createSquadScreen({ layout, assets, sheet, club, onBack, onTrain
       drawButton(ctx, trainingRect(), 'Training', { accent: C.action });
       drawButton(ctx, tacticsRect(), 'Tactics', { accent: C.purple });
       drawButton(ctx, leagueRect(), 'League', { accent: C.good });
+      drawButton(ctx, transfersRect(), 'Transfers', { accent: C.gold });
       const sq = squad();
       const cl = club()?.data.club;
       text(ctx, 'Squad', sr.x + sr.w / 2 + 60, hr.y + hr.h / 2 - 20, { size: S.title, bold: true, align: 'center', baseline: 'middle' });

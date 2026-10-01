@@ -65,10 +65,13 @@ export const xiForMatch = (players, { formation = '442', lineup = null } = {}) =
     return { id: p.id, name: p.name, shirt: p.shirt, position: p.position, stats };
   });
 
-function contractFor(rng, p, role) {
+// (Milestone 11: exported — what a player's wages are for a role, and a fresh contract — for transfers and renewals)
+export function salaryFor(p, role) {
   const s = CONTRACT.salary[p.tier] ?? CONTRACT.salary.Standard;
-  const salary = Math.round(((s.base + s.perOvr * Math.max(0, overall(p) - 40)) * CONTRACT.roleBonus[role]) / 10) * 10;
-  return { salary, years: rng.int(...CONTRACT.years[role]), role };
+  return Math.round(((s.base + s.perOvr * Math.max(0, overall(p) - 40)) * CONTRACT.roleBonus[role]) / 10) * 10;
+}
+export function contractFor(rng, p, role) {
+  return { salary: salaryFor(p, role), years: rng.int(...CONTRACT.years[role]), role };
 }
 
 // Roles: the best XI start (its two best are the Stars); the rest rotate, the young ones are Prospects. Shirts: the XI

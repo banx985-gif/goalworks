@@ -45,6 +45,10 @@
 // Accept is the M2 commitment — the calendar only takes a challenge the league issued. A result adds to the Regional
 // record, reputation (Club Rank E–S) and the Credits placeholder (shown on the result screen); 4 distinct clubs beaten +
 // 8 Regional wins unlock the Promotion Match, and winning it brings the County promotion offer (County League: M17).
+// Milestone 11: transfers, scouting and contracts (src/systems/transfers.js, negotiation.js, scouting.js; the sheets in
+// src/screens/transferSheets.js). The world's players are kept in the run (the six Regional clubs' squads now change, regional
+// free agents, the wider market); the Transfers sheet opens from the Manager Office, the Squad screen and the Scout Desk.
+// Deals cost the placeholder Credits; contracts count down each season; each completed deal saves at once.
 // Add ?debug=1 for the FPS/state overlay, ?screen=test for the scaling / tap / asset-loader test screen, ?screen=match
 // (&seed=…, &mode=watch|manage|play, &km=1 for Key Moment prompts, &stats=35,70 for flat home,away test stats) for a
 // test match between two test teams (never saved). With ?debug=1, &safe=phone|tablet stands in a notch and home bar (safe-area insets) on any screen.
@@ -78,6 +82,9 @@ import { createClubScreen } from './screens/ClubScreen.js';
 import { createTestScreen } from './screens/TestScreen.js';
 import { leagueSheet, countyOfferSheet, matchSetupSheet } from './screens/fixtureSheets.js';
 import * as LG from './systems/league.js';
+import * as TR from './systems/transfers.js';
+import { createTransferSheets } from './screens/transferSheets.js';
+import { AUTOSAVE_REASON } from '../data/transfers.js';
 import { REGIONAL_CLUBS as LEAGUE_CLUBS } from '../data/fixtures.js';
 import { createCalendar } from './systems/calendar.js';
 import { createMatchScreen } from './screens/MatchScreen.js';
@@ -89,7 +96,7 @@ import { pairKey, FORMATIONS, formationById, rolesForSlot, ROLES } from '../data
 import { TACTICS } from '../data/match.js';
 import { POSITIONS } from '../data/setup.js';
 import { createTacticsScreen } from './screens/TacticsScreen.js';
-import { ensureSquad, validateSquad, xiForMatch, opponentSquad } from './systems/squad.js';
+import { ensureSquad, xiForMatch, opponentSquad } from './systems/squad.js';
 import { createMatchSetup } from './match/lineups.js';
 import { createMatchWorld, restoreMatchWorld, matchResult, MODES } from './match/matchWorld.js';
 import { createMatchDirector } from './match/matchDirector.js';
@@ -244,9 +251,10 @@ function openRun(n, data) {
   if (ensureSquad(data)) setTimeout(() => autosave.request('squad:generated'), 0);
   normaliseTraining(data); // (an M7 save: the training plan and everyone's fatigue / form / morale start neutral)
   normaliseTactics(data); // (an M8 save: 4-4-2 Balanced, its M5 commands carried across, familiar with that pair only)
+  TR.normaliseTransfers(data); // (an M10 save: the world's players are generated once — the clubs' squads, free agents, the market)
   if (debug.enabled) {
-    const errs = validateSquad(data.squad, data.club.founder.id);
-    debug.log(errs.length ? `squad: ${errs.join('; ')}` : `squad: ${data.squad.players.length} + ${data.squad.watch.length} ok`);
+    const why = TR.rosterProblem(data.squad.players);
+    debug.log(why ? `squad: ${why}` : `squad: ${data.squad.players.length} + ${data.squad.watch.length} ok`);
   }
   open = { n, data, calendar: createCalendar({ bus, saved: data.calendar ?? null, flags: speedFlags(), isIssued: (o) => !!open && LG.isIssued(open.data, o) }), setupShown: false };
 }
@@ -266,6 +274,14 @@ bus.on('clock:day', () => {
   const r = trainDay(open.data, { day: c.clock.totalDays, matchDay: c.atKickoff });
   familiarityDay(open.data, r.kind); // (M9) the chosen formation / style grows on training days; the others fade
   LG.leagueDay(open.data, c.clock.totalDays); // (M10) clubs issue / expire challenges; the Promotion Match once unlocked
+  TR.transfersDay(open.data, c.clock.totalDays); // (M11) scouting, bids, loans, wages, the AI clubs' moves, the season's end
+  // (M11) contracts ending: one warning a season, from Month 9
+  const T = open.data.transfers;
+  if (c.clock.month >= 9 && T.warnedYear !== c.clock.year && TR.expiring(open.data).some((p) => !p.founder)) {
+    T.warnedYear = c.clock.year;
+    if (router.currentName === 'club' && !sheet.active) transfersUi.openExpiring();
+    else debug.log('contracts ending: see Transfers → Contracts');
+  }
   if (debug.enabled && r.kind !== 'train') debug.log(`training: ${r.kind} (day ${c.clock.totalDays})`);
 });
 // Autosave (core/Autosave) at the bible §36 boundaries that exist now: each in-game week, match commitment, pre-kickoff,
@@ -562,7 +578,8 @@ function fixtureSides(club, opp) {
 function fixtureXIs(data, fixture) {
   return {
     home: teamSide(data).players, // (M9) in the club's formation, with its hand-picked players
-    away: xiForMatch(opponentSquad({ seed: `${data.seed}:${fixture.id}`, clubId: fixture.opponent.id }).players, { formation: opponentSide(fixture.opponent.id).formation }),
+    // (M11) the club's own squad as it is now (it signs and sells); a club the world does not know: generated as before
+    away: xiForMatch(data.transfers?.clubs?.[fixture.opponent.id]?.players ?? opponentSquad({ seed: `${data.seed}:${fixture.id}`, clubId: fixture.opponent.id }).players, { formation: opponentSide(fixture.opponent.id).formation }),
   };
 }
 // Kick off: the seed and line-ups are fixed now and saved with the campaign; reopening resumes the same match.
@@ -623,7 +640,9 @@ function matchFinished(world) {
   const fx = open.calendar.fixture;
   const league = fx?.source === 'league' ? LG.recordResult(open.data, fx, r.score, open.calendar.today) : null;
   // Milestone 8: the XI tire; form and morale follow the result, minutes and roles
-  if (open.data.squad) applyMatch(open.data, { xiIds: world.setup.home.players.map((p) => p.id).filter(Boolean), score: r.score, scorers: r.scorers });
+  const xiIds = world.setup.home.players.map((p) => p.id).filter(Boolean);
+  if (open.data.squad) applyMatch(open.data, { xiIds, score: r.score, scorers: r.scorers });
+  if (open.data.transfers) TR.afterMatch(open.data, xiIds); // (M11) a promised role not met: morale
   // (M9) familiarity: the formation / style the match started in
   if (world.setup.formation) familiarityMatch(open.data, pairKey(world.setup.formation[0], world.setup.tactics?.[0]?.build ?? 'balanced'));
   open.data.match = null;
@@ -701,7 +720,20 @@ function playPlaceholder() {
   open.setupShown = false;
   sheet.close();
 }
-const squadScreen = createSquadScreen({ layout, assets, sheet, club: () => open, onBack: () => router.go('club'), onTraining: () => openTraining('squad'), onTactics: () => openTactics('squad'), onLeague: () => openLeague() });
+const squadScreen = createSquadScreen({ layout, assets, sheet, club: () => open, onBack: () => router.go('club'), onTraining: () => openTraining('squad'), onTactics: () => openTactics('squad'), onLeague: () => openLeague(), onTransfers: () => transfersUi.openTransfers('market'), onContract: (id) => transfersUi.openOwn(id) });
+// Milestone 11: the Transfers sheets (every finished deal saves at once, bible §36).
+const transfersUi = createTransferSheets({
+  sheet,
+  assets,
+  dialog,
+  run: () => open?.data ?? null,
+  today: () => open?.calendar.today ?? 0,
+  dateText: (day) => {
+    const d = open?.calendar.clock.dateOf(day);
+    return d ? `Year ${d.year} · Month ${d.month} · Day ${d.day}` : '';
+  },
+  onDeal: () => autosave.request(AUTOSAVE_REASON),
+});
 let trainingBack = 'club';
 function openTraining(from = 'club') {
   trainingBack = from;
@@ -728,7 +760,7 @@ const clubScreen = createClubScreen({
   calendar,
   onMatchSetup: () => openMatchSetup(),
   onTeam: () => router.go('squad'),
-  extraSections: (id) => (id === 'pitch' ? [{ title: 'Training', lines: ['Team session, intensity and individual focuses.'], buttons: [{ id: 'training', label: 'Training', accent: COL.action, onTap: () => openTraining('club') }] }] : id === 'office' ? [{ title: 'Regional League', lines: ['Challenges, your Club Rank and the road to County.'], buttons: [{ id: 'league', label: 'League', accent: COL.good, onTap: () => openLeague() }] }, { title: 'Tactics', lines: ['Formation, team instructions, roles and familiarity.'], buttons: [{ id: 'tactics', label: 'Tactics', accent: COL.purple, onTap: () => openTactics('club') }] }] : []),
+  extraSections: (id) => (id === 'pitch' ? [{ title: 'Training', lines: ['Team session, intensity and individual focuses.'], buttons: [{ id: 'training', label: 'Training', accent: COL.action, onTap: () => openTraining('club') }] }] : id === 'office' ? [{ title: 'Regional League', lines: ['Challenges, your Club Rank and the road to County.'], buttons: [{ id: 'league', label: 'League', accent: COL.good, onTap: () => openLeague() }] }, { title: 'Tactics', lines: ['Formation, team instructions, roles and familiarity.'], buttons: [{ id: 'tactics', label: 'Tactics', accent: COL.purple, onTap: () => openTactics('club') }] }, { title: 'Transfers', lines: ['Market, free agents, loans and your contracts.'], buttons: [{ id: 'transfers', label: 'Transfers', accent: COL.gold, onTap: () => transfersUi.openTransfers('market') }] }] : id === 'scout' ? [{ title: 'Scout Reports', lines: ['Send the scout to a region; reports list players with their stats as ranges.'], buttons: [{ id: 'scoutReports', label: 'Scout Reports', accent: COL.gold, onTap: () => transfersUi.openTransfers('scout') }] }] : []),
 });
 
 // ---------------------------------------------------------------------------
@@ -796,7 +828,7 @@ function acceptChallenge(clubId = 'REG01') {
 }
 // ?debug=1: a test hook for automated checks.
 if (debug.enabled) {
-  window.__gw = { renderer, layout, input, loop, router, assets, sheet, dialog, systemBack, textPrompt, splashScreen, menuScreen, slotsScreen, setupScreen, clubScreen, squadScreen, trainingScreen, openTraining, tacticsScreen, openTactics, openMatchTactics, playSlot, startClub, deleteSlot, newGame, openLeague, openCountyOffer, acceptChallenge, issueChallenge, openMatchSetup, playPlaceholder, kickOff, startTestMatch, matchScreen, restoreMatchWorld, get match() { return match; }, toggleSpeedFlag, autosave, saveRun, get account() { return account; }, taps: [], get campaigns() { return campaigns; }, get open() { return open; } };
+  window.__gw = { renderer, layout, input, loop, router, assets, sheet, dialog, systemBack, textPrompt, splashScreen, menuScreen, slotsScreen, setupScreen, clubScreen, squadScreen, trainingScreen, openTraining, tacticsScreen, openTactics, openMatchTactics, playSlot, startClub, deleteSlot, newGame, openLeague, openCountyOffer, acceptChallenge, issueChallenge, transfers: transfersUi, TR, openMatchSetup, playPlaceholder, kickOff, startTestMatch, matchScreen, restoreMatchWorld, get match() { return match; }, toggleSpeedFlag, autosave, saveRun, get account() { return account; }, taps: [], get campaigns() { return campaigns; }, get open() { return open; } };
 }
 
 router.go('boot');
