@@ -12,6 +12,7 @@ export const MENU_GROUPS = [
     row('squad', 'Team / Squad', 'Your players: stats, form, fitness, contracts', 'ui_01'),
     row('training', 'Training', 'The team session, intensity and each player’s focus', 'ui_08'),
     row('tactics', 'Tactics', 'Formation, team instructions, roles and familiarity', 'ui_07'),
+    row('staff', 'Staff', 'Hire a head coach, scout, physio, youth coach and analyst', 'ui_02'), // (Milestone 14)
     row('transfers', 'Transfers & Scouting', 'Buy, sell and loan players; send the scout out', 'ui_10'),
     row('clubStore', 'Club Store', 'Items the club has earned: give one to a player to raise a stat for good', 'item_25'),
   ] },
@@ -36,5 +37,6 @@ export const NEXT_HINTS = {
   training: (n) => `Your next match is in ${n} day${n === 1 ? '' : 's'}: tap to set training`,
   items: (n) => `${n} item${n === 1 ? '' : 's'} in the Club Store: tap to give one to a player`,
   research: 'Research is idle: tap to start a node',
+  staff: 'No staff yet: tap to hire a coach, a scout or a physio',
   upgrade: (name) => `The ${name} can be upgraded: tap to see it`,
 };

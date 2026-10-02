@@ -10,12 +10,18 @@
 //     founder: the run's Founder (data/setup.js FOUNDERS entry)   layout: src/systems/facilities.js createLayout (a fresh
 //     start layout if left out)   run() → the run save (squad, training) or null (no squad walking)
 //   world.refreshLayout() after Build Mode changes the layout (or the ground grows): everyone re-paths
+// Milestone 14: each hired staff member (run().staff, src/systems/staff.js) is a figure (kind 'staff') who walks in at the
+// gate and works at their station — the coach at the Training Pitch, the scout at the Scout Desk, the physio at the Medical
+// Room, the youth coach at the Youth Corner, the analyst at the Video Room / Analytics Lab / Tactics Board Room (the first
+// built; otherwise the Clubhouse). They are in world.people (drawn and tapped like the Founder) and count in the walker cap.
 import { Grid } from '../../../../core/Grid.js';
 import { Agent } from '../../../../core/Agent.js';
 import { COMPLEX, ROUTE, BUSY, PERSON, PEOPLE, DRILL } from '../../data/complex.js';
 import { FOCUS_PLACES, REST_PLACES, PITCHES, capacityOf } from '../../data/facilities.js';
 import { focusById } from '../../data/training.js';
 import { createLayout } from './facilities.js';
+import { STAFF_FALLBACK_STATION, roleById } from '../../data/staff.js';
+import { stationFor } from './staff.js';
 
 const CELL = COMPLEX.cellSize;
 
@@ -77,7 +83,7 @@ export function createComplexWorld({ founder, layout = null, run = () => null })
   // The plan for today: for each shown player, the place (facility uid) and his index there.
   function planToday() {
     const d = run();
-    const players = (d?.squad?.players ?? []).filter((p) => !p.founder).slice().sort((a, b) => (a.shirt ?? 99) - (b.shirt ?? 99)).slice(0, PEOPLE.max - 1);
+    const players = (d?.squad?.players ?? []).filter((p) => !p.founder).slice().sort((a, b) => (a.shirt ?? 99) - (b.shirt ?? 99)).slice(0, Math.max(0, PEOPLE.max - 1 - staffFigs.size));
     const today = players[0]?.today?.kind;
     const team = d?.training?.focus ?? 'technique';
     const allRest = today === 'dayoff' || today === 'match' || !!focusById(team).rest;
@@ -201,10 +207,68 @@ export function createComplexWorld({ founder, layout = null, run = () => null })
     const d = run();
     if (!d?.squad) return '';
     const ps = d.squad.players;
-    return `${builtFor}|${d.training?.focus}|${ps[0]?.today?.kind}|${ps.map((p) => `${p.id}:${p.focus ?? ''}`).join(',')}`;
+    return `${builtFor}|${staffFigs.size}|${d.training?.focus}|${ps[0]?.today?.kind}|${ps.map((p) => `${p.id}:${p.focus ?? ''}`).join(',')}`;
   };
 
+  // --- the staff (Milestone 14) ------------------------------------------------------------------------------------
+  // fig: { kind: 'staff', id: 'staff:HC01', staffId, role, name, art, agent, uid (the station), phase: 'path' | 'at' }
+  const staffFigs = new Map();
+  let staffKey = null;
+  const hiredNow = () => run()?.staff?.hired ?? [];
+  const staffStation = (role) => stationFor(role, stations.map((s) => ({ uid: s.uid, def: s.def }))) ?? stations.find((s) => s.def.id === STAFF_FALLBACK_STATION) ?? stations[0];
+  // Where they stand: the last free tile in front of the station (the first is the Founder's / the squad's way in).
+  function staffSpot(st, k) {
+    const cells = L.accessCells(st.uid);
+    return cells.length ? cells[(cells.length - 1 - k + cells.length * 4) % cells.length] : doorOf(st);
+  }
+  function placeStaff(f, instant) {
+    const st = byUid.get(staffStation(f.role)?.uid);
+    if (!st) return;
+    const sharing = [...staffFigs.values()].filter((o) => o !== f && o.uid === st.uid).length; // (two roles at the Clubhouse)
+    f.uid = st.uid;
+    const c = staffSpot(st, sharing);
+    if (instant) {
+      f.agent.placeAtTile(grid, c.col, c.row);
+      f.phase = 'at';
+      f.agent.setState('working');
+      return;
+    }
+    if (onBlocked(f.agent)) {
+      const t = L.nearestOpen(Math.floor(f.agent.x / CELL), Math.floor(f.agent.y / CELL)) ?? L.gate;
+      f.agent.placeAtTile(grid, t.col, t.row);
+    }
+    f.phase = 'path';
+    f.agent.walkTo(grid, c.col, c.row, () => {
+      f.phase = 'at';
+      f.agent.setState('working');
+    });
+  }
+  // Hired / released since the last look: new faces walk in at the gate; the rest keep their place (all re-path when moved).
+  function syncStaff(instant = false, relayout = false) {
+    const list = hiredNow();
+    const key = list.map((s) => s.id).join(',');
+    if (key === staffKey && !relayout) return false;
+    staffKey = key;
+    const ids = new Set(list.map((s) => s.id));
+    for (const id of [...staffFigs.keys()]) if (!ids.has(id)) staffFigs.delete(id);
+    for (const s of list) {
+      let f = staffFigs.get(s.id);
+      if (!f) {
+        f = { kind: 'staff', id: `staff:${s.id}`, staffId: s.id, role: s.role, name: s.name, art: s.art, agent: new Agent({ id: `staff:${s.id}`, name: s.name, speed: PERSON.speed * 0.85, noPathTeleportSec: 1 }), uid: null, phase: 'path' };
+        staffFigs.set(s.id, f);
+        if (!instant) f.agent.placeAtTile(grid, L.gate.col, L.gate.row);
+        placeStaff(f, instant);
+      } else if (relayout) placeStaff(f, false);
+    }
+    world.staffVersion++;
+    return true;
+  }
+
   const world = {
+    staffVersion: 0, // (M14) bumps when the staff on the ground change (the screen redoes its tap list)
+    get staff() {
+      return [...staffFigs.values()];
+    },
     get grid() {
       return grid;
     },
@@ -214,13 +278,15 @@ export function createComplexWorld({ founder, layout = null, run = () => null })
     layout: L,
     player,
     get people() {
-      return [player];
+      return [player, ...staffFigs.values()]; // (M14) the Founder and the staff
     },
     get walkers() {
       return [...walkers.values()];
     },
     visits: [], // the stations reached, in order (tests)
-    byId: (id) => (id === player.id ? player : (byStation[id] ?? walkers.get(id) ?? null)),
+    byId: (id) => (id === player.id ? player : (byStation[id] ?? walkers.get(id) ?? [...staffFigs.values()].find((f) => f.id === id) ?? null)),
+    // (M14) the staff working at a facility now
+    staffAt: (uid) => [...staffFigs.values()].filter((f) => f.uid === uid),
     byUid: (uid) => byUid.get(uid) ?? null,
     // Who is at (or on the way to) a facility now: [walker].
     usersOf(uid) {
@@ -239,6 +305,10 @@ export function createComplexWorld({ founder, layout = null, run = () => null })
         const there = users.filter((w) => w.phase === 'at' || w.phase === 'enter').length;
         const what = users[0].resting ? 'resting' : `${focusById(users[0].focus).name} session`;
         return `In use: ${users.length} player${users.length === 1 ? '' : 's'} — ${what}${there < users.length ? ` (${users.length - there} on the way)` : ''}`;
+      }
+      if (it.kind === 'staff') {
+        const where = byUid.get(it.uid)?.def.name ?? 'the ground';
+        return it.phase === 'path' ? `Walking to the ${where}` : `${roleById(it.role)?.verb ?? 'Working'} at the ${where}`;
       }
       if (it.kind === 'walker') {
         const s = byUid.get(it.uid);
@@ -267,6 +337,7 @@ export function createComplexWorld({ founder, layout = null, run = () => null })
           walkNext(); // (the same stop again, from where he is)
         }
       } else walkLeg();
+      syncStaff(false, true);
       replan(false);
       planKey = keyNow();
       return true;
@@ -281,6 +352,8 @@ export function createComplexWorld({ founder, layout = null, run = () => null })
         agent.update(dt, grid);
         if (wasWalking && player.at) world.visits.push(player.at);
       }
+      syncStaff(!world.started);
+      for (const f of staffFigs.values()) if (f.phase === 'path') f.agent.update(dt, grid);
       const k = keyNow();
       if (k !== planKey) {
         replan(planKey === '' && !world.started);
@@ -314,10 +387,12 @@ export function createComplexWorld({ founder, layout = null, run = () => null })
     },
     // Tests: put everyone at their place now.
     settle() {
+      syncStaff(true, true);
+      for (const f of staffFigs.values()) placeStaff(f, true);
       replan(true);
       planKey = keyNow();
     },
-    count: () => 1 + walkers.size,
+    count: () => 1 + staffFigs.size + walkers.size,
   };
   // The first frame puts the squad straight at their places (the club just opened).
   world.started = false;

@@ -36,7 +36,7 @@ export const DEFAULT_INTENSITY = 'normal';
 
 export const XP = {
   base: 10, // baseXP a training day
-  coachEffect: 1, // staff: Milestone 14
+  coachEffect: 1, // (Milestone 14: × (1 + the Head Coach's coachPct); +u21XpPct for players 21 and under)
   facilityEffect: 1, // facilities: Milestone 12
   teamShare: 0.6, // with an individual focus: this share of the day's XP goes to the team session
   outfieldKeeping: 0.3, // an outfield player in a Goalkeeping session gains this share

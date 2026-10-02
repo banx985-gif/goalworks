@@ -15,6 +15,8 @@
 // Pool and Nutrition Kitchen speed fatigue recovery, the Clubhouse lifts morale a little each day and rest days recover more.
 // Milestone 13: research adds to the same keys (src/systems/effects.js effect = facilities + research): more XP by session,
 // faster recovery, and trainingLoadPct (sessions tire players less).
+// Milestone 14: the support staff add to the same query — the Head Coach's coachPct (coachEffect) and u21XpPct, the
+// Physio's recoveryPct and fatigueGainPct (training load and match fatigue).
 import { Rng } from '../../../../core/Rng.js';
 import { CORE } from '../../data/players.js';
 import { founderById } from '../../data/setup.js';
@@ -78,7 +80,8 @@ export function dailyXp(p, training, founderId = null, fac = null) {
   const intensity = INTENSITY[training.intensity] ?? INTENSITY.normal;
   const factors = {
     baseXP: XP.base,
-    coachEffect: XP.coachEffect,
+    // (M14) the Head Coach: +% on every session, and more for players 21 and under (Development Mind)
+    coachEffect: XP.coachEffect * (1 + (bonus(fac, 'coachPct') + (p.age <= 21 ? bonus(fac, 'u21XpPct') : 0)) / 100),
     facilityEffect: XP.facilityEffect * (1 + bonus(fac, 'xp:all') / 100),
     moraleFactor: moraleFactor(p.morale),
     ageFactor: ageFactor(p.age),
@@ -125,6 +128,8 @@ function addXp(p, stat, xp) {
   return gained;
 }
 
+// (M14) × on fatigue built up (training load and matches): the Physio's fatigueGainPct (−8: 8% less)
+const fatigueGain = (data) => Math.max(0, 1 + bonus(data, 'fatigueGainPct') / 100);
 const riskOf = (f) => (f <= FATIGUE.riskFrom ? 0 : Math.round((1000 * FATIGUE.riskMax * (f - FATIGUE.riskFrom)) / (100 - FATIGUE.riskFrom)) / 1000);
 
 // One club day. Training days: XP, fatigue by the sessions' load × intensity, a little form either way. Every day:
@@ -141,7 +146,7 @@ export function trainDay(data, { day, matchDay = false }) {
   const recover = 1 + bonus(data, 'recoveryPct') / 100;
   const restMore = 1 + bonus(data, 'restPct') / 100;
   const moraleDay = bonus(data, 'moraleDay');
-  const loadCut = Math.max(0, 1 + bonus(data, 'trainingLoadPct') / 100); // (M13) research: sessions tire players less
+  const loadCut = Math.max(0, 1 + bonus(data, 'trainingLoadPct') / 100) * fatigueGain(data); // (M13) research: sessions tire players less; (M14) the Physio's Load Manager
   const out = [];
   for (const p of squad.players) {
     let xp = 0;
@@ -189,11 +194,12 @@ export function applyMatch(data, { xiIds, score, scorers = [] }) {
   const effects = perkEffects(data.club?.founder?.id);
   const cleanBoost = clean ? effects.filter((e) => PERKS[e.key].kind === 'cleanSheetMorale').reduce((a, e) => a + e.value, 0) : 0;
   const inXi = new Set(xiIds);
+  const gain = fatigueGain(data); // (M14) the Physio's Load Manager
   const goals = {};
   for (const s of scorers) if (s.team === 0 && !s.own) goals[s.name] = (goals[s.name] ?? 0) + 1;
   for (const p of data.squad.players) {
     if (inXi.has(p.id)) {
-      p.fatigue = clamp(p.fatigue + FATIGUE.match, 0, 100);
+      p.fatigue = clamp(p.fatigue + FATIGUE.match * gain, 0, 100);
       p.form += FORM[res] + FORM.goal * (goals[p.name] ?? 0) + (clean && (p.position === 'GK' || p.position === 'DF') ? FORM.cleanSheet : 0);
       p.morale += MORALE[res] + MORALE.played;
     } else p.morale += MORALE[res] + (MORALE.benched[p.contract?.role] ?? 0);

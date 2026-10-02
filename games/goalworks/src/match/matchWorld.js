@@ -25,14 +25,20 @@
 // and its errors grow; no map = fully familiar). world.command(['formation', team, id]) re-fits the eleven on the pitch to
 // the new slots (by natural position, then nearest spot); world.command(['role', team, slot, roleId]) changes one role.
 // Both are logged in the timeline like the M5 commands. A 4-4-2 on the defaults with its default roles is the M3 match.
+// Milestone 14 (settling): setup.settle = [sec, sec] (match seconds per side; a fixture set-up has it, test matches and
+// older saves don't): a formation or team-instruction change for that side then carries an extra familiarity penalty
+// that starts at SETTLE.pen and fades to nothing over sec (the Analyst's Live Read shortens sec). Without settle a change
+// applies in full at once, as before.
 import { Rng } from '../../../../core/Rng.js';
 import { PITCH, MATCH_TIME, FORMATION_442, TUNING, TACTICS, TACTIC_FX, FX_BASE, TACTIC_ALIASES } from '../../data/match.js';
 import { formationById, FORMATIONS, ROLES, rolesForSlot, FAMILIARITY, pairKey } from '../../data/tactics.js';
+import { SETTLE } from '../../data/staff.js';
 import { createBall, stopBall, stepBall, crossing } from './ballPhysics.js';
 import { think, moveOwner, movePlayers, keeperStep, tryControl } from './matchAI.js';
 import { createControl } from './manualControl.js';
 
 const W = PITCH.w;
+const SETTLE_EVERY = Math.max(1, Math.round(SETTLE.refreshSec / MATCH_TIME.step));
 const H = PITCH.h;
 
 export const MODES = ['watch', 'manage', 'play'];
@@ -178,6 +184,7 @@ export function createMatchWorld(setup, { play = null, start = play ? 'play' : '
     stats: [0, 1].map(() => ({ shots: 0, onTarget: 0, saves: 0, passes: 0, passesDone: 0, tackles: 0, tacklesWon: 0, possessionSteps: 0 })),
     events: [], // goals, saves, shots, half/full time (for the screen's banners and the tests)
     chasers: [[], []],
+    settling: [null, null], // (M14) { from, until } steps of a change still settling, per side
     control: null, // Play mode: the human's control (manualControl.js)
     mode: MODES.includes(start) ? start : 'watch',
     start: MODES.includes(start) ? start : 'watch',
@@ -235,6 +242,7 @@ export function createMatchWorld(setup, { play = null, start = play ? 'play' : '
       applyDue();
       const dt = MATCH_TIME.step;
       world.steps++;
+      for (const t of [0, 1]) if (world.settling[t] && (world.steps - world.settling[t].from) % SETTLE_EVERY === 0) refreshFx(t); // (M14) the settle penalty fades
       if (world.phase === 'halftime') {
         world.phaseLeft -= dt;
         if (world.phaseLeft <= 0) {
@@ -478,9 +486,11 @@ export function createMatchWorld(setup, { play = null, start = play ? 'play' : '
     } else if (e[1] === 'tac') {
       const [k, v] = tacticAlias(e[3], e[4]);
       world.tactics[e[2]] = { ...world.tactics[e[2]], [k]: v };
+      startSettling(e[2]);
       refreshFx(e[2]);
     } else if (e[1] === 'formation') {
       setFormation(e[2], e[3]);
+      startSettling(e[2]);
       refreshFx(e[2]);
     } else if (e[1] === 'role') {
       const p = players.find((q) => q.team === e[2] && q.slot === e[3]);
@@ -491,7 +501,22 @@ export function createMatchWorld(setup, { play = null, start = play ? 'play' : '
     }
   }
   function refreshFx(team) {
-    world.fx[team] = fxOf(world.tactics[team], famPenalty(world.famOf(team)));
+    world.fx[team] = fxOf(world.tactics[team], Math.min(1, famPenalty(world.famOf(team)) + settlePenalty(team)));
+  }
+  // (M14) a change made in the match settles over setup.settle[team] seconds (none without it)
+  function startSettling(team) {
+    const n = Math.round((setup.settle?.[team] ?? 0) / MATCH_TIME.step);
+    world.settling[team] = n > 0 ? { from: world.steps, until: world.steps + n } : null;
+  }
+  function settlePenalty(team) {
+    const st = world.settling[team];
+    if (!st) return 0;
+    const left = (st.until - world.steps) / (st.until - st.from);
+    if (left <= 0) {
+      world.settling[team] = null;
+      return 0;
+    }
+    return Math.round(SETTLE.pen * left * 1000) / 1000;
   }
   // Re-fit a side to a new formation: each player takes a slot (fitToSlots), its spot, line, zone and default role.
   function setFormation(team, id) {

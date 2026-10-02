@@ -113,7 +113,7 @@ export const RESEARCH_EFFECTS = {
   injuryRecoveryPct: { waits: 'M25', what: 'injuries' },
   reinjuryPct: { waits: 'M25', what: 'injuries' },
   setPiecePct: { waits: 'M25', what: 'set pieces' },
-  tacticalPrepPct: { waits: 'M14', what: 'the Analyst (match preparation)' },
+  tacticalPrepPct: { live: true, system: 'match preparation (with an Analyst, M14)' },
   fanGrowthPct: { waits: 'M23', what: 'fans' },
   sponsorPct: { waits: 'M23', what: 'sponsors' },
   stadiumOpsPct: { waits: 'M24', what: 'the stadium' },
@@ -128,7 +128,7 @@ export const QUEUES = [
   { id: 'main', name: 'Research' },
   { id: 'second', name: 'Second slot', rule: { rank: 'A', facility: 'F24', level: 2 }, lockedText: 'Rank A + Analytics Lab level 2' },
 ];
-// Research has no staff yet (M14): the Club Manager runs the first slot, the Analytics Lab team the second.
+// The Club Manager runs the first slot, the Analytics Lab team the second (M14's staff don't run research).
 export const MANAGER_WORKER = { id: 'manager', name: 'Club Manager' };
 export const SLOT_WORKERS = [MANAGER_WORKER, { id: 'lab', name: 'Analytics Lab team' }];
 

@@ -24,7 +24,10 @@
 // Milestone 12c: the Facility Detail sheet's Upgrade (paid now, finished on the calendar) and a code-drawn level badge
 // (1 / 2 / 3, an arrow while an upgrade is under way) on every facility that levels.
 //   createClubScreen({ renderer, layout, assets, bus, sheet, club, onMenu, debug, calendar, onMatchSetup, extraSections,
-//                      onTeam, onShop, detailSheet, confirm, onLayoutChanged, showMenu, onNavMenu, hint, lowFx })
+//                      onTeam, onShop, detailSheet, confirm, onLayoutChanged, showMenu, onNavMenu, hint, lowFx, staffSheet })
+// Milestone 14: the hired staff stand and work at their stations (src/systems/complexWorld.js), drawn like the Founder
+// (core/CharacterMotion: a walking bob, a small working tilt), with a name tag in their role colour; tapping one opens
+// their Staff card (staffSheet(staffId) → the sheet menu, from main).
 //     club() → { n, data, layout } or null     calendar() → the open club's calendar or null
 //     extraSections(defId, station) → more Facility Detail sections (Training, League …)
 //     onShop() opens the Shop sheet          detailSheet(station, api) → the Facility Detail sheet menu
@@ -49,6 +52,7 @@ import { FRONT_BODIES, KEEPER_BODIES, BODY_ART } from '../../data/kits.js';
 import { bodyKey, headOf } from '../ui/kitArt.js';
 import { kitFromColour } from '../match/kits.js';
 import { createComplexWorld } from '../systems/complexWorld.js';
+import { roleById } from '../../data/staff.js';
 import { createDrawAudit } from '../ui/drawAudit.js';
 import { flagKey } from '../ui/kitArt.js';
 
@@ -61,7 +65,7 @@ const detailFor = (zoom) => DETAIL_STEPS.find((d) => d >= zoom - 1e-3) ?? DETAIL
 const TOP_OVERHANG = 420; // room above the grid's back corner for a building's roof and the pitch's floodlights
 const fmt = (n) => Math.round(n).toLocaleString('en-GB');
 
-export function createClubScreen({ renderer, layout, assets, bus, sheet, club, onMenu, debug = null, calendar = () => null, onMatchSetup = () => {}, extraSections = () => [], onTeam = () => {}, onResearch = () => {}, onShop = () => {}, detailSheet = null, confirm = null, onLayoutChanged = () => {}, showMenu = () => false, onNavMenu = () => {}, menuIcon = null, hint = null, lowFx = () => false }) {
+export function createClubScreen({ renderer, layout, assets, bus, sheet, club, onMenu, debug = null, calendar = () => null, onMatchSetup = () => {}, extraSections = () => [], onTeam = () => {}, onResearch = () => {}, onShop = () => {}, detailSheet = null, confirm = null, onLayoutChanged = () => {}, showMenu = () => false, onNavMenu = () => {}, menuIcon = null, hint = null, lowFx = () => false, staffSheet = null }) {
   const W = renderer.width;
   const { cellSize: CELL, margin, fenceH } = COMPLEX;
   const { halfW: HW, halfH: HH } = COMPLEX.view;
@@ -123,7 +127,7 @@ export function createClubScreen({ renderer, layout, assets, bus, sheet, club, o
   // The Founder is tapped on their body (the picture's transparent sides left out); a facility on its art, less the
   // empty corners of the square picture.
   const tapRect = (it) => {
-    if (it.kind === 'player') {
+    if (it.kind === 'player' || it.kind === 'staff') {
       const r = personRect(it);
       return { x: r.x + r.w * 0.24, y: r.y + r.h * 0.05, w: r.w * 0.52, h: r.h * (PERSON.feet - 0.05) };
     }
@@ -133,15 +137,17 @@ export function createClubScreen({ renderer, layout, assets, bus, sheet, club, o
   };
   // Draw order: plan x + y (further back first); a facility by its footprint's middle.
   const depthOf = (it) => {
-    if (it.kind === 'player' || it.kind === 'walker') return it.agent.x + it.agent.y;
+    if (it.kind === 'player' || it.kind === 'walker' || it.kind === 'staff') return it.agent.x + it.agent.y;
     if (it.kind === 'tree' || it.kind === 'prop') return (it.col + it.row) * CELL;
     if (it.kind === 'drill') return it.depth;
     return (it.fp.col + it.fp.w / 2 + it.fp.row + it.fp.h / 2) * CELL;
   };
-  const selection = new Selection(bus, { boundsOf: tapRect, depthOf: (it) => depthOf(it) + (it.kind === 'player' ? 100000 : 0), minHitSize: 90 });
+  const selection = new Selection(bus, { boundsOf: tapRect, depthOf: (it) => depthOf(it) + (it.kind === 'player' ? 100000 : it.kind === 'staff' ? 50000 : 0), minHitSize: 90 });
   let time = 0;
   const audit = createDrawAudit(assets); // (M12b) every facility, prop and figure drawn from a picture with something in it
   const pose = { bob: 0, tilt: 0, flip: 1 };
+  const staffPose = { bob: 0, tilt: 0, flip: 1 }; // (M14; the Founder's pose stays readable for the tests)
+  let staffSeen = -1; // the world's staffVersion the tap list was made for
   let drillTime = 0;
   const drillPose = { bob: 0, tilt: 0, flip: 1 };
 
@@ -244,6 +250,7 @@ export function createClubScreen({ renderer, layout, assets, bus, sheet, club, o
 
   // --- sheets: the Founder's, and the Facility Detail sheet --------------------------------------------------------
   function menuFor(it) {
+    if (it.kind === 'staff') return staffSheet ? staffSheet(it.staffId) : { title: it.name, subtitle: world.stateOf(it), art: it.art, sections: [] };
     const clubColour = colourById(club()?.data.club.colours.primary)?.hex ?? C.progress;
     if (it.kind === 'player') {
       const pos = POSITIONS[founder.position]?.name ?? founder.position;
@@ -256,7 +263,7 @@ export function createClubScreen({ renderer, layout, assets, bus, sheet, club, o
         sections: [{ title: 'Now', lines: [world.stateOf(it)] }],
       };
     }
-    const users = world.usersOf(it.uid).map((w) => w.p.name);
+    const users = [...world.staffAt(it.uid).map((f) => `${f.name} (${roleById(f.role)?.name ?? 'staff'})`), ...world.usersOf(it.uid).map((w) => w.p.name)];
     if (world.player.at === it.id || (!world.player.at && world.stateOf(it).includes('on the way'))) users.unshift(`${world.player.name} (Founder)`);
     const api = {
       now: world.stateOf(it),
@@ -288,7 +295,7 @@ export function createClubScreen({ renderer, layout, assets, bus, sheet, club, o
     if (!it) return;
     upgradeMsg = null;
     selection.select(it);
-    sheet.open(() => (world?.byId(id) === it || (it.kind === 'station' && world?.byUid(it.uid)) ? menuFor(it.kind === 'station' ? world.byUid(it.uid) : it) : null));
+    sheet.open(() => (world?.byId(id) === it || (it.kind === 'station' && world?.byUid(it.uid)) ? menuFor(it.kind === 'station' ? world.byUid(it.uid) : it) : it.kind === 'staff' && staffSheet ? staffSheet(it.staffId) : null));
     debug?.log(`sheet: ${id}`);
   }
 
@@ -297,6 +304,7 @@ export function createClubScreen({ renderer, layout, assets, bus, sheet, club, o
     for (const it of [...selection.items]) selection.remove(it);
     for (const it of [...world.stations, ...world.people]) selection.add(it);
     layoutSeen = world.layout.version;
+    staffSeen = world.staffVersion;
     groundLayer.invalidate();
     paths = null;
   }
@@ -627,6 +635,12 @@ export function createClubScreen({ renderer, layout, assets, bus, sheet, club, o
       }
       const speed = calendar()?.clock.paused ? 0 : calendar()?.clock.speed ?? 1;
       world?.update(dt * (calendar() ? speed : 1)); // people keep the calendar's pace; still while paused
+      if (world && world.staffVersion !== staffSeen) {
+        // (M14) staff hired / released: the tap list follows (a selected figure who left is let go)
+        for (const it of [...selection.items]) if (it.kind === 'staff') selection.remove(it);
+        for (const f of world.staff) selection.add(f);
+        staffSeen = world.staffVersion;
+      }
       time += dt;
       drillTime += dt * speed; // the drill runs with the calendar
       if (note && (note.t -= dt) <= 0) note = null;
@@ -995,6 +1009,7 @@ export function createClubScreen({ renderer, layout, assets, bus, sheet, club, o
   function drawPlayer(ctx, p) {
     const r = personRect(p);
     const walking = p.agent.state === 'walking' && p.agent.path.length > 0 && !calendar()?.clock.paused;
+    const staff = p.kind === 'staff';
     const sx = walking ? screenDir(p) : p.faceLast ?? 1;
     p.faceLast = sx;
     const f = feetOf(p);
@@ -1004,8 +1019,10 @@ export function createClubScreen({ renderer, layout, assets, bus, sheet, club, o
     ctx.ellipse(f.x, f.y, HW * 0.21, HH * 0.21, 0, 0, Math.PI * 2);
     ctx.fill();
     ctx.restore();
-    characterPose({ state: walking && !lowFx() ? 'walking' : 'idle', facing: sx }, lowFx() ? 0 : time, 1, pose);
-    drawCharacter(ctx, assets, p.art, r.x + r.w / 2, r.y + r.h, r.w, r.h, pose);
+    const ps = staff ? staffPose : pose;
+    const working = staff && p.phase === 'at' && !calendar()?.clock.paused;
+    characterPose({ state: lowFx() ? 'idle' : walking ? 'walking' : working ? 'working' : 'idle', facing: sx }, lowFx() ? 0 : time, staff ? 7 + p.staffId.charCodeAt(0) + Number(p.staffId.slice(2)) : 1, ps);
+    drawCharacter(ctx, assets, p.art, r.x + r.w / 2, r.y + r.h, r.w, r.h, ps);
     audit.note(`p:${p.id}`, p.art);
   }
   // --- the squad: walking to their places and drilling there (Milestones 8 / 12) ----------------------------------------
@@ -1181,7 +1198,7 @@ export function createClubScreen({ renderer, layout, assets, bus, sheet, club, o
     ctx.save();
     ctx.strokeStyle = C.progress;
     ctx.lineWidth = 6;
-    if (it.kind === 'player') {
+    if (it.kind === 'player' || it.kind === 'staff') {
       const f = feetOf(it);
       ctx.beginPath();
       ctx.ellipse(f.x, f.y, HW * 0.28, HH * 0.28, 0, 0, Math.PI * 2);
@@ -1266,14 +1283,15 @@ export function createClubScreen({ renderer, layout, assets, bus, sheet, club, o
     const w = ctx.measureText(label).width + 36;
     const x = s.x - w / 2;
     const y = s.y - TAG_H - 4;
-    ctx.fillStyle = colourById(club()?.data.club.colours.primary)?.hex ?? C.progress;
+    const role = p.kind === 'staff' ? roleById(p.role) : null; // (M14) staff wear their role colour
+    ctx.fillStyle = role?.colour ?? colourById(club()?.data.club.colours.primary)?.hex ?? C.progress;
     ctx.strokeStyle = C.outline;
     ctx.lineWidth = 3;
     ctx.beginPath();
     ctx.roundRect(x, y, w, TAG_H, TAG_H / 2);
     ctx.fill();
     ctx.stroke();
-    ctx.fillStyle = colourById(club()?.data.club.colours.primary)?.ink ?? '#FFFFFF';
+    ctx.fillStyle = role ? '#FFFFFF' : colourById(club()?.data.club.colours.primary)?.ink ?? '#FFFFFF';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText(label, s.x, y + TAG_H / 2 + 1);

@@ -157,7 +157,7 @@ export function countyOfferSheet({ clubName, onAnswer }) {
 
 // resuming() → null (no match yet) | 'watch' | 'manage' | 'play' (the match under way).  onKickOff(mode)
 // kits() → { home, away, sides } (src/match/kits.js matchKits + both sides' names) or null
-export function matchSetupSheet({ calendar, clubName, kits = () => null, onKickOff, onPlayed = null, resuming = () => null }) {
+export function matchSetupSheet({ calendar, clubName, kits = () => null, onKickOff, onPlayed = null, resuming = () => null, clue = () => null }) {
   return () => {
     const cal = calendar();
     const f = cal?.fixture;
@@ -179,7 +179,7 @@ export function matchSetupSheet({ calendar, clubName, kits = () => null, onKickO
       tag: { text: 'MATCH DAY', color: C.action },
       sections: [
         // (kept short so all three Kick off buttons fit on a 9:16 phone without scrolling)
-        { title: 'Fixture', lines: [`${dateText(cal, f.matchDay)} · ${src?.name ?? f.source}${src?.temporary ? ' (temporary)' : ''}`, ...kitLine(kits())] },
+        { title: 'Fixture', lines: [`${dateText(cal, f.matchDay)} · ${src?.name ?? f.source}${src?.temporary ? ' (temporary)' : ''}`, ...kitLine(kits()), ...(clue() ? [clue()] : [])] }, // (M14) the Analyst's clue and preparation
         {
           title: 'Match · 11 v 11, about 5 minutes',
           buttons: [

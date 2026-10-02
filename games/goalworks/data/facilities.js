@@ -107,8 +107,8 @@ export const EFFECT_KEYS = {
   academyFull: { waits: 'M15', what: 'the academy' },
   youthPotential: { waits: 'M15', what: 'the academy' },
   physicalCap: { waits: 'M15', what: 'player potential and caps' },
-  trainingGroups: { waits: 'M14', what: 'coaching staff (separate training groups)' },
-  tacticalPrepPct: { waits: 'M14', what: 'the Analyst (match preparation)' },
+  trainingGroups: { waits: 'M35', what: 'a second Head Coach (separate training groups)' }, // (M14: one coach per role; no milestone schedules a second — parked for the M35 pass, DECISIONS 3 Oct)
+  tacticalPrepPct: { live: true, where: 'Match preparation +{v}% (with an Analyst on the staff)' }, // (Milestone 14)
   matchdayIncomePct: { waits: 'M23', what: 'matchday income' },
   fanIncomePct: { waits: 'M23', what: 'fans and fan income' },
   sponsorFanPct: { waits: 'M23', what: 'sponsors and fans' },

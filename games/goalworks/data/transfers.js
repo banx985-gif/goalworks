@@ -111,7 +111,7 @@ export const AI = {
 // Scouting (bible §10 / §12): the Founder-era scout until staff arrive (M14). Stats shown as ranges, potential as a label and
 // a range; ranges narrow with more scouting time on that player. Reports expire.
 export const SCOUTING = {
-  scout: { name: 'Pat Doyle', title: 'Founder-era scout (placeholder until staff arrive)' },
+  scout: { name: 'Pat Doyle', title: 'Founder-era scout (a save without staff only; since M14 the hired Scout goes)' },
   regions: [
     { id: 'regional', name: 'Regional clubs', line: 'Players at the six Regional clubs.' },
     { id: 'free', name: 'Free agents', line: 'Out of contract: no fee, just wages and a bonus.' },

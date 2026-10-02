@@ -10,7 +10,9 @@
 //   (Milestone 13: research adds to both; sendScout / lookCloser take fac too — { days, closerDays }: research's shorter
 //   report and closer-look times; src/systems/effects.js scoutingFac(data) builds fac)
 //   reportDays(fac) · closerDaysOf(fac) → the days a report / a closer look takes now
-//   knowledge(T, id) · statRange(p, k, stat) · overallRange(p, k) · potentialView(p, k) → { low, high, label }
+//   knowledge(T, id) · statRange(p, k, stat) · overallRange(p, k) · potentialView(p, k, narrow?) → { low, high, label }
+// Milestone 14: the scout is the hired Scout (fac.scoutName; no scout → no reports), Hidden Gem (fac.rareFind %) may swap a
+// missed Rare player into a report, Local Eye (narrow) narrows local players' potential ranges.
 import { SCOUTING } from '../../data/transfers.js';
 import { overall } from './players.js';
 
@@ -25,9 +27,15 @@ export const regionById = (id) => SCOUTING.regions.find((r) => r.id === id);
 export const reportDays = (fac = null) => Math.max(1, SCOUTING.days + (fac?.days ?? 0));
 export const closerDaysOf = (fac = null) => Math.max(1, SCOUTING.closerDays + (fac?.closerDays ?? 0));
 
+// (M14) the hired scout's name (fac.scoutName); null: no scout on the staff, so nobody can go
+export const scoutNameOf = (fac = null) => fac?.scoutName ?? SCOUTING.scout.name;
+const noScout = (fac) => fac?.scoutName === null;
+export const NO_SCOUT = 'No scout on the staff: hire one (Menu → Staff).';
+
 export function sendScout(T, { region, position = 'any' }, day, fac = null) {
   const S = normaliseScouting(T);
-  if (S.task) return { ok: false, why: `${SCOUTING.scout.name} is already out (${taskLine(S.task, day)}).` };
+  if (noScout(fac)) return { ok: false, why: NO_SCOUT };
+  if (S.task) return { ok: false, why: `${scoutNameOf(fac)} is already out (${taskLine(S.task, day)}).` };
   if (!regionById(region) || !SCOUTING.positions.includes(position)) return { ok: false, why: 'Pick a region and a position.' };
   S.task = { kind: 'report', region, position, start: day, days: reportDays(fac) };
   return { ok: true };
@@ -35,7 +43,8 @@ export function sendScout(T, { region, position = 'any' }, day, fac = null) {
 
 export function lookCloser(T, playerId, day, fac = null) {
   const S = normaliseScouting(T);
-  if (S.task) return { ok: false, why: `${SCOUTING.scout.name} is already out (${taskLine(S.task, day)}).` };
+  if (noScout(fac)) return { ok: false, why: NO_SCOUT };
+  if (S.task) return { ok: false, why: `${scoutNameOf(fac)} is already out (${taskLine(S.task, day)}).` };
   if (knowledge(T, playerId) >= 1) return { ok: false, why: 'Already fully scouted.' };
   S.task = { kind: 'closer', playerId, start: day, days: closerDaysOf(fac) };
   return { ok: true };
@@ -64,6 +73,11 @@ export function scoutDay(T, day, pools, rng, fac = null) {
   const fit = pools(t.region).filter((p) => t.position === 'any' || p.position === t.position);
   const shuffled = fit.map((p) => ({ p, r: rng.next() })).sort((a, b) => knowledge(T, a.p.id) - knowledge(T, b.p.id) || a.r - b.r).map((x) => x.p);
   const ids = shuffled.slice(0, SCOUTING.reportSize + (fac?.extra ?? 0)).map((p) => p.id);
+  // (M14) Hidden Gem: now and then a Rare player who would have been missed takes the last place
+  if (fac?.rareFind > 0 && ids.length && rng.next() < fac.rareFind / 100) {
+    const gem = shuffled.find((p) => p.tier === 'Rare' && !ids.includes(p.id));
+    if (gem) ids[ids.length - 1] = gem.id;
+  }
   for (const id of ids) S.knowledge[id] = Math.min(1, (S.knowledge[id] ?? 0) + gain);
   const report = { id: `r${S.nextId++}`, day, until: day + SCOUTING.expiresDays, region: t.region, position: t.position, ids };
   S.reports.push(report);
@@ -84,8 +98,9 @@ function around(v, w, u) {
 export const statRange = (p, k, stat) => around(p.stats[stat], width(SCOUTING.range.stat, SCOUTING.range.statMin, k), hash01(p.id, stat));
 export const overallRange = (p, k) => around(overall(p), width(SCOUTING.range.overall, SCOUTING.range.overallMin, k), hash01(p.id, 'ovr'));
 
-export function potentialView(p, k) {
-  const extra = Math.round(SCOUTING.range.potential * (1 - Math.max(0, Math.min(1, k))));
+// narrow (M14, 0 … 1): the scout's Local Eye takes this share off a local player's extra width
+export function potentialView(p, k, narrow = 0) {
+  const extra = Math.round(SCOUTING.range.potential * (1 - Math.max(0, Math.min(1, k))) * (1 - Math.max(0, Math.min(1, narrow))));
   const u = hash01(p.id, 'pot');
   const low = Math.max(1, p.potential.low - Math.round(extra * u));
   const high = Math.min(99, p.potential.high + (extra - Math.round(extra * u)));

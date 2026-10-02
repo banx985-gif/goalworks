@@ -44,13 +44,16 @@ export function createTransferSheets({ sheet, assets, dialog, run, today, dateTe
     } else ui.msg = r?.why ?? r?.deal?.why ?? 'Not possible.';
   };
   const fac = () => scoutingFac(data()); // (M13) research: shorter reports / closer looks, more players (M12: facilities)
+  // (M14) the Scout's Local Eye narrows the potential range of local players (Regional clubs' and free agents)
+  const narrowFor = (owner) => (owner === 'market' ? 0 : fac().localNarrow ?? 0);
+  const scoutLabel = () => SC.scoutNameOf(fac());
   const msgSection = () => (ui.msg ? [{ title: 'Latest', lines: [ui.msg] }] : []);
 
   // A player you do not own: the scouting view (ranges, potential label).
   function playerSub(p, owner, extra = '') {
     const k = SC.knowledge(T(), p.id);
     const o = SC.overallRange(p, k);
-    const pot = SC.potentialView(p, k);
+    const pot = SC.potentialView(p, k, narrowFor(owner));
     return `${p.position} · Age ${p.age} · OVR ${SC.rangeText(o)} · ${pot.label} · ${TR.ownerName(owner)}${extra}`;
   }
   const posFilter = (prefix = 'pos') => ({
@@ -70,15 +73,15 @@ export function createTransferSheets({ sheet, assets, dialog, run, today, dateTe
     return [
       ...msgSection(),
       {
-        title: `Scout · ${SCOUTING.scout.name}`,
-        lines: [SCOUTING.scout.title, S.task ? `Out now: ${SC.taskLine(S.task, day)}.` : `At the desk. A report takes ${SC.reportDays(fac())} days and lists ${SCOUTING.reportSize + fac().extra} players; reports last ${SCOUTING.expiresDays} days.`],
+        title: fac().scoutName === null ? 'Scout · nobody yet' : `Scout · ${scoutLabel()}`,
+        lines: [fac().scoutName === null ? SC.NO_SCOUT : fac().scoutName ? 'Your Scout (Staff)' : SCOUTING.scout.title, S.task ? `Out now: ${SC.taskLine(S.task, day)}.` : `At the desk. A report takes ${SC.reportDays(fac())} days and lists ${SCOUTING.reportSize + fac().extra} players; reports last ${SCOUTING.expiresDays} days.`],
       },
       { title: 'Where to look', columns: 3, buttons: SCOUTING.regions.map((r) => ({ id: `region:${r.id}`, label: tick(ui.region === r.id, r.name), accent: C.progress, onTap: () => (ui.region = r.id) })) },
       { title: 'Position', columns: 6, buttons: SCOUTING.positions.map((x) => ({ id: `spos:${x}`, label: tick(ui.scoutPos === x, x === 'any' ? 'All' : x), accent: C.progress, onTap: () => (ui.scoutPos = x) })) },
       {
-        buttons: [{ id: 'send', label: 'Send the scout', sub: `${SC.regionById(ui.region).name} · ${ui.scoutPos === 'any' ? 'any position' : ui.scoutPos} · ${SC.reportDays(fac())} days`, accent: C.action, locked: !!S.task, onTap: () => {
+        buttons: [{ id: 'send', label: 'Send the scout', sub: `${SC.regionById(ui.region).name} · ${ui.scoutPos === 'any' ? 'any position' : ui.scoutPos} · ${SC.reportDays(fac())} days`, accent: C.action, locked: !!S.task || fac().scoutName === null, onTap: () => {
           const r = SC.sendScout(T(), { region: ui.region, position: ui.scoutPos }, today(), fac());
-          ui.msg = r.ok ? `${SCOUTING.scout.name} is on his way: back in ${SC.reportDays(fac())} days.` : r.why;
+          ui.msg = r.ok ? `${scoutLabel()} is on the way: back in ${SC.reportDays(fac())} days.` : r.why;
           if (r.ok) onDeal();
         } }],
         columns: 1,
@@ -167,7 +170,7 @@ export function createTransferSheets({ sheet, assets, dialog, run, today, dateTe
     const tt = T();
     const k = SC.knowledge(tt, id);
     const day = today();
-    const pot = SC.potentialView(p, k);
+    const pot = SC.potentialView(p, k, narrowFor(owner));
     const kinds = ['free', 'transfer', 'loan', 'loanOption', 'pre'].filter((kind) => !TR.canTalk(d, kind, p, owner, day));
     const why = owner === 'free' ? TR.canTalk(d, 'free', p, owner, day) : TR.canTalk(d, 'transfer', p, owner, day);
     return {
@@ -182,9 +185,9 @@ export function createTransferSheets({ sheet, assets, dialog, run, today, dateTe
           title: `Scouting · ${Math.round(k * 100)}% known`,
           lines: [`Overall ${SC.rangeText(SC.overallRange(p, k))} · Potential ${pot.label} (${pot.low}–${pot.high})`, `Trait: ${k >= 0.4 ? p.trait : 'scout him to find out'}`, ...CORE.map((s) => `${s}  ${SC.rangeText(SC.statRange(p, k, s))}`)],
           columns: 1,
-          buttons: k < 1 ? [{ id: 'closer', label: 'Scout him closer', sub: `${SC.closerDaysOf(fac())} days: narrower ranges`, accent: C.progress, locked: !!tt.scouting.task, onTap: () => {
+          buttons: k < 1 ? [{ id: 'closer', label: 'Scout him closer', sub: `${SC.closerDaysOf(fac())} days: narrower ranges`, accent: C.progress, locked: !!tt.scouting.task || fac().scoutName === null, onTap: () => {
             const r = SC.lookCloser(tt, id, today(), fac());
-            ui.msg = r.ok ? `${SCOUTING.scout.name} will watch ${p.name} for ${SC.closerDaysOf(fac())} days.` : r.why;
+            ui.msg = r.ok ? `${scoutLabel()} will watch ${p.name} for ${SC.closerDaysOf(fac())} days.` : r.why;
             if (r.ok) onDeal();
           } }] : [],
         },

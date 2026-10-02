@@ -4,6 +4,7 @@ import { founderById, colourById, areaById, shapeById, symbolById, POSITIONS, FO
 import { patternById } from '../../data/kits.js';
 import { createStartingSquad } from './squad.js';
 import { rank as clubRank } from './league.js';
+import { newStaff } from './staff.js';
 
 // Milestone 7: the run also gets its starting squad (squad: { players, watch, nextId }).
 export function newCampaign(setup, now = Date.now()) {
@@ -27,6 +28,7 @@ export function newCampaign(setup, now = Date.now()) {
     date: { year: 1, month: 1, day: 1 },
     playSec: 0,
     ngPlus: 0,
+    staff: newStaff(), // Milestone 14: a new club starts with no support staff (hire them in Staff)
   };
 }
 
