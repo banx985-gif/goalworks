@@ -9,7 +9,8 @@
 // only ever follows its own finger, so a button press can never move the stick (and the other way round).
 // Desktop stand-in: arrows / WASD move, J = Pass (hold for a through ball), K = Shoot / Tackle, Shift = Sprint,
 // L = Switch. The key names show on the buttons until a finger touches the screen.
-//   createMatchControls({ layout, input }) → controls
+// Milestone 12b: leftHanded() (Settings → Left-hand controls) mirrors the band: buttons on the left, the stick on the right.
+//   createMatchControls({ layout, input, leftHanded }) → controls
 //     controls.band() → the band rect   controls.buttonRect(id) → { x, y, w, h } (tests)   controls.stickHome()
 //     controls.onDown(p) / onMove(p) / onUp(p) — pointer events (logical)      controls.attachKeys() / detachKeys()
 //     controls.frame() → { mx, my, btn } for this step (short taps are latched until the step has seen them)
@@ -35,7 +36,7 @@ const BIT = { pass: BTN.pass, action: BTN.action, sprint: BTN.sprint, switch: BT
 const KEYS = { j: 'pass', k: 'action', shift: 'sprint', l: 'switch' };
 const KEY_LABEL = { pass: 'J', action: 'K', sprint: 'Shift', switch: 'L' };
 
-export function createMatchControls({ layout, input = null }) {
+export function createMatchControls({ layout, input = null, leftHanded = () => false }) {
   const fingers = new Map(); // pointer id → { kind: 'stick' } | { kind: 'button', id }
   let stick = null; // { id, cx, cy, x, y } — the pad and where the finger is now
   let latched = 0; // buttons pressed since the last step (a very short tap still counts once)
@@ -48,15 +49,15 @@ export function createMatchControls({ layout, input = null }) {
   };
   const stickZone = () => {
     const b = band();
-    return { x: b.x, y: b.y + INFO_H, w: b.w * 0.5, h: b.h - INFO_H };
+    return { x: leftHanded() ? b.x + b.w * 0.5 : b.x, y: b.y + INFO_H, w: b.w * 0.5, h: b.h - INFO_H };
   };
   const stickHome = () => {
     const z = stickZone();
-    return { x: z.x + 40 + STICK_R, y: z.y + z.h / 2 + 10 };
+    return { x: leftHanded() ? z.x + z.w - 40 - STICK_R : z.x + 40 + STICK_R, y: z.y + z.h / 2 + 10 };
   };
   const buttons = () => {
     const b = band();
-    return BUTTONS.map((d) => ({ ...d, x: b.x + b.w + d.dx, y: b.y + b.h + d.dy }));
+    return BUTTONS.map((d) => ({ ...d, x: leftHanded() ? b.x - d.dx : b.x + b.w + d.dx, y: b.y + b.h + d.dy }));
   };
   const buttonAt = (p) => {
     let best = null;

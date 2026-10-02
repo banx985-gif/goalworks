@@ -122,14 +122,15 @@ export const RESEARCH_EFFECTS = {
   worldReputationPct: { waits: 'M21', what: 'continental competitions' },
 };
 
-// One research slot (bible §28). The second is shown locked: it needs Club Rank A and an Analytics Lab at level 2 —
-// facility levels arrive later, so it cannot open yet.
+// Two research slots (bible §28). The second opens at Club Rank A with an Analytics Lab at level 2 (Milestone 12c, once
+// facility levels exist); it closes again (keeping the node's progress) if either stops holding.
 export const QUEUES = [
   { id: 'main', name: 'Research' },
-  { id: 'second', name: 'Second slot', rule: { rank: 'A', facility: 'F24', level: 2 }, lockedText: 'Rank A + Analytics Lab' },
+  { id: 'second', name: 'Second slot', rule: { rank: 'A', facility: 'F24', level: 2 }, lockedText: 'Rank A + Analytics Lab level 2' },
 ];
-// Research has no staff yet (M14): the Club Manager runs the one slot.
+// Research has no staff yet (M14): the Club Manager runs the first slot, the Analytics Lab team the second.
 export const MANAGER_WORKER = { id: 'manager', name: 'Club Manager' };
+export const SLOT_WORKERS = [MANAGER_WORKER, { id: 'lab', name: 'Analytics Lab team' }];
 
 // Research Points (placeholder): a small base each club day, plus the Video Room / Analytics Lab (facility effect rpDay,
 // data/facilities.js); match results; firsts (the first win against each club, the first Promotion Match).

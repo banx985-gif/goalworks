@@ -18,8 +18,13 @@
 // (main's sheet, src/screens/buildSheets.js) or Move gives a ghost — its footprint green where it may stand, red with
 // the reason where it may not; drag the ghost (or drag any facility straight away) to move it; tap a facility to pick
 // it, then Move or Sell (50% back, after a confirm). The ground grows with the Club Rank; the camera keeps its spot.
+// Milestone 12b: the Menu button at the right end of the bottom row (Settings → Show Menu button; it opens the Club Menu,
+// main's sheet) and the next-step hint line just under the calendar strip (core/ui/HintLine; tapping it opens the right
+// sheet). Low graphics: the figures stand still instead of bobbing.
+// Milestone 12c: the Facility Detail sheet's Upgrade (paid now, finished on the calendar) and a code-drawn level badge
+// (1 / 2 / 3, an arrow while an upgrade is under way) on every facility that levels.
 //   createClubScreen({ renderer, layout, assets, bus, sheet, club, onMenu, debug, calendar, onMatchSetup, extraSections,
-//                      onTeam, onShop, detailSheet, confirm, onLayoutChanged })
+//                      onTeam, onShop, detailSheet, confirm, onLayoutChanged, showMenu, onNavMenu, hint, lowFx })
 //     club() → { n, data, layout } or null     calendar() → the open club's calendar or null
 //     extraSections(defId, station) → more Facility Detail sections (Training, League …)
 //     onShop() opens the Shop sheet          detailSheet(station, api) → the Facility Detail sheet menu
@@ -44,6 +49,8 @@ import { FRONT_BODIES, KEEPER_BODIES, BODY_ART } from '../../data/kits.js';
 import { bodyKey, headOf } from '../ui/kitArt.js';
 import { kitFromColour } from '../match/kits.js';
 import { createComplexWorld } from '../systems/complexWorld.js';
+import { createDrawAudit } from '../ui/drawAudit.js';
+import { flagKey } from '../ui/kitArt.js';
 
 const C = THEME.color;
 const S = THEME.size;
@@ -54,7 +61,7 @@ const detailFor = (zoom) => DETAIL_STEPS.find((d) => d >= zoom - 1e-3) ?? DETAIL
 const TOP_OVERHANG = 420; // room above the grid's back corner for a building's roof and the pitch's floodlights
 const fmt = (n) => Math.round(n).toLocaleString('en-GB');
 
-export function createClubScreen({ renderer, layout, assets, bus, sheet, club, onMenu, debug = null, calendar = () => null, onMatchSetup = () => {}, extraSections = () => [], onTeam = () => {}, onResearch = () => {}, onShop = () => {}, detailSheet = null, confirm = null, onLayoutChanged = () => {} }) {
+export function createClubScreen({ renderer, layout, assets, bus, sheet, club, onMenu, debug = null, calendar = () => null, onMatchSetup = () => {}, extraSections = () => [], onTeam = () => {}, onResearch = () => {}, onShop = () => {}, detailSheet = null, confirm = null, onLayoutChanged = () => {}, showMenu = () => false, onNavMenu = () => {}, menuIcon = null, hint = null, lowFx = () => false }) {
   const W = renderer.width;
   const { cellSize: CELL, margin, fenceH } = COMPLEX;
   const { halfW: HW, halfH: HH } = COMPLEX.view;
@@ -133,6 +140,7 @@ export function createClubScreen({ renderer, layout, assets, bus, sheet, club, o
   };
   const selection = new Selection(bus, { boundsOf: tapRect, depthOf: (it) => depthOf(it) + (it.kind === 'player' ? 100000 : 0), minHitSize: 90 });
   let time = 0;
+  const audit = createDrawAudit(assets); // (M12b) every facility, prop and figure drawn from a picture with something in it
   const pose = { bob: 0, tilt: 0, flip: 1 };
   let drillTime = 0;
   const drillPose = { bob: 0, tilt: 0, flip: 1 };
@@ -148,16 +156,30 @@ export function createClubScreen({ renderer, layout, assets, bus, sheet, club, o
     const sr = layout.safeRect;
     return { x: m.x + m.w + 20, y: m.y, w: sr.x + sr.w - 24 - (m.x + m.w + 20), h: m.h };
   };
-  // The bottom row: Team · Build · Research (Milestone 13) · the shortcut (Training Pitch, or Match Setup on match day).
+  // The bottom row: Team · Build · Research (Milestone 13) · the shortcut (Training Pitch, or Match Setup on match day)
+  // · (M12b) Menu, a square-ish icon button at the right end while Settings → Show Menu button is on.
   // The five-button bar replaces it later.
   const BOTTOM_N = 4;
-  const bottomW = () => Math.min(400, (layout.safeRect.w - 48 - 20 * (BOTTOM_N - 1)) / BOTTOM_N);
+  const MENU_W = 170;
+  const bottomW = () => {
+    const room = layout.safeRect.w - 48 - (showMenu() ? MENU_W + 20 : 0);
+    return Math.min(400, (room - 20 * (BOTTOM_N - 1)) / BOTTOM_N);
+  };
   const bottomRect = (i) => {
     const sr = layout.safeRect;
     const w = bottomW();
-    const x0 = sr.x + sr.w / 2 - (w * BOTTOM_N + 20 * (BOTTOM_N - 1)) / 2;
+    const total = w * BOTTOM_N + 20 * (BOTTOM_N - 1) + (showMenu() ? MENU_W + 20 : 0);
+    const x0 = sr.x + sr.w / 2 - total / 2;
+    if (i === BOTTOM_N) return { x: x0 + BOTTOM_N * (w + 20), y: sr.y + sr.h - 24 - 130, w: MENU_W, h: 130 };
     return { x: x0 + i * (w + 20), y: sr.y + sr.h - 24 - 130, w, h: 130 };
   };
+  const navRect = () => (showMenu() ? bottomRect(BOTTOM_N) : null);
+  // (M12b) the next-step hint line: just under the calendar strip, over the top of the ground
+  const hintRect = () => {
+    const r = calRect();
+    return { x: r.x + 12, y: r.y + r.h + 14, w: r.w - 24, h: 84 };
+  };
+  const hintOn = () => !buildMode && !!hint?.current;
   const teamRect = () => bottomRect(0);
   const buildRect = () => bottomRect(1);
   const researchRect = () => bottomRect(2);
@@ -182,7 +204,7 @@ export function createClubScreen({ renderer, layout, assets, bus, sheet, club, o
     const sr = layout.safeRect;
     return { x: sr.x + 24, y: sr.y + 24, w: sr.w - 48, h: 340 };
   };
-  const onUi = (p) => (buildMode ? hitRect(p, bannerRect()) : hitRect(p, menuRect()) || hitRect(p, plateRect()) || hitRect(p, calRect()) || hitRect(p, shortcutRect()) || hitRect(p, teamRect()) || hitRect(p, buildRect()) || hitRect(p, researchRect()));
+  const onUi = (p) => (buildMode ? hitRect(p, bannerRect()) : (hintOn() && hitRect(p, hintRect())) || hitRect(p, navRect()) || hitRect(p, menuRect()) || hitRect(p, plateRect()) || hitRect(p, calRect()) || hitRect(p, shortcutRect()) || hitRect(p, teamRect()) || hitRect(p, buildRect()) || hitRect(p, researchRect()));
   const overSheet = (p) => sheet.active && p.y >= sheet.rect().y;
 
   // The camera sees the ground between the calendar strip and the bottom row; grass fills the rest.
@@ -246,13 +268,25 @@ export function createClubScreen({ renderer, layout, assets, bus, sheet, club, o
       onSell: () => askSell(it.uid),
       canSell: world.layout.canSell(it.uid),
       extra: extraSections(it.def.id, it),
+      level: world.layout.levelInfo(it.uid), // (M12c)
+      upgradeMsg,
+      onUpgrade: () => {
+        const r = world.layout.upgrade(it.uid, calendar()?.today ?? 0);
+        upgradeMsg = r.ok ? null : r.reason;
+        if (r.ok) {
+          layoutChanged('facility:upgrade');
+          debug?.log(`upgrade ${it.def.id} → level ${r.to} on day ${r.doneDay}`);
+        }
+      },
     };
     if (detailSheet) return detailSheet(it, api);
     return { title: it.def.name, subtitle: it.def.effect, art: it.def.art, accent: C.progress, tag: { text: it.def.role.toUpperCase() }, sections: [{ title: 'Now', lines: [api.now] }, ...api.extra] };
   }
+  let upgradeMsg = null;
   function openSheet(id) {
     const it = world?.byId(id);
     if (!it) return;
+    upgradeMsg = null;
     selection.select(it);
     sheet.open(() => (world?.byId(id) === it || (it.kind === 'station' && world?.byUid(it.uid)) ? menuFor(it.kind === 'station' ? world.byUid(it.uid) : it) : null));
     debug?.log(`sheet: ${id}`);
@@ -480,6 +514,16 @@ export function createClubScreen({ renderer, layout, assets, bus, sheet, club, o
     get ground() {
       return { cols, rows };
     },
+    get upgradeMsg() {
+      return upgradeMsg;
+    },
+    // (M12c) Tests: where a facility's level badge is on screen (null if not shown)
+    levelBadgePoint(uid) {
+      const st = world?.byUid(uid);
+      if (!st) return null;
+      const r = artRect(st);
+      return camera.worldToScreen(r.x + r.w * 0.5, r.y + r.h * 0.16);
+    },
     openSheet,
     openFacility(uid) {
       const st = world?.byUid(uid);
@@ -496,7 +540,7 @@ export function createClubScreen({ renderer, layout, assets, bus, sheet, club, o
     rectOf(id) {
       const bb = buildMode ? bannerButtons().find((x) => x.id === id) : null;
       if (bb) return bb.rect;
-      return { menu: menuRect(), plate: plateRect(), shortcut: shortcutRect(), team: teamRect(), build: buildRect(), research: researchRect(), banner: bannerRect(), calendar: calRect(), speed0: speedRect(0), speed1: speedRect(1), speed2: speedRect(2), speed4: speedRect(4) }[id] ?? null;
+      return { hint: hintRect(), nav: navRect(), menu: menuRect(), plate: plateRect(), shortcut: shortcutRect(), team: teamRect(), build: buildRect(), research: researchRect(), banner: bannerRect(), calendar: calRect(), speed0: speedRect(0), speed1: speedRect(1), speed2: speedRect(2), speed4: speedRect(4) }[id] ?? null;
     },
     // The words on the calendar strip (tests): { date, speed, next }.
     calendarText() {
@@ -511,6 +555,13 @@ export function createClubScreen({ renderer, layout, assets, bus, sheet, club, o
     screenPointOfCell(col, row) {
       const w = iso.cellCenter(col, row);
       return camera.worldToScreen(w.x, w.y);
+    },
+    // (M12b) Tests: was everything on the ground drawn last frame — every facility, prop, squad figure and the Founder —
+    // each from a picture (and size copy) with visible pixels? → { ok, drawn, missing: [id], blank: [{ id, key }] }
+    drawAudit() {
+      if (!world) return null;
+      const ids = [...world.stations.filter((st) => st.uid !== (B.ghost?.uid ?? null)).map((st) => `f:${st.uid}`), ...propsNow().map((pr) => `prop:${pr.at}:${pr.u}:${pr.v}`), ...world.walkers.map((w) => `d:${w.id}`), ...world.people.map((p) => `p:${p.id}`)];
+      return audit.report(ids);
     },
     // Tests: centre the camera on a block of tiles.
     centerOnCells,
@@ -581,6 +632,7 @@ export function createClubScreen({ renderer, layout, assets, bus, sheet, club, o
       if (note && (note.t -= dt) <= 0) note = null;
       if (B.msg && (B.msg.t -= dt) <= 0) B.msg = null;
       if (!sheet.active && selection.selected) selection.clear();
+      hint?.update(dt);
     },
     onBack() {
       if (buildMode && B.ghost) B.ghost = null;
@@ -648,6 +700,11 @@ export function createClubScreen({ renderer, layout, assets, bus, sheet, club, o
         if (taps.length > 50) taps.shift();
       };
       if (buildMode) return log(buildTap(p));
+      if (hintOn() && hint.handleTap(p)) return log(`hint:${hint.current?.id ?? ''}`); // (M12b)
+      if (hitRect(p, navRect())) {
+        onNavMenu(); // (M12b) the Club Menu
+        return log('nav');
+      }
       if (hitRect(p, menuRect())) {
         onMenu();
         return log('menu');
@@ -709,6 +766,7 @@ export function createClubScreen({ renderer, layout, assets, bus, sheet, club, o
         fenceFor = fence;
         groundLayer.invalidate();
       }
+      audit.begin();
       camera.apply(ctx);
       groundLayer.setPixelScale(groundScale());
       groundLayer.renderView(ctx, { x: camera.x, y: camera.y, w: camera.visibleW, h: camera.visibleH });
@@ -721,6 +779,7 @@ export function createClubScreen({ renderer, layout, assets, bus, sheet, club, o
         if (it.kind === 'station') {
           const r = artRect(it);
           assets.draw(ctx, it.def.art, r.x, r.y, r.w, r.h);
+          audit.note(`f:${it.uid}`, it.def.art);
         } else if (it.kind === 'tree') drawTree(ctx, it);
         else if (it.kind === 'prop') drawProp(ctx, it);
         else if (it.kind === 'drill') drawDrill(ctx, it);
@@ -731,6 +790,7 @@ export function createClubScreen({ renderer, layout, assets, bus, sheet, club, o
       if (buildMode && B.ghost) drawGhost(ctx);
       assets.detail = 1;
       camera.restore(ctx);
+      if (!buildMode || !B.ghost) for (const st of world.stations) drawLevelBadge(ctx, st);
       for (const p of world.people) drawTag(ctx, p);
       if (buildMode) drawBanner(ctx);
       else {
@@ -741,7 +801,9 @@ export function createClubScreen({ renderer, layout, assets, bus, sheet, club, o
         drawButton(ctx, buildRect(), 'Build', { accent: C.gold });
         drawButton(ctx, researchRect(), 'Research', { accent: C.progress });
         if (calendar()?.atKickoff) drawButton(ctx, shortcutRect(), 'Match Setup', { accent: C.good });
-        else drawButton(ctx, shortcutRect(), 'Training Pitch', { accent: C.action });
+        else drawButton(ctx, shortcutRect(), showMenu() ? 'Training' : 'Training Pitch', { accent: C.action });
+        if (showMenu()) drawNavButton(ctx, navRect());
+        if (hintOn()) hint.render(ctx);
       }
     },
   };
@@ -942,8 +1004,9 @@ export function createClubScreen({ renderer, layout, assets, bus, sheet, club, o
     ctx.ellipse(f.x, f.y, HW * 0.21, HH * 0.21, 0, 0, Math.PI * 2);
     ctx.fill();
     ctx.restore();
-    characterPose({ state: walking ? 'walking' : 'idle', facing: sx }, time, 1, pose);
+    characterPose({ state: walking && !lowFx() ? 'walking' : 'idle', facing: sx }, lowFx() ? 0 : time, 1, pose);
     drawCharacter(ctx, assets, p.art, r.x + r.w / 2, r.y + r.h, r.w, r.h, pose);
+    audit.note(`p:${p.id}`, p.art);
   }
   // --- the squad: walking to their places and drilling there (Milestones 8 / 12) ----------------------------------------
   const drillKindOf = (focus) => (focus === 'rest' ? 'rest' : DRILL.kindOf[focus] ?? 'shuttle');
@@ -1041,8 +1104,9 @@ export function createClubScreen({ renderer, layout, assets, bus, sheet, club, o
     ctx.ellipse(f.x, f.y, HW * 0.15, HH * 0.15, 0, 0, Math.PI * 2);
     ctx.fill();
     ctx.restore();
-    characterPose({ state: it.walking ? 'walking' : it.working ? 'working' : 'idle', facing: it.face }, time, (it.p.shirt ?? 0) + 3, drillPose);
+    characterPose({ state: lowFx() ? 'idle' : it.walking ? 'walking' : it.working ? 'working' : 'idle', facing: it.face }, lowFx() ? 0 : time, (it.p.shirt ?? 0) + 3, drillPose);
     drawCharacter(ctx, assets, key, f.x, f.y + h * 0.06, h, h, drillPose);
+    audit.note(`d:${it.id}`, key);
     const head = BODY_ART[body]?.head;
     if (head && assets.has(headOf({ name: c.name }, it.p))) {
       // the head, on the body's bald head (mirrored with it)
@@ -1060,8 +1124,12 @@ export function createClubScreen({ renderer, layout, assets, bus, sheet, club, o
   function drawProp(ctx, it) {
     const f = iso.corner(it.col, it.row);
     const c = club()?.data.club;
+    const id = `prop:${it.at}:${it.u}:${it.v}`;
     if (it.flag) {
-      if (c) drawClubFlag(ctx, assets, f.x, f.y, it.h, c);
+      if (c) {
+        drawClubFlag(ctx, assets, f.x, f.y, it.h, c);
+        audit.note(id, flagKey(assets, c.colours.primary));
+      }
       return;
     }
     let y = f.y;
@@ -1092,6 +1160,7 @@ export function createClubScreen({ renderer, layout, assets, bus, sheet, club, o
     }
     const w = it.h * assets.aspect(it.art);
     assets.draw(ctx, it.art, f.x - w / 2, y - it.h * 0.92, w, it.h);
+    audit.note(id, it.art);
   }
   // Which way the next step goes on screen: plan x grows to the right, plan y to the left.
   function screenDir(p) {
@@ -1165,6 +1234,26 @@ export function createClubScreen({ renderer, layout, assets, bus, sheet, club, o
     assets.draw(ctx, def.art, r.x, r.y, r.w, r.h);
     ctx.restore();
   }
+  // (M12c) A facility's level: a round badge near the top of its picture, a fixed size on screen (smaller when zoomed far
+  // out); an orange ring and an arrow while an upgrade is under way.
+  function drawLevelBadge(ctx, st) {
+    const info = world.layout.levelInfo(st.uid);
+    if (!info || info.max <= 1) return;
+    const r = artRect(st);
+    const p = camera.worldToScreen(r.x + r.w * 0.5, r.y + r.h * 0.16);
+    if (p.y < camera.viewY || p.y > camera.viewY + camera.viewH || p.x < 0 || p.x > W) return;
+    const rad = camera.zoom < 0.4 ? 20 : 28;
+    ctx.save();
+    ctx.fillStyle = info.level >= 3 ? C.gold : info.level === 2 ? C.progress : C.panel;
+    ctx.strokeStyle = info.pending ? C.action : C.outline;
+    ctx.lineWidth = info.pending ? 7 : 4;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, rad, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+    ctx.restore();
+    text(ctx, info.pending ? `${info.level}↑` : String(info.level), p.x, p.y + 1, { size: rad > 24 ? S.small : 26, bold: true, color: info.level === 1 ? C.text : C.textOnDark, align: 'center', baseline: 'middle' });
+  }
   // The name tag over the Founder: a fixed size on screen at every zoom (text 28).
   const TAG_H = 48;
   function drawTag(ctx, p) {
@@ -1189,6 +1278,13 @@ export function createClubScreen({ renderer, layout, assets, bus, sheet, club, o
     ctx.textBaseline = 'middle';
     ctx.fillText(label, s.x, y + TAG_H / 2 + 1);
     ctx.restore();
+  }
+  // (M12b) The Menu button: the series three-bar icon over the word Menu.
+  function drawNavButton(ctx, r) {
+    drawButton(ctx, r, '', { accent: C.progress });
+    const s = 62;
+    if (menuIcon) assets.draw(ctx, menuIcon, r.x + r.w / 2 - s / 2, r.y + 12, s, s);
+    text(ctx, 'Menu', r.x + r.w / 2, r.y + r.h - 34, { size: S.small, bold: true, color: C.textOnAction, align: 'center', baseline: 'middle', maxWidth: r.w - 12 });
   }
   // The club's name on a plate in its colours (with its badge), beside ‹ Menu.
   function drawPlate(ctx) {

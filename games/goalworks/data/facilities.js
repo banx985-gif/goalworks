@@ -10,6 +10,29 @@
 // stand at its front). core: the club can't run without it (it can be moved, not sold).
 // effects: [{ key, value }] summed by src/systems/facilities.js bonus(data, key). live: the key changes a system now
 // (see EFFECT_KEYS); otherwise the effect is stored and `waits` names the milestone that brings it.
+// Milestone 12c (bible addendum §A): facility levels 1–3, bought with Credits from the Facility Detail sheet. Level 2 needs
+// Club Rank D, level 3 Club Rank C; an upgrade takes a few club days (the facility works at its old level meanwhile).
+// Each level strengthens the facility's effect ×1.0 / ×1.5 / ×2.0 (core/FacilitySystem levels). A count or unlock
+// (FLAG_KEYS) doesn't scale; those facilities get a smaller extra at levels 2–3 instead (LEVEL_EXTRAS). Selling pays back
+// half of everything spent on it, upgrades included. Prices are a share of the build price (placeholder Credits).
+export const LEVELS = {
+  max: 3,
+  mult: [1, 1.5, 2],
+  names: ['1', '2', '3'],
+  rank: [null, 'D', 'C'], // the Club Rank each level needs
+  costShare: [0, 0.6, 1.2], // × the build price
+  days: [0, 3, 5],
+};
+const FLAG_KEYS = new Set(['teamTraining', 'office', 'scoutDesk', 'kitCare', 'academyIntake', 'academyFull', 'youthPotential', 'physicalCap', 'trainingGroups', 'scoutCandidates', 'legendBonus', 'weatherProof', 'globalScouting', 'legendEvolution', 'prestigeTraining']);
+// The extra each level above 1 gives (value per level: level 2 = ×1, level 3 = ×2).
+const LEVEL_EXTRAS = {
+  F01: [{ key: 'xp:all', value: 3 }], // a better pitch: every session a little better
+  F11: [{ key: 'xp:all', value: 2 }],
+  F03: [{ key: 'familiarityPct', value: 3 }], // a better office: tactics sink in faster
+  F04: [{ key: 'scoutingPct', value: 5 }],
+  F06: [{ key: 'storeSize', value: 4 }], // a bigger Kit Room: the Club Store holds more items
+  F25: [{ key: 'scoutingPct', value: 4 }],
+};
 export const FACILITIES = [
   { id: 'F01', name: 'Starter Training Pitch', w: 5, h: 3, effect: 'Basic team training', unlock: 'start', cost: 3000, role: 'Maker', open: true, core: true, effects: [{ key: 'teamTraining', value: 1 }] },
   { id: 'F02', name: 'Clubhouse', w: 4, h: 4, effect: 'Morale / rest hub', unlock: 'start', cost: 2500, role: 'Rest spot', core: true, effects: [{ key: 'moraleDay', value: 0.2 }, { key: 'restPct', value: 10 }] },
@@ -46,7 +69,14 @@ export const FACILITIES = [
   { id: 'F33', name: 'Elite Scouting Network', w: 4, h: 4, effect: 'Global / legendary scouting', unlock: 'S', cost: 22000, role: 'Specialist desk', effects: [{ key: 'globalScouting', value: 1 }] },
   { id: 'F34', name: 'Hall of Legends', w: 5, h: 5, effect: 'Prestige history + ability evolution boost', unlock: 'secret', secret: 'SEC-FAC-01', cost: 30000, role: 'Showcase', effects: [{ key: 'legendEvolution', value: 1 }] },
   { id: 'F35', name: 'Hidden Performance Lab', w: 4, h: 4, effect: 'Prestige training / secret ability checks', unlock: 'secret', secret: 'SEC-FAC-02', cost: 30000, role: 'Thinker', effects: [{ key: 'prestigeTraining', value: 1 }] },
-].map((f) => ({ ...f, art: `facility_${f.id.toLowerCase()}` }));
+].map((f) => ({
+  ...f,
+  art: `facility_${f.id.toLowerCase()}`,
+  // (M12c) a count / unlock flag never scales with the level (scale: false); the facility's small extra for levels 2–3
+  // (LEVEL_EXTRAS) is an effect only upgrades give (levelMult [0, 1, 2])
+  effects: [...f.effects.map((e) => (FLAG_KEYS.has(e.key) ? { ...e, scale: false } : e)), ...(LEVEL_EXTRAS[f.id] ?? []).map((e) => ({ ...e, levelMult: [0, 1, 2], extra: true }))],
+  noLevels: f.unlock === 'secret', // F34 / F35 don't level
+}));
 export const facilityById = (id) => FACILITIES.find((f) => f.id === id) ?? null;
 
 // What each effect key does now. live: wired into a system this milestone (where); otherwise `waits` = the milestone
@@ -69,6 +99,7 @@ export const EFFECT_KEYS = {
   scoutingPct: { live: true, where: 'Scouting learns {v}% more a day' },
   scoutCandidates: { live: true, where: '+{v} player in every scout report' },
   rpDay: { live: true, where: 'Research: +{v} RP a day' }, // (Milestone 13: the Thinker rooms feed research)
+  storeSize: { live: true, where: 'The Club Store holds {v} more items' }, // (Milestone 12c)
   injuryRecoveryPct: { waits: 'M25', what: 'injuries' },
   injuryPreventionPct: { waits: 'M25', what: 'injuries' },
   kitCare: { waits: 'M23', what: 'the club finances (kit and equipment costs)' },

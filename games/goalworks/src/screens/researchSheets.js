@@ -17,10 +17,28 @@ const STATUS = { done: '✓ Done', active: 'Researching', available: 'Open', loc
 export function createResearchSheets({ sheet, research, onChange = () => {} }) {
   const ui = { msg: null };
 
+  // (M12c) the second slot: locked with what it needs, open and free, or working with its own progress and Stop
+  function secondSection(R) {
+    const second = QUEUES[1];
+    if (!R.secondSlotOpen()) return null;
+    const cur = R.current(1);
+    if (!cur) return { title: second.name, lines: ['Open: the Analytics Lab team will take the next node you start.'] };
+    const n = cur.node;
+    return {
+      title: second.name,
+      lines: [`${n.id} ${n.name} — ${n.gives}`],
+      bars: [{ label: 'Progress', value: Math.round(cur.frac * 100), max: 100, color: C.purple, text: `${Math.floor(cur.days)} / ${n.days} days` }],
+      buttons: [{ id: 'stop2', label: 'Stop', sub: 'Keeps the progress; restarting is free', accent: C.bad, onTap: () => {
+        R.stop(1);
+        ui.msg = `Stopped ${n.id} ${n.name}: ${Math.floor(cur.days)} of ${n.days} days kept.`;
+        onChange('research:stop');
+      } }],
+    };
+  }
   function slotSection(R) {
     const cur = R.current();
     const second = QUEUES[1];
-    const secondBtn = { id: 'slot2', label: second.name, sub: R.secondSlotOpen() ? 'Open' : `Locked — ${second.lockedText}`, icon: RESEARCH_ICON, locked: !R.secondSlotOpen(), accent: C.progress, onTap: () => {} };
+    const secondBtn = { id: 'slot2', label: second.name, sub: R.secondSlotOpen() ? (R.current(1) ? `Researching ${R.current(1).node.id} ${R.current(1).node.name}` : 'Open — the next node you start goes here') : `Locked — ${second.lockedText}`, icon: RESEARCH_ICON, locked: !R.secondSlotOpen(), accent: C.progress, onTap: () => {} };
     if (!cur)
       return {
         title: 'Now researching',
@@ -81,6 +99,7 @@ export function createResearchSheets({ sheet, research, onChange = () => {} }) {
     return [
       ...(ui.msg ? [{ title: 'Latest', lines: [ui.msg] }] : []),
       slotSection(R),
+      ...[secondSection(R)].filter(Boolean),
       { title: `${b.name} · ${R.branchDone(b.id)} / ${nodes.length} done`, columns: 1, buttons: nodes.map((n) => nodeButton(R, n)) },
       ...(recent.length ? [{ title: 'Research Points', lines: recent.map((g) => `${g.amount > 0 ? '+' : ''}${g.amount} RP · ${g.reason}`) }] : []),
     ];

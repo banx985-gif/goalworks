@@ -15,7 +15,7 @@
 //                   Match section's line gave way to it, so all three Kick off buttons still fit a 9:16 phone.)
 // Both are builder functions for sheet.open(), rebuilt every frame so the countdown stays live.
 import { THEME, font } from '../../../../core/Theme.js';
-import { sourceById, SPEED_FLAGS } from '../../data/fixtures.js';
+import { sourceById, SPEED_FLAGS, clubById } from '../../data/fixtures.js';
 import { COLOURS } from '../../data/setup.js';
 import { KEEPER_COLOURS } from '../../data/kits.js';
 
@@ -174,7 +174,7 @@ export function matchSetupSheet({ calendar, clubName, kits = () => null, onKickO
     return {
       title: f.promotion ? 'Promotion Match' : 'Match Setup',
       subtitle: `${clubName()} vs ${f.opponent.name}${f.home === false ? ' (away)' : ''}`,
-      art: 'facility_f01',
+      art: clubById(f.opponent.id)?.crest ?? 'facility_f01', // (M12b) the opponent's crest
       accent: C.action,
       tag: { text: 'MATCH DAY', color: C.action },
       sections: [

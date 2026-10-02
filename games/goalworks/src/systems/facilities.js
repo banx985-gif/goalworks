@@ -10,11 +10,19 @@
 //   stageIndex(data) · stageOf(data) · unlockOf(data, defId) → { ok, hidden, reason }
 //                               (Milestone 13: a research unlock — data.research.unlocks, type 'facility' — opens it at any rank)
 //   createLayout(data, { bus }) → layout: check / place / move / sell / canSell / shop / findSpot / sync / items
+// Milestone 12c: levels 1–3 (data/facilities.js LEVELS, on core/FacilitySystem levels; saved as data.facilities.levels by
+// uid, so a move keeps the level and a sale takes it). bonus() counts each facility × its level's multiplier.
+//   facilityLevel(data, defId) → 0 (not built) | 1–3   (the secrets' "level 3", the second research slot)
+//   layout.levelInfo(uid) → { level, max, mult, pending, next: { level, cost, days, rank } | null, block, invested }
+//   layout.upgrade(uid, today) → { ok, reason, to, doneDay } (pays now)   layout.tickUpgrades(today) → [{ uid, level }]
 import { FacilitySystem } from '../../../../core/FacilitySystem.js';
-import { FACILITIES, facilityById, STAGES, RANK_ORDER, START_LAYOUT, gateOf, EFFECT_KEYS } from '../../data/facilities.js';
+import { FACILITIES, facilityById, STAGES, RANK_ORDER, START_LAYOUT, gateOf, EFFECT_KEYS, LEVELS } from '../../data/facilities.js';
 import { normaliseLeague, rank as clubRank } from './league.js';
 
 const DEFS = Object.fromEntries(FACILITIES.map((f) => [f.id, { id: f.id, name: f.name, cost: f.cost, w: f.w, h: f.h, effects: f.effects }]));
+// (M12c) one copy's multiplier for one effect at a level (as core/FacilitySystem works it out)
+const effectMult = (e, level) => (e.scale === false ? 1 : (e.levelMult ?? LEVELS.mult)[level - 1] ?? 1);
+const levelOfUid = (F, uid) => F.levels?.[uid]?.level ?? 1;
 const REASONS = {
   outside: 'Outside the ground',
   locked: 'Outside the ground',
@@ -55,8 +63,14 @@ export function bonus(data, key) {
   const F = data?.facilities;
   if (!F?.placement) return 0;
   let v = 0;
-  for (const p of F.placement) for (const e of DEFS[p.def]?.effects ?? []) if (e.key === key) v += e.value;
+  for (const p of F.placement) for (const e of DEFS[p.def]?.effects ?? []) if (e.key === key) v += e.value * effectMult(e, levelOfUid(F, p.uid));
   return v;
+}
+// (M12c) The level of a facility on the ground (0 when it isn't built). One of each, so its only copy.
+export function facilityLevel(data, defId) {
+  const F = data?.facilities;
+  const p = F?.placement?.find((x) => x.def === defId);
+  return p ? levelOfUid(F, p.uid) : 0;
 }
 // A percentage effect as a multiplier (recoveryPct 13 → 1.13).
 export const bonusFactor = (data, key) => 1 + bonus(data, key) / 100;
@@ -74,11 +88,12 @@ export function unlockOf(data, defId) {
 
 // What an effect does now (the Facility Detail sheet and the Shop): 'Physical sessions: +5% XP' or
 // 'Stored — injuries arrive in M25'.
-export function effectLines(defId) {
+export function effectLines(defId, level = 1) {
   const f = facilityById(defId);
-  return (f?.effects ?? []).map((e) => {
+  return (f?.effects ?? []).filter((e) => !e.extra || effectMult(e, level) > 0).map((e) => {
     const k = EFFECT_KEYS[e.key];
-    if (k?.live) return { live: true, text: k.where.replace('{v}', e.value) };
+    const v = Math.round(e.value * effectMult(e, level) * 100) / 100;
+    if (k?.live) return { live: true, text: k.where.replace('{v}', v) + (e.extra ? ` (level ${level})` : '') };
     return { live: false, text: `Stored until ${k?.what ?? 'its system'} arrive${k?.what?.endsWith('s') ? '' : 's'} (${k?.waits ?? 'later'})` };
   });
 }
@@ -92,8 +107,8 @@ export function createLayout(data, { bus = null } = {}) {
   // The FacilitySystem for the current stage (rebuilt when the ground grows; placements keep their tiles).
   function build() {
     const st = STAGES[F.stage];
-    fs = new FacilitySystem({ bus, defs: DEFS, area: { cols: st.cols, rows: st.rows }, entrance: gateOf(st), sellRefundPct: 50, reasons: REASONS });
-    fs.load({ placement: F.placement, nextUid: F.nextUid });
+    fs = new FacilitySystem({ bus, defs: DEFS, area: { cols: st.cols, rows: st.rows }, entrance: gateOf(st), sellRefundPct: 50, reasons: REASONS, levels: { max: LEVELS.max, mult: LEVELS.mult } });
+    fs.load({ placement: F.placement, nextUid: F.nextUid, levels: F.levels ?? {} });
     builtFor = F.stage;
     rev++;
   }
@@ -102,6 +117,7 @@ export function createLayout(data, { bus = null } = {}) {
     const s = fs.serialize();
     F.placement = s.placement;
     F.nextUid = s.nextUid;
+    F.levels = s.levels ?? {};
     rev++;
   };
   const note = (what) => {
@@ -197,6 +213,50 @@ export function createLayout(data, { bus = null } = {}) {
       return { ok: true, reason: null, refund: r.refund, def: r.item.def };
     },
     sellValue: (defId) => Math.floor(facilityById(defId).cost / 2),
+    // --- (M12c) levels ---
+    level: (uid) => fs.level(uid),
+    levelInfo(uid) {
+      const it = fs.get(uid);
+      if (!it) return null;
+      const def = facilityById(it.def);
+      const level = fs.level(uid);
+      const pending = fs.upgradePending(uid);
+      const scaled = def.effects.some((e) => e.scale !== false && !e.extra) || def.effects.some((e) => e.extra);
+      const info = { level, max: def.noLevels ? 1 : LEVELS.max, mult: LEVELS.mult[level - 1], scaled, pending, invested: fs.invested(uid), next: null, block: null };
+      if (def.noLevels) {
+        info.block = 'This facility doesn’t level';
+        return info;
+      }
+      if (level >= LEVELS.max) return info;
+      const to = level + 1;
+      info.next = { level: to, cost: Math.round(def.cost * LEVELS.costShare[to - 1]), days: LEVELS.days[to - 1], rank: LEVELS.rank[to - 1], mult: LEVELS.mult[to - 1] };
+      const rk = clubRank(data).id;
+      if (pending) info.block = `Upgrading to level ${pending.to}: ready on day ${pending.doneDay}`;
+      else if (info.next.rank && RANK_ORDER.indexOf(rk) < RANK_ORDER.indexOf(info.next.rank)) info.block = `Level ${to} needs Club Rank ${info.next.rank}`;
+      else if (credits() < info.next.cost) info.block = `Not enough Credits: ${fmt(info.next.cost)} needed, ${fmt(credits())} available`;
+      return info;
+    },
+    upgrade(uid, today) {
+      const info = layout.levelInfo(uid);
+      if (!info) return { ok: false, reason: 'Nothing there' };
+      if (!info.next) return { ok: false, reason: info.block ?? 'Top level' };
+      if (info.block) return { ok: false, reason: info.block };
+      const r = fs.startUpgrade(uid, { cost: info.next.cost, today, days: info.next.days });
+      if (!r.ok) return { ok: false, reason: r.why };
+      data.league.credits = Math.round(credits() - info.next.cost);
+      write();
+      note({ kind: 'upgrade', uid, to: info.next.level, cost: info.next.cost });
+      return { ok: true, reason: null, to: info.next.level, doneDay: r.doneDay, cost: info.next.cost };
+    },
+    tickUpgrades(today) {
+      const done = fs.tickUpgrades(today);
+      if (done.length) {
+        write();
+        for (const d of done) note({ kind: 'levelUp', uid: d.uid, level: d.level });
+      }
+      return done;
+    },
+    levelOfDef: (defId) => fs.levelOfDef(defId),
     findSpot(defId, near = null, uid = null) {
       return fs.findSpot(defId, 0, near, uid);
     },

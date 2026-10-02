@@ -1,5 +1,7 @@
 // "Research complete!" (Milestone 13): a bright banner across the club for a few seconds when a node finishes — the
 // Research icon, the node and what it gives. Several in a row wait their turn. It never takes a tap.
+// Milestone 12c: the same banner announces an item arriving and a finished facility upgrade — a node may carry its own
+// title, line, icon and colour ({ id, title, line, gives, icon, color }).
 //   createResearchBanner({ layout, assets }) → { show(node), update(dt), render(ctx), active, current, shown }
 import { THEME, font } from '../../../../core/Theme.js';
 import { RESEARCH_ICON } from '../../data/research.js';
@@ -57,17 +59,17 @@ export function createResearchBanner({ layout, assets }) {
       ctx.strokeStyle = C.gold;
       ctx.stroke();
       const s = r.h - 50;
-      assets.draw(ctx, RESEARCH_ICON, r.x + 26, r.y + slide + 25, s, s);
+      assets.draw(ctx, cur.node.icon ?? RESEARCH_ICON, r.x + 26, r.y + slide + 25, s, s);
       const tx = r.x + 26 + s + 24;
       const tw = r.x + r.w - 30 - tx;
       ctx.textAlign = 'left';
       ctx.textBaseline = 'middle';
-      ctx.fillStyle = C.purple;
+      ctx.fillStyle = cur.node.color ?? C.purple;
       ctx.font = font(THEME.size.heading, true);
-      ctx.fillText('Research complete!', tx, r.y + slide + 58, tw);
+      ctx.fillText(cur.node.title ?? 'Research complete!', tx, r.y + slide + 58, tw);
       ctx.fillStyle = C.text;
       ctx.font = font(THEME.size.body, true);
-      ctx.fillText(`${cur.node.id} ${cur.node.name}`, tx, r.y + slide + 118, tw);
+      ctx.fillText(cur.node.line ?? `${cur.node.id} ${cur.node.name}`, tx, r.y + slide + 118, tw);
       ctx.fillStyle = C.textMuted;
       ctx.font = font(THEME.size.small);
       ctx.fillText(cur.node.gives, tx, r.y + slide + 172, tw);

@@ -58,6 +58,22 @@
 // an older save starts with 0 RP and nothing researched, keeping the formations it uses). RP come each club day, from
 // league results and firsts; the slot works one day a club day; a finished node shows "Research complete!" and its
 // effects reach training, fatigue, scouting, tactics (the formation list) and the Shop (src/systems/effects.js).
+// Milestone 12b: phone fixes. A phone's GPU can wipe every canvas made in code (memory pressure): core/CanvasLoss notices
+// and the sprite cache, the cached floors and the kit-tinted pictures are made again (that was the "everything vanishes at
+// one zoom", the floating heads and the invisible XI and ball). Size copies are never bigger than their picture
+// (SpriteCache maxUpscale 1) and copies not drawn for a minute are let go, so the GPU holds far less.
+// Milestone 12b, series common features §1–2: the Menu button (bottom row of the Club Complex → the Club Menu, core/ui/
+// MenuSheet, rows in data/menu.js; each row opens the same sheet the art opens, MENU_OPEN), the next-step hint line
+// (core/ui/HintLine, hintRules()), and the series Settings list (core/SeriesSettings + core/ui/SettingsSheet on
+// core/Settings: this device, every club) — Graphics on core/FrameGovernor, Text size, Vibration on core/Haptics, Show Menu
+// button / hints, and GOALWORKS' extras (match camera, Key Moment prompts, left-hand controls). The Match Setup picture is
+// the opponent's crest.
+// Milestone 12c (bible addendum, series common features §3–4): facility levels 1–3 (src/systems/facilities.js on
+// core/FacilitySystem levels; Upgrade in the Facility Detail sheet, finished on the calendar, a level badge on the art) and
+// items (src/systems/items.js on core/ItemSystem, data/items.js; the Club Store sheets in src/screens/itemSheets.js, icons
+// on core/ui/ItemArt until Aaron's item_01–25 exist). Items come from league wins, the player of the match in big games,
+// the week's best training and well-wishers — never a shop. The second research slot opens at Rank A + Analytics Lab
+// level 2. Saved in the run: data.facilities.levels, data.items.
 // Add ?debug=1 for the FPS/state overlay, ?screen=test for the scaling / tap / asset-loader test screen, ?screen=match
 // (&seed=…, &mode=watch|manage|play, &km=1 for Key Moment prompts, &stats=35,70 for flat home,away test stats) for a
 // test match between two test teams (never saved). With ?debug=1, &safe=phone|tablet stands in a notch and home bar (safe-area insets) on any screen.
@@ -69,6 +85,7 @@ import { UiLayout } from '../../../core/UiLayout.js';
 import { Input } from '../../../core/Input.js';
 import { ScreenRouter } from '../../../core/ScreenRouter.js';
 import { AssetManager } from '../../../core/AssetManager.js';
+import { watchCanvasLoss, canvasLost, canvasLossCount } from '../../../core/CanvasLoss.js';
 import { FixedStepLoop } from '../../../core/FixedStepLoop.js';
 import { DebugOverlay } from '../../../core/DebugOverlay.js';
 import { SystemBack } from '../../../core/SystemBack.js';
@@ -79,6 +96,15 @@ import { TextPrompt } from '../../../core/ui/TextPrompt.js';
 import { BottomSheet } from '../../../core/ui/BottomSheet.js';
 import { Dialog } from '../../../core/ui/Modal.js';
 import { drawButton, hitRect, setPressPoint, clearPress } from '../../../core/ui/Button.js';
+import { Settings } from '../../../core/Settings.js';
+import { FrameGovernor } from '../../../core/FrameGovernor.js';
+import { Haptics } from '../../../core/Haptics.js';
+import { setTextScale } from '../../../core/Theme.js';
+import { HintLine } from '../../../core/ui/HintLine.js';
+import { menuSheet, registerMenuIcon } from '../../../core/ui/MenuSheet.js';
+import { settingsSheet } from '../../../core/ui/SettingsSheet.js';
+import { SETTINGS, SETTINGS_DEFAULTS, SETTINGS_KEY, TEXT_SCALE, SETTINGS_TEXT } from '../data/settings.js';
+import { MENU_GROUPS, MENU_TEXT, NEXT_HINTS } from '../data/menu.js';
 import { ASSETS } from '../data/assets.js';
 import { SAVE } from '../data/save.js';
 import { validateSetup } from '../data/setup.js';
@@ -112,13 +138,19 @@ import { createMatchDirector } from './match/matchDirector.js';
 import { REGIONAL_CLUBS, clubById } from '../data/fixtures.js';
 import { matchKits } from './match/kits.js';
 import { COLOURS } from '../data/setup.js';
-import { normaliseFacilities, createLayout, bonus as facilityBonus } from './systems/facilities.js';
+import { normaliseFacilities, createLayout, bonus as facilityBonus, facilityLevel } from './systems/facilities.js';
 import { shopSheet, detailSheet } from './screens/buildSheets.js';
 import { RANKS } from '../data/league.js';
 import { normaliseResearch, createResearch, formationLock } from './systems/research.js';
 import { createResearchSheets } from './screens/researchSheets.js';
 import { createResearchBanner } from './ui/researchBanner.js';
+import { createItems, itemName, typeById } from './systems/items.js';
+import { createItemSheets } from './screens/itemSheets.js';
+import { registerItemArt, itemIcon } from '../../../core/ui/ItemArt.js';
+import { ITEM_TYPES, ITEM_GROUPS, ITEM_RARITIES, ITEM_RULES, ITEM_SOURCES, groupById } from '../data/items.js';
+import { facilityById } from '../data/facilities.js';
 const COL = THEME.color;
+const C_GOLD = COL.gold;
 
 const W = 1080;
 const BASE_H = 1920; // 9:16; taller phones grow the height (see Renderer)
@@ -135,6 +167,8 @@ const layout = new UiLayout(renderer, { forceInsets: FORCE_INSETS });
 bus.on('renderer:resize', () => layout.refresh());
 const input = new Input(renderer, bus);
 const assets = new AssetManager({ bus });
+assets.sprites.maxUpscale = 1; // (M12b) a copy never bigger than its picture: far less GPU memory under a zoomed camera
+watchCanvasLoss(renderer.canvas ?? document.getElementById('game')); // (M12b) a wiped canvas → the caches are made again
 const router = new ScreenRouter(bus, { roots: ['menu', 'test', 'club', 'match'] });
 const dialog = new Dialog({ layout, assets }); // confirm boxes (delete / replace a slot)
 const researchBanner = createResearchBanner({ layout, assets }); // (M13) "Research complete!"
@@ -157,6 +191,7 @@ bus.on('input:up', () => clearPress());
 bus.on('input:dragstart', () => clearPress());
 
 const onTestScreen = () => router.currentName === 'test';
+let pruneT = 0;
 const loop = new FixedStepLoop({
   stepHz: 60,
   bus,
@@ -167,6 +202,10 @@ const loop = new FixedStepLoop({
       if (open.calendar.atKickoff && !open.setupShown && !clubScreen.buildMode) openMatchSetup(); // kickoff day (also right after a reload)
     }
     autosave.tick(dt);
+    if ((pruneT += dt) >= 5) {
+      assets.sprites.prune(pruneT, 60); // (M12b) let go of copies not drawn for a minute
+      pruneT = 0;
+    }
     router.update(dt);
     dialog.update(dt);
     sheet.update(dt);
@@ -187,7 +226,31 @@ const loop = new FixedStepLoop({
 const debugTop = () => layout.safeRect.h - 600;
 const debug = new DebugOverlay({ loop, renderer, layout, input, bus, top: debugTop(), maxLines: 3 });
 bus.on('loop:pause', () => input.reset());
+// Milestone 12b: the player's settings (core/Settings: this device, every club — never part of a slot). Graphics:
+// core/FrameGovernor (Low = a steady 30 FPS; Auto drops to 30 when the phone struggles) — at 30 / with Reduced flashes,
+// no goal confetti and the Club Complex figures stand still. Text size → every font. Vibration → core/Haptics.
+const settings = new Settings({ key: SETTINGS_KEY, defaults: SETTINGS_DEFAULTS });
+const govMode = () => settings.get('fpsMode') ?? 'auto';
+const governor = new FrameGovernor({ mode: govMode(), bus, capFps: true });
+loop.governor = governor;
+const lowFx = () => (governor.state === 'half' && settings.get('fpsMode') !== 'high') || settings.get('reducedFlashes') === true;
+const haptics = new Haptics({ enabled: () => settings.get('haptics') !== false });
+function applySettings() {
+  setTextScale(TEXT_SCALE[settings.get('textSize')] ?? 1);
+  if (governor.mode !== govMode()) governor.setMode(govMode());
+}
+applySettings();
+settings.onChange(() => applySettings());
+registerMenuIcon(assets, MENU_TEXT.icon); // the series Menu icon, drawn by code
+// (M12c) item icons: placeholders in their group colour inside the code-drawn rarity frame until Aaron's files exist —
+// loaded quietly when they do (assets/images/items/item_01–25.png), no code change needed
+registerItemArt(assets, { types: ITEM_TYPES, groups: ITEM_GROUPS, rarities: ITEM_RARITIES, storeIcon: ITEM_RULES.storeIcon });
+for (let i = 1; i <= 25; i++) {
+  const k = `item_${String(i).padStart(2, '0')}`;
+  assets.loadOptional(k, `assets/images/items/${k}.png`);
+}
 debug.log(`seeded rng check: ${rng.int(0, 9999)} (same every reload)`);
+bus.on('assets:canvasLost', ({ reason, dropped }) => debug.log(`canvas loss (${reason}): caches remade, ${dropped} made pictures dropped`));
 
 // ---------------------------------------------------------------------------
 // Pause: the test screen's button pauses the whole loop (P / Space too); while paused any tap resumes. Hiding the app
@@ -277,7 +340,8 @@ function openRun(n, data) {
     const why = TR.rosterProblem(data.squad.players);
     debug.log(why ? `squad: ${why}` : `squad: ${data.squad.players.length} + ${data.squad.watch.length} ok`);
   }
-  open = { n, data, layout: createLayout(data, { bus }), research: createResearch(data, { bus }), calendar: createCalendar({ bus, saved: data.calendar ?? null, flags: speedFlags(), isIssued: (o) => !!open && LG.isIssued(open.data, o) }), setupShown: false };
+  if (!data.items) setTimeout(() => autosave.request('items:start'), 0); // (an M12 save: an empty Club Store, likes rolled once)
+  open = { n, data, layout: createLayout(data, { bus }), research: createResearch(data, { bus }), items: createItems(data, { bus }), calendar: createCalendar({ bus, saved: data.calendar ?? null, flags: speedFlags(), isIssued: (o) => !!open && LG.isIssued(open.data, o) }), setupShown: false };
 }
 // The run save: the calendar written into the campaign data (and the date on the slot card).
 function saveRun() {
@@ -295,6 +359,9 @@ bus.on('clock:day', () => {
   // (M13) the day's Research Points and a work day on the node in the slot (a node finished today counts from today)
   for (const n of open.research.day(c.clock.totalDays)) researchDone(n);
   const r = trainDay(open.data, { day: c.clock.totalDays, matchDay: c.atKickoff });
+  open.items.noteTraining(r.players); // (M12c) the week's training effort (the great-session item)
+  for (const u of open.layout.tickUpgrades(c.clock.totalDays)) upgradeDone(u); // (M12c) upgrades finished today
+  itemArrived(open.items.day(c.clock.totalDays, c.clock.year)); // (M12c) the season's item points; now and then a well-wisher
   familiarityDay(open.data, r.kind); // (M9) the chosen formation / style grows on training days; the others fade
   LG.leagueDay(open.data, c.clock.totalDays); // (M10) clubs issue / expire challenges; the Promotion Match once unlocked
   TR.transfersDay(open.data, c.clock.totalDays); // (M11) scouting, bids, loans, wages, the AI clubs' moves, the season's end
@@ -308,6 +375,25 @@ bus.on('clock:day', () => {
   }
   if (debug.enabled && r.kind !== 'train') debug.log(`training: ${r.kind} (day ${c.clock.totalDays})`);
 });
+// Milestone 12c: the week's best training may earn an item.
+bus.on('calendar:week', () => {
+  if (!open?.items || router.currentName === 'match') return;
+  itemArrived(open.items.weekEnd(open.calendar.today));
+});
+// Milestone 12c: an item arrived / an upgrade finished — the banner (the day's save keeps it).
+function itemArrived(it) {
+  if (!it || it.refused) return;
+  const t = typeById(it.type);
+  const src = ITEM_SOURCES[it.source];
+  researchBanner.show({ id: `item:${it.uid}`, title: it.source === 'wellwisher' ? 'A gift for the club!' : 'Item earned!', line: itemName(it), gives: `+${ITEM_RARITIES[it.rarity].gain} ${t.stat} · ${src?.name ?? it.source} · in the Club Store`, icon: itemIcon(it.type, it.rarity), color: C_GOLD });
+  debug.log(`item: ${itemName(it)} (${it.source})`);
+}
+function upgradeDone(u) {
+  const it = open?.layout.item(u.uid);
+  if (!it) return;
+  researchBanner.show({ id: `level:${u.uid}:${u.level}`, title: 'Upgrade complete!', line: `${it.def.name} · level ${u.level}`, gives: `Its effect is now ×${[1, 1.5, 2][u.level - 1]}`, icon: it.def.art, color: C_GOLD });
+  debug.log(`upgrade done: ${it.def.id} level ${u.level}`);
+}
 // Milestone 13: a node finished — the banner, and the day's save (or an explicit one) keeps it.
 function researchDone(n) {
   researchBanner.show(n);
@@ -335,6 +421,7 @@ async function prepareSaves() {
   if (debug.enabled && PARAMS.get('reset') === '1') for (const n of campaigns.slots.numbers()) await campaigns.slots.remove(n);
   await campaigns.refresh();
   account = await campaigns.slots.loadAccount();
+  settings.attachStore(adapter, 'settings'); // (M12b) the settings slot in the account store too
   speedFlags();
   if (debug.enabled) {
     const r = validateSetup(new DataValidator()).report();
@@ -440,13 +527,7 @@ const menuScreen = createMenuScreen({
   onContinue: (n) => playSlot(n),
   onSlots: () => router.go('slots', { mode: 'browse' }),
   onNewGame: () => newGame(),
-  onSettings: () =>
-    sheet.open(() => ({
-      title: 'Settings',
-      subtitle: 'Sound, text size and other options will live here.',
-      accent: COL.progress,
-      sections: [{ buttons: [{ id: 'test', label: 'Display test', accent: COL.progress, onTap: () => router.go('test') }] }],
-    })),
+  onSettings: () => openSettings(), // (M12b) the series list
 });
 const slotsScreen = createSlotsScreen({
   layout,
@@ -542,7 +623,8 @@ function openMatchSetup() {
 let match = null; // { world, director, mode: 'fixture'|'test' } — the match on screen
 // The mode a saved match was left in (null: no match under way).
 const savedMode = (m) => (m ? m.director?.userMode ?? m.start ?? (m.play ? 'play' : 'watch') : null);
-const prefs = () => (open ? (open.data.prefs ??= { keyMoments: true }) : (testPrefs ??= { keyMoments: PARAMS.get('km') === '1' }));
+// (M12b) a club's Key Moment prompts follow Settings → Key Moment prompts (switching them in a match changes the setting)
+const prefs = () => (open ? { keyMoments: settings.get('keyMoments') !== false } : (testPrefs ??= { keyMoments: PARAMS.get('km') === '1' }));
 let testPrefs = null; // (a ?screen=match test match: Key Moment prompts only with &km=1)
 // The match on screen: the world and its director. match.speed reads / sets the director's speed; 0 (debug and tests
 // only) holds the match still.
@@ -571,7 +653,10 @@ function directorFor(world, saved = null) {
     saved,
     prompts: prefs().keyMoments !== false,
     onChange: (why) => {
-      if (why === 'prompts') prefs().keyMoments = d.prompts;
+      if (why === 'prompts') {
+        if (open) settings.set('keyMoments', d.prompts);
+        else prefs().keyMoments = d.prompts;
+      }
       // the club remembers what it changed in Manage for the next match (M9: instructions, formation and roles)
       if ((why === 'tactic' || why === 'formation' || why === 'role') && open && match?.mode === 'fixture') {
         const t = normaliseTactics(open.data);
@@ -630,7 +715,7 @@ function kickOff(mode = 'watch') {
     setup.roles = [ours.roles, []];
     setup.familiarity = [ours.familiarity, null];
     const world = createMatchWorld(setup, { start: mode });
-    open.data.match = { fixtureId: f.id, ...world.serialize(), director: createMatchDirector(world, { prompts: prefs().keyMoments !== false }).serialize() };
+    open.data.match = { fixtureId: f.id, ...world.serialize(), director: createMatchDirector(world, { prompts: prefs().keyMoments !== false, camera: settings.get('matchCamera') ?? 'full' }).serialize() };
     autosave.request('match:kickoff');
   }
   resumeMatch();
@@ -676,12 +761,15 @@ function matchFinished(world) {
   if (open.data.transfers) TR.afterMatch(open.data, xiIds); // (M11) a promised role not met: morale
   // (M9) familiarity: the formation / style the match started in
   if (world.setup.formation) familiarityMatch(open.data, pairKey(world.setup.formation[0], world.setup.tactics?.[0]?.build ?? 'balanced'));
+  // (M12c) a win: maybe an item; in a big game the player of the match's item
+  const won = league && r.score[0] > r.score[1] ? open.items.afterWin({ clubId: fx.opponent.id, promotion: !!fx.promotion, xiIds, scorers: r.scorers, day: open.calendar.today }) : [];
   open.data.match = null;
   match = null;
   open.setupShown = false;
   open.calendar.playResult({ score: r.score, scorers: r.scorers });
   debug.log(`full time: ${r.score.join('–')}`);
   router.go('club');
+  for (const it of won) itemArrived(it);
   if (league?.promotionWon) setTimeout(() => openCountyOffer(), 0);
   else if (league?.promotionUnlocked) debug.log('Promotion Match unlocked');
 }
@@ -748,6 +836,8 @@ const matchScreen = createMatchScreen({
     return [`${fx.promotion ? 'Promotion Match · ' : ''}+${p.credits} Credits (placeholder) · reputation ${rep >= 0 ? '+' : ''}${Math.round(rep)} · +${rp} RP`, fx.promotion && p.res === 'win' ? 'Promotion earned: the County offer is waiting.' : null].filter(Boolean);
   },
   held: () => sheet.active, // (the match waits while a sheet is open over it)
+  leftHanded: () => settings.get('leftHanded') === true, // (M12b)
+  lowFx,
 });
 function playPlaceholder() {
   const r = open?.calendar.playResult();
@@ -755,7 +845,7 @@ function playPlaceholder() {
   open.setupShown = false;
   sheet.close();
 }
-const squadScreen = createSquadScreen({ layout, assets, sheet, club: () => open, onBack: () => router.go('club'), onTraining: () => openTraining('squad'), onTactics: () => openTactics('squad'), onLeague: () => openLeague(), onTransfers: () => transfersUi.openTransfers('market'), onContract: (id) => transfersUi.openOwn(id) });
+const squadScreen = createSquadScreen({ layout, assets, sheet, club: () => open, onBack: () => router.go('club'), onTraining: () => openTraining('squad'), onTactics: () => openTactics('squad'), onLeague: () => openLeague(), onTransfers: () => transfersUi.openTransfers('market'), onContract: (id) => transfersUi.openOwn(id), detailExtra: (p) => playerItemsSection(p) });
 // Milestone 11: the Transfers sheets (every finished deal saves at once, bible §36).
 const transfersUi = createTransferSheets({
   sheet,
@@ -774,6 +864,7 @@ const researchUi = createResearchSheets({ sheet, research: () => open?.research 
 let trainingBack = 'club';
 function openTraining(from = 'club') {
   trainingBack = from;
+  if (open) (open.data.prefs ??= {}).trainingSeen = true; // (M12b) the "set training" hint has done its job
   sheet.close();
   router.go('training');
 }
@@ -807,17 +898,114 @@ const clubScreen = createClubScreen({
     autosave.request(why);
   },
   extraSections: (defId) => facilitySections(defId),
+  // (M12b) the Menu button and the hint line
+  showMenu: () => settings.get('showMenu') !== false,
+  onNavMenu: () => openNavMenu(),
+  menuIcon: MENU_TEXT.icon,
+  hint: { get current() { return hintLine.current; }, update: (dt) => hintLine.update(dt), render: (ctx) => hintLine.render(ctx), handleTap: (p) => hintLine.handleTap(p) },
+  lowFx,
 });
 // What a facility's sheet opens (the old station sheets' rows): a training pitch → Training; the Manager Office → League,
 // Tactics, Transfers, (M13) Research; the Video Room and Analytics Lab → Research; the Scout Desk → Scout Reports; (M12) the Tactics Board Room → Tactics, the Recruitment Office → Transfers.
+// (M12b) Each sheet says what the place is for and offers its main action as a named button.
 function facilitySections(defId) {
-  const training = { title: 'Training', lines: ['Team session, intensity and individual focuses.'], buttons: [{ id: 'training', label: 'Training', accent: COL.action, onTap: () => openTraining('club') }] };
+  const training = { title: 'What it’s for', lines: ['The team trains here every club day: set the session, its intensity and each player’s focus.'], buttons: [{ id: 'training', label: 'Set training', accent: COL.action, onTap: () => openTraining('club') }] };
+  const office = { title: 'What it’s for', lines: ['Where you run the club: find a match, set tactics, do transfers and contracts.'], columns: 2, buttons: [{ id: 'league', label: 'Find a match', accent: COL.good, onTap: () => openLeague() }, { id: 'contracts', label: 'Contracts', accent: COL.gold, onTap: () => transfersUi.openTransfers('mine') }] };
   const league = { title: 'Regional League', lines: ['Challenges, your Club Rank and the road to County.'], buttons: [{ id: 'league', label: 'League', accent: COL.good, onTap: () => openLeague() }] };
   const tactics = { title: 'Tactics', lines: ['Formation, team instructions, roles and familiarity.'], buttons: [{ id: 'tactics', label: 'Tactics', accent: COL.purple, onTap: () => openTactics('club') }] };
   const transfers = { title: 'Transfers', lines: ['Market, free agents, loans and your contracts.'], buttons: [{ id: 'transfers', label: 'Transfers', accent: COL.gold, onTap: () => transfersUi.openTransfers('market') }] };
   const research = { title: 'Research', lines: ['Research Points, the research slot and the 36 nodes in six branches.'], buttons: [{ id: 'research', label: 'Research', accent: COL.progress, onTap: () => researchUi.openResearch() }] };
-  const scout = { title: 'Scout Reports', lines: ['Send the scout to a region; reports list players with their stats as ranges.'], buttons: [{ id: 'scoutReports', label: 'Scout Reports', accent: COL.gold, onTap: () => transfersUi.openTransfers('scout') }] };
-  return { F01: [training], F11: [training], F03: [league, tactics, transfers, research], F04: [scout], F08: [tactics], F13: [research], F24: [research], F25: [transfers] }[defId] ?? [];
+  const scout = { title: 'What it’s for', lines: ['Send the scout to a region; reports list players with their stats as ranges.'], buttons: [{ id: 'scoutReports', label: 'Scout players', accent: COL.gold, onTap: () => transfersUi.openTransfers('scout') }] };
+  const kit = { title: 'What it’s for', lines: ['The kit and equipment live here — and the Club Store: items the club has earned, to give to players.'], buttons: [{ id: 'clubStore', label: 'Club Store', sub: open?.items ? `${open.items.count} of ${open.items.max} items` : '', icon: ITEM_RULES.storeIcon, accent: COL.gold, onTap: () => itemsUi.openClubStore() }] };
+  return { F01: [training], F11: [training], F03: [office, tactics, transfers, research], F04: [scout], F06: [kit], F08: [tactics], F13: [research], F24: [research], F25: [transfers] }[defId] ?? [];
+}
+
+// --- Milestone 12b: the Club Menu, the next-step hint line, Settings ---------------------------------------------------
+// What each Menu row opens: the very same function the art / bottom row uses (one code path, two ways in).
+const MENU_OPEN = {
+  league: () => openLeague(),
+  matchSetup: () => openMatchSetup(),
+  squad: () => {
+    sheet.close();
+    router.go('squad');
+  },
+  training: () => openTraining('club'),
+  tactics: () => openTactics('club'),
+  transfers: () => transfersUi.openTransfers('market'),
+  clubStore: () => openClubStore?.(),
+  build: () => {
+    sheet.close();
+    clubScreen.setBuildMode(true);
+  },
+  research: () => researchUi.openResearch(),
+  settings: () => openSettings(),
+  mainMenu: () => leaveClub(),
+};
+const matchesPlayed = (d) => Object.values(LG.record(d).clubs).reduce((n, c) => n + c.w + c.d + c.l, 0);
+function menuState(id) {
+  if (id === 'matchSetup') return open?.calendar.atKickoff ? { sub: `Today: ${open.calendar.fixture?.opponent.name ?? ''} · pick Watch, Manage or Play` } : { hidden: true };
+  if (id === 'league') {
+    const n = open ? LG.openOffers(open.data).length : 0;
+    if (open?.calendar.fixture && !open.calendar.atKickoff) return { sub: `Next match: ${open.calendar.fixture.opponent.name} in ${open.calendar.daysToMatch} days` };
+    return n ? { badge: n, sub: `${n} club${n === 1 ? ' wants' : 's want'} a match: accept one to fix a match day` } : {};
+  }
+  if (id === 'clubStore') return openClubStore && open?.items ? { badge: open.items.inventory.length || null } : { hidden: true };
+  return {};
+}
+function openNavMenu() {
+  if (!open) return;
+  sheet.open(() => menuSheet({ title: MENU_TEXT.title, subtitle: MENU_TEXT.subtitle, art: MENU_TEXT.icon, accent: COL.progress, groups: MENU_GROUPS, open: (id) => MENU_OPEN[id]?.(), state: menuState }));
+}
+// The hint rules: the first that holds is shown (data/menu.js words).
+function hintRules() {
+  const d = () => open.data;
+  const cal = () => open.calendar;
+  return [
+    { id: 'matchDay', text: NEXT_HINTS.matchDay, when: () => cal().atKickoff, open: () => openMatchSetup() },
+    { id: 'firstMatch', text: NEXT_HINTS.firstMatch, when: () => !cal().fixture && matchesPlayed(d()) === 0, open: () => openLeague() },
+    { id: 'offers', text: () => NEXT_HINTS.offers(LG.openOffers(d()).length), when: () => !cal().fixture && LG.openOffers(d()).length > 0, open: () => openLeague() },
+    { id: 'training', text: () => NEXT_HINTS.training(cal().daysToMatch), when: () => !!cal().fixture && !d().prefs?.trainingSeen, open: () => openTraining('club') },
+    { id: 'items', text: () => NEXT_HINTS.items(open.items.inventory.length), when: () => !!openClubStore && !!open.items && open.items.inventory.length > 0, open: () => openClubStore() },
+    { id: 'research', text: NEXT_HINTS.research, when: () => !open.research.current() && open.research.rp >= 40, open: () => researchUi.openResearch() },
+  ];
+}
+const hintLine = new HintLine({
+  rect: () => clubScreen.rectOf('hint'),
+  rules: hintRules(),
+  quiet: () => !open || router.currentName !== 'club' || sheet.active || clubScreen.buildMode || dialog.active || loop.paused || settings.get('showHints') === false,
+});
+// Settings: the series list in its order, Help / Privacy / Credits, then GOALWORKS' extras, then the display test.
+// Reachable from the Main Menu (always) and the Club Menu.
+function openSettings() {
+  const ok = [{ id: 'ok', label: 'OK', accent: COL.progress }];
+  sheet.open(() =>
+    settingsSheet({
+      settings,
+      list: SETTINGS,
+      text: SETTINGS_TEXT,
+      art: MENU_TEXT.icon,
+      icons: { help: 'ui_28', legal: 'ui_05', credits: 'ui_27' },
+      onHelp: () => dialog.show({ title: SETTINGS_TEXT.help, body: SETTINGS_TEXT.helpBody, buttons: ok }),
+      onLegal: () => dialog.show({ title: SETTINGS_TEXT.legal, body: SETTINGS_TEXT.legalBody, buttons: ok }),
+      onCredits: () => dialog.show({ title: SETTINGS_TEXT.credits, body: SETTINGS_TEXT.creditsBody, buttons: ok }),
+      after: [{ id: 'test', label: SETTINGS_TEXT.display, sub: SETTINGS_TEXT.displayLine, accent: COL.progress, onTap: () => router.go('test') }],
+    }),
+  );
+}
+// Milestone 12c: the Club Store (from the Club Menu, the Kit Room, the hint line and Player Detail).
+const itemsUi = createItemSheets({ sheet, dialog, items: () => open?.items ?? null, squad: () => open?.data.squad?.players ?? [], onChange: (why) => autosave.request(why) });
+const openClubStore = () => itemsUi.openClubStore();
+// Player Detail's Items section: what they love, what they've had, Give an item.
+function playerItemsSection(p) {
+  const I = open?.items;
+  if (!I || p.watch || !open.data.squad.players.includes(p)) return [];
+  const got = I.received(p.id);
+  return [{
+    title: 'Items',
+    lines: [I.lovesText(p.id), got.length ? `Received: ${got.map((g) => `${ITEM_RARITIES[g.rarity]?.name ?? ''} ${typeById(g.type)?.name ?? g.type} (+${g.gain} ${g.stat})`).join(', ')}` : 'No items received yet.', `${I.pointsLeft(p.id)} of ${ITEM_RULES.periodCap} item points left this season`],
+    columns: 1,
+    buttons: [{ id: 'giveItem', label: 'Give an item', sub: `${I.count} in the Club Store`, icon: ITEM_RULES.storeIcon, disabled: !I.count, accent: COL.gold, onTap: () => itemsUi.openGiveTo(p.id) }],
+  }];
 }
 
 // ---------------------------------------------------------------------------
@@ -899,7 +1087,7 @@ function acceptChallenge(clubId = 'REG01') {
 }
 // ?debug=1: a test hook for automated checks.
 if (debug.enabled) {
-  window.__gw = { renderer, layout, input, loop, router, assets, sheet, dialog, systemBack, textPrompt, splashScreen, menuScreen, slotsScreen, setupScreen, clubScreen, squadScreen, trainingScreen, openTraining, tacticsScreen, openTactics, openMatchTactics, playSlot, startClub, deleteSlot, openShop, setRank, facilityBonus, researchUi, researchBanner, get research() { return open?.research ?? null; }, newGame, openLeague, openCountyOffer, acceptChallenge, issueChallenge, transfers: transfersUi, TR, openMatchSetup, playPlaceholder, kickOff, startTestMatch, matchScreen, restoreMatchWorld, get match() { return match; }, toggleSpeedFlag, autosave, saveRun, get account() { return account; }, taps: [], get campaigns() { return campaigns; }, get open() { return open; } };
+  window.__gw = { renderer, layout, input, loop, router, assets, sheet, dialog, systemBack, textPrompt, splashScreen, menuScreen, slotsScreen, setupScreen, clubScreen, squadScreen, trainingScreen, openTraining, tacticsScreen, openTactics, openMatchTactics, playSlot, startClub, deleteSlot, openShop, setRank, facilityBonus, researchUi, researchBanner, get research() { return open?.research ?? null; }, newGame, openLeague, openCountyOffer, acceptChallenge, issueChallenge, transfers: transfersUi, TR, openMatchSetup, playPlaceholder, kickOff, startTestMatch, matchScreen, restoreMatchWorld, get match() { return match; }, toggleSpeedFlag, autosave, saveRun, canvasLost, canvasLossCount, itemsUi, facilityLevel: (id) => (open ? facilityLevel(open.data, id) : 0), get items() { return open?.items ?? null; }, settings, governor, lowFx, haptics, hintLine, openNavMenu, MENU_OPEN, menuState, openSettings, get account() { return account; }, taps: [], get campaigns() { return campaigns; }, get open() { return open; } };
 }
 
 router.go('boot');

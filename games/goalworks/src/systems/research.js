@@ -9,13 +9,15 @@
 //   createResearch(data, { bus }) → research: start / stop / day / match / status / … (keeps data.research up to date)
 //   rpPerDay(data)   formationLock(data, id) → null | reason   openFormations(data) → [ids]
 // Effects of done nodes reach the systems through src/systems/effects.js effect(data, key).
+// Milestone 12c: the second slot opens at Club Rank A + Analytics Lab level 2 (its Analytics Lab team works it); start()
+// takes the first free open slot; current(i) / stop(i) name a slot; a slot whose rule stops holding closes, keeping progress.
 import { ResearchSystem } from '../../../../core/ResearchSystem.js';
 import { UnlockRunner } from '../../../../core/UnlockActions.js';
-import { NODES, nodeById, QUEUES, MANAGER_WORKER, RP, START_FORMATIONS, LIBRARY_FORMATIONS, BRANCHES, RESEARCH_EFFECTS } from '../../data/research.js';
+import { NODES, nodeById, QUEUES, MANAGER_WORKER, SLOT_WORKERS, RP, START_FORMATIONS, LIBRARY_FORMATIONS, BRANCHES, RESEARCH_EFFECTS } from '../../data/research.js';
 import { RANK_ORDER } from '../../data/facilities.js';
 import { FORMATIONS } from '../../data/tactics.js';
 import { clubById } from '../../data/fixtures.js';
-import { bonus as facilityBonus } from './facilities.js';
+import { bonus as facilityBonus, facilityLevel } from './facilities.js';
 import { rank as clubRank } from './league.js';
 
 const fmt = (n) => Math.round(n).toLocaleString('en-GB');
@@ -46,12 +48,11 @@ export function formationLock(data, id) {
 }
 export const openFormations = (data) => FORMATIONS.filter((f) => !formationLock(data, f.id)).map((f) => f.id);
 
-// A queue rule: { rank, facility, level }. Facility levels arrive later, so a rule asking for a level above 1 is not met yet.
+// A queue rule: { rank, facility, level } — the Club Rank, and a facility built at that level or higher (M12c).
 function ruleMet(data, rule) {
   if (!rule) return true;
   if (rule.rank && RANK_ORDER.indexOf(clubRank(data).id) < RANK_ORDER.indexOf(rule.rank)) return false;
-  if (rule.facility && !data.facilities?.placement?.some((p) => p.def === rule.facility)) return false;
-  if ((rule.level ?? 1) > 1) return false;
+  if (rule.facility && facilityLevel(data, rule.facility) < (rule.level ?? 1)) return false;
   return true;
 }
 
@@ -72,7 +73,7 @@ export function createResearch(data, { bus = null } = {}) {
     nodes: NODES.map((n) => ({ ...n, actions: [{ type: 'research', id: n.id }, ...n.unlocks] })),
     queues: QUEUES,
     runner,
-    staff: { get: (id) => (id === MANAGER_WORKER.id ? MANAGER_WORKER : null) },
+    staff: { get: (id) => SLOT_WORKERS.find((w) => w.id === id) ?? null },
     rules: { basePerDay: 1, statDivisor: 1 }, // one work day a club day
     hooks: { conditionMet: (rule) => ruleMet(data, rule), workerStat: () => 0, workOf: (n) => n.days },
   });
@@ -99,9 +100,9 @@ export function createResearch(data, { bus = null } = {}) {
       return sys.doneCount;
     },
     perDay: () => rpPerDay(data),
-    // The node in the slot now (or null) and how far it is: { node, days, left, frac }.
-    current() {
-      const id = sys.queues[0]?.nodeId;
+    // The node in slot i now (or null) and how far it is: { node, days, left, frac }.
+    current(i = 0) {
+      const id = sys.queues[i]?.nodeId;
       if (!id) return null;
       const n = nodeById(id);
       const workDone = Math.min(n.days, sys.progress[id] ?? 0);
@@ -113,6 +114,9 @@ export function createResearch(data, { bus = null } = {}) {
     progressDays: (id) => Math.min(nodeById(id).days, sys.progress[id] ?? 0),
     missing: (id) => sys.missing(id),
     secondSlotOpen: () => sys.queueOpen(1),
+    slotsOpen: () => QUEUES.filter((q, i) => sys.queueOpen(i)).length,
+    // The first open slot with nothing in it (-1: none).
+    freeSlot: () => QUEUES.findIndex((q, i) => sys.queueOpen(i) && !sys.queues[i]?.nodeId),
     // Can it start now? { ok, reason } in plain words.
     canStart(id) {
       const n = nodeById(id);
@@ -121,27 +125,32 @@ export function createResearch(data, { bus = null } = {}) {
       if (st === 'done') return { ok: false, reason: 'Already researched' };
       if (st === 'active') return { ok: false, reason: 'Being researched now' };
       if (st === 'locked') return { ok: false, reason: `Needs ${sys.missing(id).nodes.map((r) => `${r} ${nodeById(r).name}`).join(', ')}` };
-      const cur = sys.queues[0]?.nodeId;
-      if (cur) return { ok: false, reason: `The slot is busy with ${cur} ${nodeById(cur).name} — Stop it first` };
+      if (api.freeSlot() < 0) {
+        const cur = sys.queues[0]?.nodeId;
+        if (api.slotsOpen() > 1) return { ok: false, reason: 'Both slots are busy — Stop one first' };
+        return { ok: false, reason: `The slot is busy with ${cur} ${nodeById(cur).name} — Stop it first` };
+      }
       if (!sys.paid[id] && sys.rp < sys.costOf(n)) return { ok: false, reason: `Needs ${fmt(sys.costOf(n))} RP (you have ${fmt(sys.rp)})` };
       return { ok: true, reason: null };
     },
-    // Start a node in the one slot: pays its RP the first time (a stopped node restarts free, keeping its progress).
+    // Start a node in the first free slot: pays its RP the first time (a stopped node restarts free, keeping its progress).
     start(id) {
       const can = api.canStart(id);
       if (!can.ok) return can;
-      const r = sys.start(0, id, MANAGER_WORKER.id);
+      const i = api.freeSlot();
+      const r = sys.start(i, id, SLOT_WORKERS[i].id);
       write();
-      return r.ok ? { ok: true, reason: null } : { ok: false, reason: r.reason };
+      return r.ok ? { ok: true, reason: null, slot: i } : { ok: false, reason: r.reason };
     },
-    stop() {
-      const ok = sys.stop(0);
+    stop(i = 0) {
+      const ok = sys.stop(i);
       write();
       return ok;
     },
     // One club day: the daily RP, then a work day on the node in the slot. → [nodes completed today]
     day(day) {
       sys.addRp(rpPerDay(data), 'Daily research', day);
+      sys.closeLockedQueues(); // (M12c) the second slot closes if the rank or the Analytics Lab level is gone
       const before = sys.done.length;
       sys.dailyTick();
       const completed = sys.done.slice(before).map((id) => nodeById(id));

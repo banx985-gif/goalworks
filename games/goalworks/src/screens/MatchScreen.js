@@ -32,6 +32,7 @@ import { text } from '../../../../core/ui/Kit.js';
 import { PITCH, MATCH_ART } from '../../data/match.js';
 import { BODY_ART, FRONT_BODIES, BACK_BODIES, KEEPER_BODIES } from '../../data/kits.js';
 import { bodyKey, headOf } from '../ui/kitArt.js';
+import { createDrawAudit } from '../ui/drawAudit.js';
 import { kitFromColour } from '../match/kits.js';
 import { drawBadge } from '../ui/clubArt.js';
 import { createMatchControls } from './matchControls.js';
@@ -64,7 +65,7 @@ const LINE = '#F4F8EE';
 const MINE = '#FFE14A'; // the ring under the player you control
 const CLOSE = 1.35; // the Close camera: this much nearer than Follow
 
-export function createMatchScreen({ renderer, layout, assets, bus = null, input = null, live, onMenu, onContinue, onReplay = null, onProgress = () => {}, onTactics = null, held = () => false, resultLines = () => null }) {
+export function createMatchScreen({ renderer, layout, assets, bus = null, input = null, live, onMenu, onContinue, onReplay = null, onProgress = () => {}, onTactics = null, held = () => false, resultLines = () => null, leftHanded = () => false, lowFx = () => false }) {
   const W = renderer.width;
   let k = 10; // pixels per metre
   let ox = 0;
@@ -79,7 +80,7 @@ export function createMatchScreen({ renderer, layout, assets, bus = null, input 
   let scrollX = false;
   let shown = ''; // the mode + camera the layout was fitted for
   let offMove = null;
-  const controls = createMatchControls({ layout, input });
+  const controls = createMatchControls({ layout, input, leftHanded }); // (M12b) Settings → Left-hand controls
   const ui = createModeUi({ layout, renderer, onTactics }); // (M9: Manage's Tactics button)
   const playing = () => !!live()?.world?.control;
   const camera = () => (playing() ? 'follow' : live()?.director?.camera ?? 'full');
@@ -353,6 +354,7 @@ export function createMatchScreen({ renderer, layout, assets, bus = null, input 
     const h = 2.4 * k;
     for (const x of [0, PITCH.w]) assets.draw(ctx, MATCH_ART.flag, sx(x) - h * 0.35, sy(end ? PITCH.h : 0) - h * 0.92, h * 0.7, h);
   }
+  const audit = createDrawAudit(assets); // (M12b) every player and the ball drawn from a picture with something in it
   function drawPlayer(ctx, world, p, team) {
     const x = sx(p.x);
     const y = sy(p.y);
@@ -383,6 +385,7 @@ export function createMatchScreen({ renderer, layout, assets, bus = null, input 
     ctx.translate(x, 0);
     if (p.face > 0) ctx.scale(-1, 1);
     assets.draw(ctx, key, -s / 2, y - s * 0.92, s, s);
+    audit.note(`p${p.i}`, key);
     if (head) {
       // the head picture over the bald head of the body
       const hs = s * head.r * 2.55;
@@ -458,6 +461,7 @@ export function createMatchScreen({ renderer, layout, assets, bus = null, input 
     ctx.ellipse(x, y, r * 0.45, r * 0.22, 0, 0, Math.PI * 2);
     ctx.fill();
     assets.draw(ctx, MATCH_ART.ball, x - r / 2, y - r * 0.75 - b.z * k * 0.9, r, r);
+    audit.note('ball', MATCH_ART.ball);
   }
 
   function drawHud(ctx, world) {
@@ -568,6 +572,7 @@ export function createMatchScreen({ renderer, layout, assets, bus = null, input 
   }
   // Confetti from both sides of the banner, 60 a side (120 at most on screen).
   function goalPop() {
+    if (lowFx()) return; // (M12b) Low graphics / Reduced flashes: no confetti
     const y = scroll ? (area.top + area.bottom) / 2 : oy + pitchH / 2;
     vfx.confetti('screen', W * 0.2, y, { count: MAX_CONFETTI / 2, speed: 700, spreadX: 60 });
     vfx.confetti('screen', W * 0.8, y, { count: MAX_CONFETTI / 2, speed: 700, spreadX: 60 });
@@ -647,6 +652,12 @@ export function createMatchScreen({ renderer, layout, assets, bus = null, input 
     crowd,
     vfx,
     officials,
+    // (M12b) Tests: were all 22 players and the ball drawn last frame, each from a picture (and size copy) with visible
+    // pixels? → { ok, drawn, missing: [id], blank: [{ id, key }] } (ids: p0 … p21, ball)
+    drawAudit() {
+      const w = live()?.world;
+      return w ? audit.report([...w.players.map((p) => `p${p.i}`), 'ball']) : null;
+    },
     // Tests: which body / head picture a player is drawn with now.
     lookOf(p) {
       const team = [live().world.setup.home, live().world.setup.away][p.team];
@@ -767,6 +778,7 @@ export function createMatchScreen({ renderer, layout, assets, bus = null, input 
         return;
       }
       const world = lv.world;
+      audit.begin();
       const clip = scroll || scrollX;
       if (clip) {
         ctx.save();

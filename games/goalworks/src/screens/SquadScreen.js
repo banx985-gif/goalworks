@@ -27,7 +27,7 @@ const PAD = 24;
 const ROW_H = 150;
 const GAP = 14;
 
-export function createSquadScreen({ layout, assets, sheet, club, onBack, onTraining = () => {}, onTactics = () => {}, onLeague = () => {}, onTransfers = () => {}, onContract = null }) {
+export function createSquadScreen({ layout, assets, sheet, club, onBack, onTraining = () => {}, onTactics = () => {}, onLeague = () => {}, onTransfers = () => {}, onContract = null, detailExtra = () => [] }) {
   const rowY = () => layout.safeRect.y + 24 + THEME.button.minH + 14;
   const rowRect = (i) => {
     const sr = layout.safeRect;
@@ -157,6 +157,7 @@ export function createSquadScreen({ layout, assets, sheet, club, onBack, onTrain
         { title: 'Core stats', bars: CORE.map((k) => ({ label: `${k} · ${CORE_NAMES[k]}`, value: p.stats[k], max: 100, color: pos.colour })) },
         { title: 'Ratings', bars: DERIVED_KEYS.map((k) => ({ label: k, value: d[k], max: 100, color: C.progress })) },
         { title: 'Trait', lines: [p.trait, ...(p.founder ? [`Founder Perk: ${founderById(p.featuredId).perk.name} — ${founderById(p.featuredId).perk.text}`] : [])] },
+        ...detailExtra(p), // (M12c) Items: "Loves: …", items received, Give an item
         {
           title: 'Condition',
           bars: [
