@@ -13,6 +13,7 @@ export const MENU_GROUPS = [
     row('training', 'Training', 'The team session, intensity and each player’s focus', 'ui_08'),
     row('tactics', 'Tactics', 'Formation, team instructions, roles and familiarity', 'ui_07'),
     row('staff', 'Staff', 'Hire a head coach, scout, physio, youth coach and analyst', 'ui_02'), // (Milestone 14)
+    row('academy', 'Academy', 'Young players: the yearly trials, promote, loan, retrain, mentor', 'ui_12'), // (Milestone 15)
     row('transfers', 'Transfers & Scouting', 'Buy, sell and loan players; send the scout out', 'ui_10'),
     row('clubStore', 'Club Store', 'Items the club has earned: give one to a player to raise a stat for good', 'item_25'),
   ] },
@@ -37,6 +38,9 @@ export const NEXT_HINTS = {
   training: (n) => `Your next match is in ${n} day${n === 1 ? '' : 's'}: tap to set training`,
   items: (n) => `${n} item${n === 1 ? '' : 's'} in the Club Store: tap to give one to a player`,
   research: 'Research is idle: tap to start a node',
-  staff: 'No staff yet: tap to hire a coach, a scout or a physio',
+  staff: 'No staff yet: tap to hire a coach, a scout or a physio', // (M14; since M15 the two below say where)
+  coach: 'Hire a Head Coach at the Training Pitch to run training',
+  scout: 'Hire a scout at the Scout Desk to find players',
+  trials: (n, left) => `${n} young player${n === 1 ? ' is' : 's are'} at the academy trials: tap to sign up to ${left}`, // (M15)
   upgrade: (name) => `The ${name} can be upgraded: tap to see it`,
 };

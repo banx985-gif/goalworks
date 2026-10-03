@@ -17,12 +17,18 @@
 // faster recovery, and trainingLoadPct (sessions tire players less).
 // Milestone 14: the support staff add to the same query — the Head Coach's coachPct (coachEffect) and u21XpPct, the
 // Physio's recoveryPct and fatigueGainPct (training load and match fatigue).
+// Milestone 15: a player's training ceiling is his exact hidden potential when he has one (academy players:
+// p.potential.exact), else the top of his range (capOf). The Second Training Pitch splits the squad into two groups
+// (data.training.group2 = { focus, ids }: group 2 trains its own focus, the Head Coach at half strength — groupOf /
+// secondGroupOpen), and Position Learning moves retraining (p.retrain = { to, progress }, retrainDay). gainXp is the
+// academy's way into the same XP rules.
 import { Rng } from '../../../../core/Rng.js';
-import { CORE } from '../../data/players.js';
+import { CORE, NEAR } from '../../data/players.js';
 import { founderById } from '../../data/setup.js';
-import { FOCUSES, focusById, DEFAULT_FOCUS, INTENSITY, DEFAULT_INTENSITY, XP, FATIGUE, FORM, MORALE, MATCH_CONDITION, PERKS } from '../../data/training.js';
+import { FOCUSES, focusById, DEFAULT_FOCUS, INTENSITY, DEFAULT_INTENSITY, XP, FATIGUE, FORM, MORALE, MATCH_CONDITION, PERKS, POSITION_LEARNING, GROUPS } from '../../data/training.js';
 import { overall } from './players.js';
 import { effect as bonus } from './effects.js';
+import { staffBonus } from './staff.js';
 
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const round1 = (v) => Math.round(v * 10) / 10;
@@ -43,8 +49,18 @@ export function normaliseSquad(squad) {
 }
 export function normaliseTraining(data) {
   data.training ??= { focus: DEFAULT_FOCUS, intensity: DEFAULT_INTENSITY, lastDay: null, log: [] };
+  data.training.group2 ??= { focus: DEFAULT_FOCUS, ids: [] }; // (M15: an older save — nobody in group 2)
   normaliseSquad(data.squad);
   return data.training;
+}
+
+// (M15) The second group: open while a Second Training Pitch stands (trainingGroups); a player's group (1 or 2).
+export const secondGroupOpen = (fac) => !!fac && bonus(fac, 'trainingGroups') >= 1;
+export const groupOf = (p, training, fac) => (secondGroupOpen(fac) && training?.group2?.ids?.includes(p.id) ? 2 : 1);
+export function setGroup(data, id, group) {
+  const g = normaliseTraining(data).group2;
+  g.ids = g.ids.filter((x) => x !== id);
+  if (group === 2) g.ids.push(id);
 }
 
 export function perkEffects(founderId) {
@@ -68,9 +84,10 @@ const ageFactor = (age) => XP.age.find(([upTo]) => age <= upTo)[1];
 const moraleFactor = (m) => XP.moraleLow + ((XP.moraleHigh - XP.moraleLow) * m) / 100;
 const tiredFactor = (f) => (f <= XP.tiredFrom ? 1 : 1 - ((1 - XP.tiredMin) * (f - XP.tiredFrom)) / (100 - XP.tiredFrom));
 
-// The session parts a player trains today: [{ focus, share }] (team only, or team + individual).
-function partsOf(p, training) {
-  const team = focusById(training.focus);
+// The session parts a player trains today: [{ focus, share }] (team only, or team + individual). (M15) group 2's team
+// session is its own focus.
+function partsOf(p, training, group = 1) {
+  const team = focusById(group === 2 ? training.group2?.focus : training.focus);
   if (!p.focus) return [{ focus: team, share: 1 }];
   return [{ focus: team, share: XP.teamShare }, { focus: focusById(p.focus), share: 1 - XP.teamShare }];
 }
@@ -78,10 +95,13 @@ function partsOf(p, training) {
 // fac: the run save whose facilities count (null: none, as before Milestone 12).
 export function dailyXp(p, training, founderId = null, fac = null) {
   const intensity = INTENSITY[training.intensity] ?? INTENSITY.normal;
+  const group = groupOf(p, training, fac);
+  // (M14) the Head Coach: +% on every session, and more for players 21 and under (Development Mind); (M15) on the second
+  // pitch at half strength (only the staff part: coachPct / u21XpPct come from the Head Coach)
+  const coachKeys = (k) => bonus(fac, k) - (group === 2 ? staffBonus(fac, k) * (1 - GROUPS.coachShare) : 0);
   const factors = {
     baseXP: XP.base,
-    // (M14) the Head Coach: +% on every session, and more for players 21 and under (Development Mind)
-    coachEffect: XP.coachEffect * (1 + (bonus(fac, 'coachPct') + (p.age <= 21 ? bonus(fac, 'u21XpPct') : 0)) / 100),
+    coachEffect: XP.coachEffect * (1 + (coachKeys('coachPct') + (p.age <= 21 ? coachKeys('u21XpPct') : 0)) / 100),
     facilityEffect: XP.facilityEffect * (1 + bonus(fac, 'xp:all') / 100),
     moraleFactor: moraleFactor(p.morale),
     ageFactor: ageFactor(p.age),
@@ -89,7 +109,7 @@ export function dailyXp(p, training, founderId = null, fac = null) {
   };
   const total = Object.values(factors).reduce((a, b) => a * b, 1);
   const effects = founderId ? perkEffects(founderId) : [];
-  const parts = partsOf(p, training).map(({ focus, share }) => {
+  const parts = partsOf(p, training, group).map(({ focus, share }) => {
     if (focus.rest) return { focus: focus.id, share, xp: 0, stats: {} };
     const keeperCut = focus.keepers && p.position !== 'GK' ? XP.outfieldKeeping : 1;
     const place = 1 + bonus(fac, `xp:${focus.id}`) / 100; // (M12) the facility for this kind of session
@@ -97,27 +117,29 @@ export function dailyXp(p, training, founderId = null, fac = null) {
     for (const [k, w] of Object.entries(focus.stats)) stats[k] = total * share * keeperCut * w * place * perkXp(effects, p, k, focus.id);
     return { focus: focus.id, share, place, xp: Object.values(stats).reduce((a, b) => a + b, 0), stats };
   });
-  return { total, factors, parts, xp: parts.reduce((a, x) => a + x.xp, 0) };
+  return { total, factors, parts, group, xp: parts.reduce((a, x) => a + x.xp, 0) };
 }
 
-// XP for one point of a stat now: more as the overall closes on the hidden potential (its range's top).
+// (M15) The training ceiling: the exact hidden potential when the player has one (academy players), else his range's top.
+export const capOf = (p) => p.potential.exact ?? p.potential.high;
+// XP for one point of a stat now: more as the overall closes on the hidden potential.
 export function pointCost(p) {
-  const room = p.potential.high - overall(p);
+  const room = capOf(p) - overall(p);
   return XP.perPoint * (1 + XP.nearSlow * (1 - clamp(room / XP.nearRange, 0, 1)));
 }
 // Put XP into a stat; each full point raises it by one, never taking the overall past the potential. → points gained
-function addXp(p, stat, xp) {
+export function gainXp(p, stat, xp) {
   p.xp[stat] = (p.xp[stat] ?? 0) + xp;
   let gained = 0;
   for (let guard = 0; guard < 20; guard++) {
     const cost = pointCost(p);
     if (p.xp[stat] < cost) break;
-    if (overall(p) >= p.potential.high) {
+    if (overall(p) >= capOf(p)) {
       p.xp[stat] = cost; // at the ceiling: XP stops piling up
       break;
     }
     p.stats[stat]++;
-    if (overall(p) > p.potential.high) {
+    if (overall(p) > capOf(p)) {
       p.stats[stat]--;
       p.xp[stat] = cost;
       break;
@@ -126,6 +148,28 @@ function addXp(p, stat, xp) {
     gained++;
   }
   return gained;
+}
+
+// (M15) Position learning: one training day of a retraining (p.retrain = { to, progress }). parts: the day's session parts
+// (dailyXp). → the new position when it is learned today, else null.
+export function retrainRate(p, parts, fac) {
+  const L = POSITION_LEARNING;
+  const r = p.retrain;
+  if (!r) return 0;
+  const learning = parts.filter((x) => focusById(x.focus).learning).reduce((a, x) => a + x.share, 0);
+  const share = learning + (1 - learning) * L.otherShare;
+  const dist = r.to === 'GK' || p.position === 'GK' ? L.keeper : NEAR[r.to]?.includes(p.position) ? L.near : L.far;
+  return (share * dist * (1 + bonus(fac, 'positionLearnPct') / 100)) / L.days;
+}
+export function retrainDay(p, parts, fac) {
+  if (!p.retrain) return null;
+  p.retrain.progress = Math.min(1, Math.round((p.retrain.progress + retrainRate(p, parts, fac)) * 10000) / 10000);
+  if (p.retrain.progress < 1) return null;
+  const to = p.retrain.to;
+  p.retrain = null;
+  p.formerPosition = p.position;
+  p.position = to;
+  return to;
 }
 
 // (M14) × on fatigue built up (training load and matches): the Physio's fatigueGainPct (−8: 8% less)
@@ -153,6 +197,7 @@ export function trainDay(data, { day, matchDay = false }) {
     const gains = {};
     let restShare = kind === 'dayoff' ? 1 : 0;
     let load = 0;
+    let learned = null;
     if (kind === 'train') {
       const d = dailyXp(p, training, founderId, data);
       for (const part of d.parts) {
@@ -160,11 +205,12 @@ export function trainDay(data, { day, matchDay = false }) {
         if (f.rest) restShare += part.share;
         load += f.load * part.share * intensity.load * loadCut;
         for (const [k, v] of Object.entries(part.stats)) {
-          const g = addXp(p, k, v);
+          const g = gainXp(p, k, v);
           if (g) gains[k] = (gains[k] ?? 0) + g;
         }
       }
       xp = d.xp;
+      learned = retrainDay(p, d.parts, data); // (M15) a retraining moves on (fastest in Position Learning)
       // a session moves form a little: better when fresh and not flogged, worse when tired
       const lean = (1 - p.fatigue / 100) * (intensity === INTENSITY.heavy ? 0.6 : 1) - 0.45;
       p.form += (rng.next() - 0.5 + lean * 0.5) * 2 * FORM.training * (1 - restShare);
@@ -177,7 +223,7 @@ export function trainDay(data, { day, matchDay = false }) {
     p.form = round1(p.form);
     p.morale = round1(p.morale);
     p.today = { xp: round1(xp), kind, gains };
-    out.push({ id: p.id, xp, gains });
+    out.push({ id: p.id, xp, gains, ...(learned ? { learned } : {}) });
   }
   training.lastDay = day;
   training.log = [...(training.log ?? []), { day, kind, focus: training.focus, intensity: training.intensity, xp: round1(out.reduce((a, x) => a + x.xp, 0)) }].slice(-28);

@@ -14,6 +14,8 @@
 // gate and works at their station — the coach at the Training Pitch, the scout at the Scout Desk, the physio at the Medical
 // Room, the youth coach at the Youth Corner, the analyst at the Video Room / Analytics Lab / Tactics Board Room (the first
 // built; otherwise the Clubhouse). They are in world.people (drawn and tapped like the Founder) and count in the walker cap.
+// Milestone 15: up to FIGURES academy players (run().academy) train at the Academy Building (else the Youth Corner) as walkers
+// (w.youth), and with a Second Training Pitch, group 2 trains on it (training.group2) — all inside the walker cap.
 import { Grid } from '../../../../core/Grid.js';
 import { Agent } from '../../../../core/Agent.js';
 import { COMPLEX, ROUTE, BUSY, PERSON, PEOPLE, DRILL } from '../../data/complex.js';
@@ -22,6 +24,8 @@ import { focusById } from '../../data/training.js';
 import { createLayout } from './facilities.js';
 import { STAFF_FALLBACK_STATION, roleById } from '../../data/staff.js';
 import { stationFor } from './staff.js';
+import { FIGURES as ACADEMY_FIGURES } from '../../data/academy.js';
+import { secondGroupOpen } from './training.js';
 
 const CELL = COMPLEX.cellSize;
 
@@ -81,9 +85,14 @@ export function createComplexWorld({ founder, layout = null, run = () => null })
   let planKey = '';
 
   // The plan for today: for each shown player, the place (facility uid) and his index there.
+  // (M15) the academy's place: the Academy Building, else the Youth Corner (none built: no academy figures)
+  const academyStation = () => stations.find((s) => s.def.id === 'F14') ?? stations.find((s) => s.def.id === 'F09') ?? null;
+  const academyShown = (d) => (academyStation() ? (d?.academy?.players ?? []).slice(0, ACADEMY_FIGURES) : []);
   function planToday() {
     const d = run();
-    const players = (d?.squad?.players ?? []).filter((p) => !p.founder).slice().sort((a, b) => (a.shirt ?? 99) - (b.shirt ?? 99)).slice(0, Math.max(0, PEOPLE.max - 1 - staffFigs.size));
+    const youth = academyShown(d);
+    const players = (d?.squad?.players ?? []).filter((p) => !p.founder).slice().sort((a, b) => (a.shirt ?? 99) - (b.shirt ?? 99)).slice(0, Math.max(0, PEOPLE.max - 1 - staffFigs.size - youth.length));
+    const group2 = secondGroupOpen(d) && stations.some((s) => s.def.id === 'F11') ? new Set(d.training?.group2?.ids ?? []) : new Set();
     const today = players[0]?.today?.kind;
     const team = d?.training?.focus ?? 'technique';
     const allRest = today === 'dayoff' || today === 'match' || !!focusById(team).rest;
@@ -95,15 +104,22 @@ export function createComplexWorld({ founder, layout = null, run = () => null })
     };
     const out = [];
     for (const p of players) {
-      const focus = allRest ? 'rest' : p.focus ?? team;
+      const g2 = group2.has(p.id); // (M15) group 2: its own session on the Second Training Pitch
+      const focus = allRest ? 'rest' : p.focus ?? (g2 ? d.training.group2.focus : team);
       const rest = focus === 'rest' || !!focusById(focus).rest;
       const keeperSession = focus === 'goalkeeping';
-      const list = rest ? REST_PLACES : keeperSession && p.position !== 'GK' ? FOCUS_PLACES.goalkeeping.filter((x) => PITCHES.includes(x)) : FOCUS_PLACES[focus] ?? PITCHES;
+      let list = rest ? REST_PLACES : g2 && !p.focus ? ['F11', ...PITCHES] : keeperSession && p.position !== 'GK' ? FOCUS_PLACES.goalkeeping.filter((x) => PITCHES.includes(x)) : FOCUS_PLACES[focus] ?? PITCHES;
+      // (M15) with a group 2 on the second pitch, group 1's team session keeps to the other places (the second pitch only as overflow)
+      if (group2.size && !g2 && !rest && !p.focus) list = list.filter((x) => x !== 'F11');
       const s = pick(list, rest ? ['F02'] : PITCHES);
       const slot = used.get(s.uid) ?? 0;
       used.set(s.uid, slot + 1);
       out.push({ p, focus: rest ? 'rest' : focus, uid: s.uid, slot, resting: rest });
     }
+    // (M15) the academy at its building: training (the seniors' day off is theirs too)
+    const ys = academyStation();
+    const academyRest = today === 'dayoff';
+    youth.forEach((p, i) => out.push({ p, focus: academyRest ? 'rest' : p.focus ?? d.academy.focus ?? 'technique', uid: ys.uid, slot: (used.get(ys.uid) ?? 0) + i, resting: academyRest, youth: true }));
     return out;
   }
   // Where a player stands at his place: on an open-air space, a spot spread over it; at a building, a free tile in front.
@@ -148,7 +164,7 @@ export function createComplexWorld({ founder, layout = null, run = () => null })
   function assign(w, plan, instant) {
     const s = byUid.get(plan.uid);
     const onPlace = !instant && (w.phase === 'exit' || onBlocked(w.agent));
-    Object.assign(w, { focus: plan.focus, uid: plan.uid, slot: plan.slot, resting: plan.resting, open: !!s.def.open });
+    Object.assign(w, { focus: plan.focus, uid: plan.uid, slot: plan.slot, resting: plan.resting, open: !!s.def.open, youth: !!plan.youth });
     w.spot = spotOf(s, plan.slot);
     if (instant) {
       w.agent.x = w.spot.x;
@@ -207,7 +223,8 @@ export function createComplexWorld({ founder, layout = null, run = () => null })
     const d = run();
     if (!d?.squad) return '';
     const ps = d.squad.players;
-    return `${builtFor}|${staffFigs.size}|${d.training?.focus}|${ps[0]?.today?.kind}|${ps.map((p) => `${p.id}:${p.focus ?? ''}`).join(',')}`;
+    const ys = academyShown(d); // (M15) the academy figures and group 2
+    return `${builtFor}|${staffFigs.size}|${d.training?.focus}|${ps[0]?.today?.kind}|${ps.map((p) => `${p.id}:${p.focus ?? ''}`).join(',')}|${secondGroupOpen(d) ? `${d.training?.group2?.focus}:${(d.training?.group2?.ids ?? []).join(',')}` : ''}|${d.academy?.focus}:${ys.map((p) => `${p.id}:${p.focus ?? ''}`).join(',')}`;
   };
 
   // --- the staff (Milestone 14) ------------------------------------------------------------------------------------

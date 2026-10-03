@@ -14,6 +14,9 @@
 //                                       signings and releases, the monthly pool refresh, the season's end (contracts
 //                                       count down, expired players leave, pre-contracts arrive, everyone a year older)
 //   afterMatch(data, xiIds)             a player promised a Starter / Star role who sat out loses morale (M8 morale)
+// Milestone 15: an academy player can be loaned out too (src/systems/academy.js loanOut: loanedOut entries with academy:
+// true) — he is not counted against the senior squad and comes back to the academy, not the senior squad. Names stay
+// unique across the academy and the trials as well.
 // Every finished deal returns { ok: true, autosave: true } so the game saves at once (bible §36).
 import { Rng } from '../../../../core/Rng.js';
 import { VALUE, CONTRACT_TERMS, NEGOTIATION, SQUAD_RULES, LOAN, POOL, AI, WAGES, PROMISE } from '../../data/transfers.js';
@@ -43,7 +46,7 @@ const earn = (data, n) => (data.league.credits = Math.round(data.league.credits 
 // --- the world ------------------------------------------------------------------------------------------------------------
 function allPlayers(data) {
   const T = data.transfers;
-  return [...data.squad.players, ...(data.squad.watch ?? []), ...Object.values(T.clubs).flatMap((c) => c.players), ...T.free, ...T.market];
+  return [...data.squad.players, ...(data.squad.watch ?? []), ...(data.academy?.players ?? []), ...(data.academy?.intake?.candidates ?? []), ...Object.values(T.clubs).flatMap((c) => c.players), ...T.free, ...T.market];
 }
 function genPlayer(data, rng, { position = null, area = null, kind = 'free', clubId = null } = {}) {
   const T = data.transfers;
@@ -163,7 +166,7 @@ export function rosterProblem(players) {
   return null;
 }
 // Senior players counted against the maximum: here now, loaned out (they come back) and pre-contracts still to arrive.
-export const squadCount = (data) => data.squad.players.length + data.transfers.loanedOut.length + data.transfers.pending.length;
+export const squadCount = (data) => data.squad.players.length + data.transfers.loanedOut.filter((l) => !l.academy).length + data.transfers.pending.length; // (M15: academy loans don't count)
 const fullReason = (data) => (squadCount(data) >= SQUAD_RULES.max ? `Your squad is full (${SQUAD_RULES.max}, counting loans out and players still to arrive). Sell, release or loan someone out first.` : null);
 const clubProblem = (players) => {
   const c = { GK: 0, DF: 0, MF: 0, WG: 0, FW: 0 };
@@ -307,7 +310,7 @@ export function walkAway(data, kind, id) {
   if (T.talks[talkKey(kind, id)]?.state === 'open') delete T.talks[talkKey(kind, id)];
 }
 
-function freeShirt(data) {
+export function freeShirt(data) {
   const used = new Set(data.squad.players.map((p) => p.shirt));
   for (let n = CONTRACT_TERMS.shirts[0]; n <= CONTRACT_TERMS.shirts[1]; n++) if (!used.has(n)) return n;
   return null;
@@ -564,7 +567,14 @@ export function transfersDay(data, day) {
   for (const l of T.loanedOut.filter((x) => x.until <= day)) {
     const club = T.clubs[l.clubId];
     const p = club?.players.find((x) => x.id === l.id);
-    if (p) {
+    if (p && l.academy && data.academy) {
+      // (M15) an academy player goes back to the academy
+      take(data, l.clubId, p);
+      p.loan = null;
+      p.shirt = null;
+      data.academy.players.push(p);
+      log(data, day, `${p.name} is back at the academy from his loan at ${ownerName(l.clubId)}.`);
+    } else if (p) {
       take(data, l.clubId, p);
       p.loan = null;
       joinUs(data, p, day);

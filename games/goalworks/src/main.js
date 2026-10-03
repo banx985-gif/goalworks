@@ -81,6 +81,14 @@
 // shared effect query (src/systems/effects.js): training, familiarity, scouting (the hired Scout replaces the M11
 // placeholder — an older save gets Mina Reed), fatigue, the Analyst's clue / preparation on Match Setup and settling in
 // Manage. Each hired staff member works at their station on the Club Complex; tap them for their card.
+// Milestone 15: the academy (src/systems/academy.js, data/academy.js; the sheets in src/screens/academySheets.js). One trials
+// window a year (Month 3): 3–6 young players (15–18; the first trials take the M7 watch list) with a Youth Corner, more and
+// better with the Academy Building / Elite Academy, their levels and research; hidden potential stored exactly and shown as
+// a range (narrower with the Youth Coach, the Scout, facilities and research); sign up to 3 an intake into the academy's
+// own places. Prospects train every day; promote (Prospect contract), release, loan, retrain or mentor them from the
+// Academy sheet (Club Menu → Academy, the Youth Corner / Academy Building / Elite Academy). Saved in the run: data.academy
+// (an older save: empty, its first trials at the next window). The Second Training Pitch now splits training into two
+// groups (the Training screen), and the hint line says where to hire a Head Coach / a Scout.
 // Add ?debug=1 for the FPS/state overlay, ?screen=test for the scaling / tap / asset-loader test screen, ?screen=match
 // (&seed=…, &mode=watch|manage|play, &km=1 for Key Moment prompts, &stats=35,70 for flat home,away test stats) for a
 // test match between two test teams (never saved). With ?debug=1, &safe=phone|tablet stands in a notch and home bar (safe-area insets) on any screen.
@@ -156,7 +164,10 @@ import { createItemSheets } from './screens/itemSheets.js';
 import { registerItemArt, itemIcon } from '../../../core/ui/ItemArt.js';
 import { ITEM_TYPES, ITEM_GROUPS, ITEM_RARITIES, ITEM_RULES, ITEM_SOURCES, groupById } from '../data/items.js';
 import { facilityById } from '../data/facilities.js';
-import { normaliseStaff, staffDay, inRole as staffInRole } from './systems/staff.js';
+import { normaliseStaff, staffDay, inRole as staffInRole, candidates as staffCandidates, eligibility as staffEligibility } from './systems/staff.js';
+import * as AC from './systems/academy.js';
+import { createAcademySheets } from './screens/academySheets.js';
+import { POSITIONS as POS_NAMES } from '../data/setup.js';
 import { createStaffSheets } from './screens/staffSheets.js';
 import { STAFF, staffById, roleById, STAFF_TIERS } from '../data/staff.js';
 import { preparedFamiliarity, settleSec, weaknessClue, tacticalPrep } from './systems/effects.js';
@@ -357,6 +368,9 @@ function openRun(n, data) {
   // (an M13 save: no staff, except the M11 placeholder scout, who becomes SC01 Mina Reed)
   if (data.staff?.v !== 14) setTimeout(() => autosave.request('staff:start'), 0);
   normaliseStaff(data, data.calendar?.clock?.totalDays ?? 0);
+  // (an M14 save: an empty academy; its first trials are at the next window)
+  if (data.academy?.v !== 15) setTimeout(() => autosave.request('academy:start'), 0);
+  AC.normaliseAcademy(data, data.calendar?.clock?.totalDays ?? 0);
   open = { n, data, layout: createLayout(data, { bus }), research: createResearch(data, { bus }), items: createItems(data, { bus }), calendar: createCalendar({ bus, saved: data.calendar ?? null, flags: speedFlags(), isIssued: (o) => !!open && LG.isIssued(open.data, o) }), setupShown: false };
 }
 // The run save: the calendar written into the campaign data (and the date on the slot card).
@@ -375,6 +389,8 @@ bus.on('clock:day', () => {
   // (M13) the day's Research Points and a work day on the node in the slot (a node finished today counts from today)
   for (const n of open.research.day(c.clock.totalDays)) researchDone(n);
   const r = trainDay(open.data, { day: c.clock.totalDays, matchDay: c.atKickoff });
+  for (const x of r.players) if (x.learned) academyEvent({ kind: 'learned', id: x.id, name: open.data.squad.players.find((p) => p.id === x.id)?.name ?? '', to: x.learned }); // (M15)
+  for (const e of AC.academyDay(open.data, c.clock.totalDays)) academyEvent(e); // (M15) the trials, academy training, breakthroughs, the season's end
   open.items.noteTraining(r.players); // (M12c) the week's training effort (the great-session item)
   for (const u of open.layout.tickUpgrades(c.clock.totalDays)) upgradeDone(u); // (M12c) upgrades finished today
   itemArrived(open.items.day(c.clock.totalDays, c.clock.year)); // (M12c) the season's item points; now and then a well-wisher
@@ -404,6 +420,17 @@ function itemArrived(it) {
   const src = ITEM_SOURCES[it.source];
   researchBanner.show({ id: `item:${it.uid}`, title: it.source === 'wellwisher' ? 'A gift for the club!' : 'Item earned!', line: itemName(it), gives: `+${ITEM_RARITIES[it.rarity].gain} ${t.stat} · ${src?.name ?? it.source} · in the Club Store`, icon: itemIcon(it.type, it.rarity), color: C_GOLD });
   debug.log(`item: ${itemName(it)} (${it.source})`);
+}
+// Milestone 15: the academy's news — the trials, a breakthrough, a position learned, a prospect too old for the academy.
+function academyEvent(e) {
+  const corner = AC.hasAcademyBuilding(open.data) ? 'Academy Building' : 'Youth Corner';
+  const show = (title, line, gives, color = C_GOLD, icon = 'facility_f09') => researchBanner.show({ id: `academy:${e.kind}:${e.id ?? e.year}:${open?.calendar.today}`, title, line, gives, icon, color });
+  if (e.kind === 'window' && !e.corner) show('Academy trials this month', 'No Youth Corner to hold them', 'Build one (Build → Shop) before the month ends', COL.bad);
+  else if (e.kind === 'intake') show(e.golden ? 'A golden generation!' : 'Academy trials open!', `${e.n} young players at the ${corner}`, 'Sign up to 3 · Menu → Academy');
+  else if (e.kind === 'breakthrough') show('Breakthrough!', e.name, 'He is beating his projected potential', COL.good);
+  else if (e.kind === 'learned') show('Position learned', `${e.name} is now a ${POS_NAMES[e.to]?.name ?? e.to}`, 'Retraining complete', COL.progress, 'training_tactic_08');
+  else if (e.kind === 'left') show('Left the academy', `${e.name} (${e.age})`, 'Too old for the academy: promote prospects by 19', COL.bad);
+  debug.log(`academy: ${e.kind}${e.name ? ` ${e.name}` : ''}${e.n ? ` (${e.n})` : ''}`);
 }
 // Milestone 14: a staff contract ran out.
 function staffLeft(e) {
@@ -952,7 +979,21 @@ function facilitySections(defId) {
   const staff = { title: 'Staff', lines: ['Hire a head coach, scout, physio, youth coach and analyst.'], buttons: [{ id: 'staff', label: 'Staff', accent: COL.purple, icon: 'ui_02', onTap: () => staffUi.openStaff() }] };
   const scout = { title: 'What it’s for', lines: ['Send the scout to a region; reports list players with their stats as ranges.'], buttons: [{ id: 'scoutReports', label: 'Scout players', accent: COL.gold, onTap: () => transfersUi.openTransfers('scout') }] };
   const kit = { title: 'What it’s for', lines: ['The kit and equipment live here — and the Club Store: items the club has earned, to give to players.'], buttons: [{ id: 'clubStore', label: 'Club Store', sub: open?.items ? `${open.items.count} of ${open.items.max} items` : '', icon: ITEM_RULES.storeIcon, accent: COL.gold, onTap: () => itemsUi.openClubStore() }] };
-  return { F01: [training], F11: [training], F03: [office, staff, tactics, transfers, research], F04: [scout], F06: [kit], F08: [tactics], F13: [research], F24: [research], F25: [transfers] }[defId] ?? [];
+  // (M15) the academy at the Youth Corner / Academy Building / Elite Academy; where to hire a Head Coach and a Scout
+  const academy = { title: 'Academy', lines: [AC.hasCorner(open?.data) ? `${AC.academyCount(open.data)} of ${AC.placesOf(open.data)} places · the trials every Month 3` : 'The trials need a Youth Corner.'], buttons: [{ id: 'academy', label: 'Academy', sub: 'Trials, prospects, promote, loan, retrain, mentor', icon: 'ui_12', accent: COL.good, onTap: () => academyUi.openAcademy() }] };
+  const hireIf = (role, line, label) => (open && !staffInRole(open.data, role) ? [{ title: line, columns: 1, buttons: [{ id: `hire${role}`, label, sub: 'Staff · see the candidates', icon: 'ui_02', accent: COL.purple, onTap: () => openStaffRole(role) }] }] : []);
+  const coachHire = hireIf('HC', 'No Head Coach yet: training runs without one', 'Hire a Head Coach');
+  const scoutHire = hireIf('SC', 'No scout yet: nobody can go out to find players', 'Hire a scout');
+  const youthHire = hireIf('YC', 'No Youth Coach yet: potential is hard to read', 'Hire a Youth Coach');
+  return { F01: [training, ...coachHire], F11: [training], F03: [office, staff, tactics, transfers, research], F04: [scout, ...scoutHire], F06: [kit], F08: [tactics], F09: [academy, ...youthHire], F14: [academy, ...youthHire], F26: [academy, ...youthHire], F13: [research], F24: [research], F25: [transfers] }[defId] ?? [];
+}
+// (M15) Hiring for one role: the first candidate who can be hired now (their card: Hire), else the Staff sheet.
+function openStaffRole(role) {
+  const d = open?.data;
+  if (!d) return;
+  const def = staffCandidates(d, role).find((x) => staffEligibility(d, x).ok);
+  if (def) staffUi.openCard(def.id);
+  else staffUi.openStaff();
 }
 
 // --- Milestone 12b: the Club Menu, the next-step hint line, Settings ---------------------------------------------------
@@ -974,6 +1015,7 @@ const MENU_OPEN = {
   },
   research: () => researchUi.openResearch(),
   staff: () => staffUi.openStaff(), // (M14)
+  academy: () => academyUi.openAcademy(), // (M15)
   settings: () => openSettings(),
   mainMenu: () => leaveClub(),
 };
@@ -989,6 +1031,13 @@ function menuState(id) {
     const n = open.data.staff.hired.length;
     return { sub: n ? `${n} of 5 roles filled: tap to see them or hire more` : 'Nobody yet: hire a coach, a scout, a physio…' };
   }
+  if (id === 'academy' && open?.data.academy) {
+    const d = open.data;
+    const I = d.academy.intake;
+    if (I?.candidates && AC.intakeOpen(d, open.calendar.today)) return { badge: I.candidates.length || null, sub: `Trials open: ${I.candidates.length} young players · sign up to ${3 - I.signed.length}` };
+    if (!AC.placesOf(d)) return { sub: 'No academy yet: build a Youth Corner first' };
+    return { sub: `${AC.academyCount(d)} of ${AC.placesOf(d)} places · trials every Month 3` };
+  }
   if (id === 'clubStore') return openClubStore && open?.items ? { badge: open.items.inventory.length || null } : { hidden: true };
   return {};
 }
@@ -1002,10 +1051,14 @@ function hintRules() {
   const cal = () => open.calendar;
   return [
     { id: 'matchDay', text: NEXT_HINTS.matchDay, when: () => cal().atKickoff, open: () => openMatchSetup() },
+    // (M15) the trials come once a year for a month: ahead of the everyday hints
+    { id: 'trials', text: () => NEXT_HINTS.trials(d().academy.intake.candidates.length, 3 - d().academy.intake.signed.length), when: () => AC.intakeOpen(d(), cal().today) && d().academy.intake.candidates.length > 0 && d().academy.intake.signed.length < 3 && AC.academyCount(d()) < AC.placesOf(d()), open: () => academyUi.openAcademy() },
     { id: 'firstMatch', text: NEXT_HINTS.firstMatch, when: () => !cal().fixture && matchesPlayed(d()) === 0, open: () => openLeague() },
     { id: 'offers', text: () => NEXT_HINTS.offers(LG.openOffers(d()).length), when: () => !cal().fixture && LG.openOffers(d()).length > 0, open: () => openLeague() },
     { id: 'training', text: () => NEXT_HINTS.training(cal().daysToMatch), when: () => !!cal().fixture && !d().prefs?.trainingSeen, open: () => openTraining('club') },
-    { id: 'staff', text: NEXT_HINTS.staff, when: () => !!open.data.staff && open.data.staff.hired.length === 0 && matchesPlayed(d()) > 0, open: () => staffUi.openStaff() },
+    // (M15) where to hire: a Head Coach at the Training Pitch, a Scout at the Scout Desk (their sheets have the Hire button)
+    { id: 'coach', text: NEXT_HINTS.coach, when: () => !!open.data.staff && !staffInRole(d(), 'HC'), open: () => clubScreen.openSheet('pitch') },
+    { id: 'scout', text: NEXT_HINTS.scout, when: () => !!open.data.staff && !staffInRole(d(), 'SC'), open: () => clubScreen.openSheet('scout') },
     { id: 'items', text: () => NEXT_HINTS.items(open.items.inventory.length), when: () => !!openClubStore && !!open.items && open.items.inventory.length > 0, open: () => openClubStore() },
     { id: 'research', text: NEXT_HINTS.research, when: () => !open.research.current() && open.research.rp >= 40, open: () => researchUi.openResearch() },
   ];
@@ -1052,6 +1105,24 @@ const staffUi = createStaffSheets({
     const f = clubScreen.world?.byId(`staff:${id}`);
     return f ? clubScreen.world.stateOf(f) : null;
   },
+});
+// Milestone 15: the Academy sheets (every signing / promotion / loan / release saves at once).
+const academyUi = createAcademySheets({
+  sheet,
+  dialog,
+  assets,
+  run: () => open?.data ?? null,
+  today: () => open?.calendar.today ?? 0,
+  dateText: (day) => {
+    const dd = open?.calendar.clock.dateOf(day);
+    return dd ? `Year ${dd.year} · Month ${dd.month} · Day ${dd.day}` : '';
+  },
+  onChange: (why) => {
+    debug.log(`${why}: academy ${open?.data.academy?.players.length}`);
+    autosave.request(why);
+  },
+  onBuild: () => MENU_OPEN.build(),
+  onYouthCoach: () => openStaffRole('YC'),
 });
 // Player Detail's Items section: what they love, what they've had, Give an item.
 function playerItemsSection(p) {
@@ -1145,7 +1216,7 @@ function acceptChallenge(clubId = 'REG01') {
 }
 // ?debug=1: a test hook for automated checks.
 if (debug.enabled) {
-  window.__gw = { renderer, layout, input, loop, router, assets, sheet, dialog, systemBack, textPrompt, splashScreen, menuScreen, slotsScreen, setupScreen, clubScreen, squadScreen, trainingScreen, openTraining, tacticsScreen, openTactics, openMatchTactics, playSlot, startClub, deleteSlot, openShop, setRank, facilityBonus, researchUi, researchBanner, get research() { return open?.research ?? null; }, newGame, openLeague, openCountyOffer, acceptChallenge, issueChallenge, transfers: transfersUi, TR, openMatchSetup, playPlaceholder, kickOff, startTestMatch, matchScreen, restoreMatchWorld, get match() { return match; }, toggleSpeedFlag, autosave, saveRun, canvasLost, canvasLossCount, itemsUi, staffUi, normaliseStaff, facilityLevel: (id) => (open ? facilityLevel(open.data, id) : 0), get items() { return open?.items ?? null; }, settings, governor, lowFx, haptics, hintLine, openNavMenu, MENU_OPEN, menuState, openSettings, get account() { return account; }, taps: [], get campaigns() { return campaigns; }, get open() { return open; } };
+  window.__gw = { renderer, layout, input, loop, router, assets, sheet, dialog, systemBack, textPrompt, splashScreen, menuScreen, slotsScreen, setupScreen, clubScreen, squadScreen, trainingScreen, openTraining, tacticsScreen, openTactics, openMatchTactics, playSlot, startClub, deleteSlot, openShop, setRank, facilityBonus, researchUi, researchBanner, get research() { return open?.research ?? null; }, newGame, openLeague, openCountyOffer, acceptChallenge, issueChallenge, transfers: transfersUi, TR, openMatchSetup, playPlaceholder, kickOff, startTestMatch, matchScreen, restoreMatchWorld, get match() { return match; }, toggleSpeedFlag, autosave, saveRun, canvasLost, canvasLossCount, itemsUi, staffUi, normaliseStaff, academyUi, AC, openStaffRole, facilityLevel: (id) => (open ? facilityLevel(open.data, id) : 0), get items() { return open?.items ?? null; }, settings, governor, lowFx, haptics, hintLine, openNavMenu, MENU_OPEN, menuState, openSettings, get account() { return account; }, taps: [], get campaigns() { return campaigns; }, get open() { return open; } };
 }
 
 router.go('boot');

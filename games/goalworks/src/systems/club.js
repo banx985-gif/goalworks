@@ -5,6 +5,7 @@ import { patternById } from '../../data/kits.js';
 import { createStartingSquad } from './squad.js';
 import { rank as clubRank } from './league.js';
 import { newStaff } from './staff.js';
+import { newAcademy } from './academy.js';
 
 // Milestone 7: the run also gets its starting squad (squad: { players, watch, nextId }).
 export function newCampaign(setup, now = Date.now()) {
@@ -29,6 +30,7 @@ export function newCampaign(setup, now = Date.now()) {
     playSec: 0,
     ngPlus: 0,
     staff: newStaff(), // Milestone 14: a new club starts with no support staff (hire them in Staff)
+    academy: newAcademy(0), // Milestone 15: an empty academy; the first trials in Year 1, Month 3 (with a Youth Corner)
   };
 }
 

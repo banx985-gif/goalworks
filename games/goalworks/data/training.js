@@ -9,8 +9,9 @@
 // by its weights; every XP_PER_POINT (more as the player nears his hidden potential) raises that stat by one.
 
 // The ten focuses (bible §13 groups + Rest). stats: how the XP splits over the core stats. load: fatigue a normal day of
-// it adds. art: the Batch 5 training icon. placeholder: no meaning of its own yet (Position Learning → M15, Ability
-// Development → M26) — they train a little of everything.
+// it adds. art: the Batch 5 training icon. placeholder: no meaning of its own yet (Ability Development → M26) — it trains a
+// little of everything. learning (Milestone 15): Position Learning also trains a little of everything, and moves a player's
+// retraining to a new position at full speed (POSITION_LEARNING).
 export const FOCUSES = [
   { id: 'attack', name: 'Attack', stats: { ATK: 0.7, TEC: 0.15, PHY: 0.15 }, load: 8, art: 'training_tactic_01' },
   { id: 'technique', name: 'Technique', stats: { TEC: 0.7, ATK: 0.15, PAS: 0.15 }, load: 6, art: 'training_tactic_02' },
@@ -19,7 +20,7 @@ export const FOCUSES = [
   { id: 'physical', name: 'Physical', stats: { PHY: 0.85, DEF: 0.15 }, load: 11, art: 'training_tactic_05' },
   { id: 'goalkeeping', name: 'Goalkeeping', stats: { DEF: 0.6, TEC: 0.25, PHY: 0.15 }, load: 6, art: 'training_tactic_06', keepers: true },
   { id: 'setpieces', name: 'Set Pieces', stats: { TEC: 0.5, PAS: 0.35, ATK: 0.15 }, load: 4, art: 'training_tactic_07' },
-  { id: 'position', name: 'Position Learning', stats: { ATK: 0.2, TEC: 0.2, PAS: 0.2, DEF: 0.2, PHY: 0.2 }, load: 4, art: 'training_tactic_08', placeholder: 'M15' },
+  { id: 'position', name: 'Position Learning', stats: { ATK: 0.2, TEC: 0.2, PAS: 0.2, DEF: 0.2, PHY: 0.2 }, load: 4, art: 'training_tactic_08', learning: true },
   { id: 'ability', name: 'Ability Development', stats: { ATK: 0.2, TEC: 0.2, PAS: 0.2, DEF: 0.2, PHY: 0.2 }, load: 5, art: 'training_tactic_09', placeholder: 'M26' },
   { id: 'rest', name: 'Rest / Recovery', stats: {}, load: 0, art: 'training_tactic_10', rest: true },
 ];
@@ -122,3 +123,14 @@ export const PERKS = {
   devATT: { kind: 'xp', stats: ['ATK'] }, // Leo Mercer: +5% attack development
   finishingDrillXpPct: { kind: 'xp', focus: 'attack' }, // Leo Mercer: finishing drill XP +5% (Attack sessions)
 };
+
+// Position learning (Milestone 15): a player retraining to a new position (p.retrain = { to, progress 0 … 1 }) learns it
+// over `days` training days of Position Learning (team or individual focus; other sessions move it `otherShare` as fast),
+// faster for a near position, slower to or from goal, × (1 + positionLearnPct / 100) (YC02 Position Teacher). At 1 his
+// position changes; his stats stay.
+export const POSITION_LEARNING = { days: 56, otherShare: 0.35, near: 1.5, far: 1, keeper: 0.5 };
+
+// The second training group (Milestone 15, the Second Training Pitch F11 "+1 training group"): with it built the squad
+// can split in two — group 2 trains on the second pitch with its own session focus (the same intensity), and gets the
+// Head Coach’s effect (coachPct, u21XpPct) at `coachShare` strength. One Head Coach covers both.
+export const GROUPS = { coachShare: 0.5 };

@@ -3,6 +3,9 @@
 // intensity (Light / Normal / Heavy — Heavy is overtraining: more XP, much more fatigue). Below: every senior player with
 // fatigue, form and morale bars, today's XP and his individual focus (tap the focus button → a sheet to pick one, or
 // "Team session only"). Tap a player's name → the Player Detail sheet. Drag scrolls. ‹ Back returns where it came from.
+// Milestone 15: with a Second Training Pitch the squad splits in two — a Group 2 session (its own focus, on the second pitch,
+// the Head Coach at half strength there) and a Pitch 1 / Pitch 2 button on every player. Position Learning now moves a
+// player's retraining (academy prospects, or a promoted one still learning).
 //   createTrainingScreen({ layout, assets, sheet, club, onBack, onPlayer })   club() → the open campaign or null
 import { THEME, font } from '../../../../core/Theme.js';
 import { ScrollPanel } from '../../../../core/ui/ScrollPanel.js';
@@ -10,9 +13,9 @@ import { drawButton, hitRect, isPressed } from '../../../../core/ui/Button.js';
 import { card, text } from '../../../../core/ui/Kit.js';
 import { POSITIONS } from '../../data/setup.js';
 import { POSITION_ORDER } from '../../data/players.js';
-import { FOCUSES, focusById, INTENSITY, FATIGUE, FORM } from '../../data/training.js';
+import { FOCUSES, focusById, INTENSITY, FATIGUE, FORM, GROUPS } from '../../data/training.js';
 import { overall } from '../systems/players.js';
-import { normaliseTraining, dailyXp } from '../systems/training.js';
+import { normaliseTraining, dailyXp, secondGroupOpen, groupOf, setGroup } from '../systems/training.js';
 
 const C = THEME.color;
 const S = THEME.size;
@@ -104,6 +107,7 @@ export function createTrainingScreen({ layout, assets, sheet, club, onBack, onPl
     });
     y += 2 * (th + GAP);
     const fdef = focusById(tr.focus);
+    if (ctx && fdef.learning) text(ctx, 'Anyone retraining to a new position learns it at full speed (other sessions: about a third as fast). It trains a little of everything too.', PAD, y, { size: S.small, color: C.textMuted, maxWidth: cw });
     if (ctx && fdef.placeholder) text(ctx, `${fdef.name} gains its full meaning later (Milestone ${fdef.placeholder.slice(1)}); for now it trains a little of everything.`, PAD, y, { size: S.small, color: C.textMuted, maxWidth: cw });
     if (ctx && fdef.rest) text(ctx, 'Rest day: no XP, extra recovery for everyone.', PAD, y, { size: S.small, color: C.textMuted, maxWidth: cw });
     y += 50;
@@ -119,6 +123,22 @@ export function createTrainingScreen({ layout, assets, sheet, club, onBack, onPl
     y += BH + 20;
     if (ctx) text(ctx, tr.intensity === 'heavy' ? 'Heavy: +25% XP but fatigue builds fast — rest tired players.' : tr.intensity === 'light' ? 'Light: less XP, less fatigue.' : 'Normal: steady XP and fatigue.', PAD, y, { size: S.small, color: tr.intensity === 'heavy' ? C.bad : C.textMuted, maxWidth: cw });
     y += 60;
+    // --- (M15) the second group: its own session on the Second Training Pitch ---
+    const two = secondGroupOpen(data());
+    if (two) {
+      const n = data().squad.players.filter((p) => groupOf(p, tr, data()) === 2).length;
+      if (ctx) {
+        text(ctx, 'Second pitch · Group 2', PAD, y, { size: S.heading, bold: true, maxWidth: cw * 0.6 });
+        text(ctx, `${n} player${n === 1 ? '' : 's'}`, PAD + cw, y + 10, { size: S.small, bold: true, color: C.actionDark, align: 'right', maxWidth: cw * 0.4 });
+      }
+      y += 64;
+      const gr = { x: PAD, y, w: cw, h: BH };
+      if (ctx) drawButton(ctx, gr, `Group 2 session: ${focusById(tr.group2.focus).name}`, { accent: C.purple });
+      box(gr, { kind: 'group2focus' }, 'group2:focus');
+      y += BH + 16;
+      if (ctx) text(ctx, `Pitch 2 trains this, not the team session · Head Coach at ${Math.round(GROUPS.coachShare * 100)}% there`, PAD, y, { size: S.small, color: C.textMuted, maxWidth: cw });
+      y += 70;
+    }
     // --- the players ---
     if (ctx) {
       text(ctx, 'Players', PAD, y, { size: S.heading, bold: true });
@@ -128,6 +148,8 @@ export function createTrainingScreen({ layout, assets, sheet, club, onBack, onPl
     for (const p of players()) {
       const r = { x: PAD, y, w: cw, h: ROW_H };
       const fb = { x: r.x + r.w - 250 - 16, y: r.y + 16, w: 250, h: BH };
+      const gb = two ? { x: fb.x - 170 - 12, y: fb.y, w: 170, h: BH } : null; // (M15) Pitch 1 / Pitch 2
+      const nameW = (gb ?? fb).x - r.x - 124;
       if (ctx) {
         card(ctx, r, p.founder ? 'selected' : 'normal', { radius: 22 });
         const pos = POSITIONS[p.position];
@@ -138,10 +160,11 @@ export function createTrainingScreen({ layout, assets, sheet, club, onBack, onPl
         ctx.fill();
         ctx.restore();
         text(ctx, p.position, r.x + 54, r.y + 43, { size: S.small, bold: true, color: '#FFFFFF', align: 'center', baseline: 'middle' });
-        text(ctx, `${p.name}`, r.x + 108, r.y + 32, { size: S.body, bold: true, baseline: 'middle', maxWidth: fb.x - r.x - 124 });
-        const xpNow = dailyXp(p, tr, data().club.founder.id).xp;
+        text(ctx, `${p.name}`, r.x + 108, r.y + 32, { size: S.body, bold: true, baseline: 'middle', maxWidth: nameW });
+        const xpNow = dailyXp(p, tr, data().club.founder.id, data()).xp;
         const last = p.today?.kind === 'train' ? `+${Math.round(p.today.xp)} XP today` : p.today?.kind === 'match' ? 'Match day' : p.today?.kind === 'dayoff' ? 'Day off' : `~${Math.round(xpNow)} XP a day`;
-        text(ctx, `OVR ${overall(p)} · Age ${p.age} · ${last}`, r.x + 108, r.y + 72, { size: S.small, color: C.textMuted, baseline: 'middle', maxWidth: fb.x - r.x - 124 });
+        text(ctx, `OVR ${overall(p)} · Age ${p.age} · ${last}${p.retrain ? ` · → ${p.retrain.to} ${Math.round(p.retrain.progress * 100)}%` : ''}`, r.x + 108, r.y + 72, { size: S.small, color: C.textMuted, baseline: 'middle', maxWidth: nameW });
+        if (gb) drawButton(ctx, gb, groupOf(p, tr, data()) === 2 ? 'Pitch 2' : 'Pitch 1', { accent: groupOf(p, tr, data()) === 2 ? C.purple : C.progress, font: font(S.small, true) });
         const ind = p.focus ? focusById(p.focus).name.replace(' / Recovery', '') : 'Team only';
         drawButton(ctx, fb, ind, { accent: p.focus === 'rest' ? C.good : p.focus ? C.purple : C.progress, font: font(S.small, true) });
         const bw = (r.w - 32 - GAP * 2) / 3;
@@ -151,6 +174,7 @@ export function createTrainingScreen({ layout, assets, sheet, club, onBack, onPl
         bar(ctx, r.x + 16 + (bw + GAP) * 2, by, bw, `Morale ${Math.round(p.morale)}`, p.morale, 0, 100, C.progress);
       }
       box(fb, { kind: 'individual', id: p.id }, `ind:${p.id}`);
+      if (gb) box(gb, { kind: 'group', id: p.id }, `group:${p.id}`);
       box(r, { kind: 'player', id: p.id }, `row:${p.id}`);
       y += ROW_H + GAP;
     }
@@ -176,8 +200,24 @@ export function createTrainingScreen({ layout, assets, sheet, club, onBack, onPl
     }));
   }
 
+  // (M15) Group 2's session (a standard sheet; Rest is a valid choice).
+  function pickGroup2() {
+    sheet.open(() => {
+      const tr = training();
+      if (!tr) return null;
+      return {
+        title: 'Group 2 session',
+        subtitle: 'What the players on the Second Training Pitch train (the team session stays as it is).',
+        art: focusById(tr.group2.focus).art,
+        accent: C.purple,
+        sections: [{ buttons: FOCUSES.map((f) => ({ id: `g2:${f.id}`, label: `${tr.group2.focus === f.id ? '✓ ' : ''}${f.name}`, icon: f.art, selected: tr.group2.focus === f.id, accent: f.rest ? C.good : C.purple, onTap: () => ((tr.group2.focus = f.id), sheet.close()) })) }],
+      };
+    });
+  }
+
   const screen = {
-    // Tests: 'back', 'focus:<id>', 'intensity:<id>', 'ind:<playerId>', 'row:<playerId>' → screen rect (null off the panel)
+    pickGroup2,
+    // Tests: 'back', 'group2:focus', 'group:<playerId>', 'focus:<id>', 'intensity:<id>', 'ind:<playerId>', 'row:<playerId>' → screen rect (null off the panel)
     rectOf(id) {
       if (id === 'back') return headerRect();
       const rects = {};
@@ -224,6 +264,8 @@ export function createTrainingScreen({ layout, assets, sheet, club, onBack, onPl
       if (hit.kind === 'team') tr.focus = hit.id;
       else if (hit.kind === 'intensity') tr.intensity = hit.id;
       else if (hit.kind === 'individual') pickIndividual(data().squad.players.find((x) => x.id === hit.id));
+      else if (hit.kind === 'group') setGroup(data(), hit.id, groupOf(data().squad.players.find((x) => x.id === hit.id), tr, data()) === 2 ? 1 : 2);
+      else if (hit.kind === 'group2focus') pickGroup2();
       else if (hit.kind === 'player') onPlayer(hit.id);
     },
     render(ctx) {

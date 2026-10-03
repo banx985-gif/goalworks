@@ -25,6 +25,7 @@
 // (1 / 2 / 3, an arrow while an upgrade is under way) on every facility that levels.
 //   createClubScreen({ renderer, layout, assets, bus, sheet, club, onMenu, debug, calendar, onMatchSetup, extraSections,
 //                      onTeam, onShop, detailSheet, confirm, onLayoutChanged, showMenu, onNavMenu, hint, lowFx, staffSheet })
+// Milestone 15: academy players drill at the Academy Building / Youth Corner like the squad (src/systems/complexWorld.js).
 // Milestone 14: the hired staff stand and work at their stations (src/systems/complexWorld.js), drawn like the Founder
 // (core/CharacterMotion: a walking bob, a small working tilt), with a name tag in their role colour; tapping one opens
 // their Staff card (staffSheet(staffId) → the sheet menu, from main).
@@ -64,6 +65,7 @@ const DETAIL_STEPS = [0.35, 0.5, 0.7, 1.0, 1.4];
 const detailFor = (zoom) => DETAIL_STEPS.find((d) => d >= zoom - 1e-3) ?? DETAIL_STEPS[DETAIL_STEPS.length - 1];
 const TOP_OVERHANG = 420; // room above the grid's back corner for a building's roof and the pitch's floodlights
 const fmt = (n) => Math.round(n).toLocaleString('en-GB');
+const figureNo = (id) => [...String(id)].reduce((n, ch) => n + ch.charCodeAt(0), 0); // a steady body for a player without a shirt
 
 export function createClubScreen({ renderer, layout, assets, bus, sheet, club, onMenu, debug = null, calendar = () => null, onMatchSetup = () => {}, extraSections = () => [], onTeam = () => {}, onResearch = () => {}, onShop = () => {}, detailSheet = null, confirm = null, onLayoutChanged = () => {}, showMenu = () => false, onNavMenu = () => {}, menuIcon = null, hint = null, lowFx = () => false, staffSheet = null }) {
   const W = renderer.width;
@@ -1111,7 +1113,7 @@ export function createClubScreen({ renderer, layout, assets, bus, sheet, club, o
     const kit = kitFromColour(colourById(c.colours.primary).hex);
     kit.shorts = colourById(c.colours.secondary).hex;
     const gk = it.p.position === 'GK';
-    const body = gk ? KEEPER_BODIES[0] : FRONT_BODIES[(it.p.shirt ?? 0) % FRONT_BODIES.length];
+    const body = gk ? KEEPER_BODIES[0] : FRONT_BODIES[(it.p.shirt ?? figureNo(it.p.id)) % FRONT_BODIES.length]; // (M15: academy players have no shirt number yet)
     const key = bodyKey(assets, body, kit);
     const f = iso.toWorld(it.x, it.y);
     const h = DRILL.height;
@@ -1121,7 +1123,7 @@ export function createClubScreen({ renderer, layout, assets, bus, sheet, club, o
     ctx.ellipse(f.x, f.y, HW * 0.15, HH * 0.15, 0, 0, Math.PI * 2);
     ctx.fill();
     ctx.restore();
-    characterPose({ state: lowFx() ? 'idle' : it.walking ? 'walking' : it.working ? 'working' : 'idle', facing: it.face }, lowFx() ? 0 : time, (it.p.shirt ?? 0) + 3, drillPose);
+    characterPose({ state: lowFx() ? 'idle' : it.walking ? 'walking' : it.working ? 'working' : 'idle', facing: it.face }, lowFx() ? 0 : time, (it.p.shirt ?? figureNo(it.p.id)) + 3, drillPose);
     drawCharacter(ctx, assets, key, f.x, f.y + h * 0.06, h, h, drillPose);
     audit.note(`d:${it.id}`, key);
     const head = BODY_ART[body]?.head;

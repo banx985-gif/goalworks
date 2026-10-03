@@ -136,7 +136,7 @@ export function createSquadScreen({ layout, assets, sheet, club, onBack, onTrain
       y += 20;
     };
     section('Senior squad', `${sq.players.length} players`, sq.players);
-    section('Watch list', 'reserve / youth', sq.watch);
+    if (sq.watch?.length) section('Watch list', 'reserve / youth · the first academy trials', sq.watch); // (M15: they go to the first trials)
     return { height: y + PAD, hit };
   }
 
@@ -165,7 +165,7 @@ export function createSquadScreen({ layout, assets, sheet, club, onBack, onTrain
             { label: 'Form', value: (p.form ?? 0) - FORM.min, max: FORM.max - FORM.min, color: (p.form ?? 0) >= 0 ? C.good : C.bad, text: `${(p.form ?? 0) > 0 ? '+' : ''}${(p.form ?? 0).toFixed(1)}` },
             { label: 'Morale', value: Math.round(p.morale ?? 50), max: 100, color: C.progress },
           ],
-          lines: p.watch ? ['On the watch list: not training with the squad.'] : [trainingLine(p), ...((p.risk ?? 0) > 0 ? [`Injury risk: ${Math.round(p.risk * 100)}% (injuries arrive later)`] : [])],
+          lines: p.watch ? ['On the watch list: not training with the squad (the first academy trials take him).'] : [trainingLine(p), ...(p.retrain ? [`Retraining as a ${POSITIONS[p.retrain.to].name}: ${Math.round(p.retrain.progress * 100)}% (fastest in Position Learning)`] : []), ...((p.risk ?? 0) > 0 ? [`Injury risk: ${Math.round(p.risk * 100)}% (injuries arrive later)`] : [])],
         },
         {
           title: 'Contract',
@@ -174,6 +174,7 @@ export function createSquadScreen({ layout, assets, sheet, club, onBack, onTrain
             ...(c.clause ? [`Release clause: ${c.clause.toLocaleString('en-GB')} Credits`] : []),
             ...(c.promised ? [`Promised a ${c.role} role: he expects to play.`] : []),
             `Potential: ${p.potential.low}–${p.potential.high}`,
+            ...(p.youth?.promotedDay != null ? [`Academy graduate (the Year ${p.youth.intakeYear} trials)`] : []), // (M15)
           ],
           buttons: onContract && !p.watch ? [{ id: 'contract', label: 'Manage contract', sub: 'Renew · release · sell · loan out', accent: C.action, onTap: () => onContract(p.id) }] : [],
           columns: 1,

@@ -13,7 +13,7 @@ export const STAFF_ROLES = [
   { id: 'HC', name: 'Head Coach', short: 'Coach', stations: ['F01', 'F11'], verb: 'Coaching', colour: '#E0533D', line: 'Runs training: better sessions, tactics that sink in, faster young players.' },
   { id: 'SC', name: 'Scout', short: 'Scout', stations: ['F04', 'F25'], verb: 'Reading reports', colour: '#D4A017', line: 'Goes out on scouting reports: closer ranges, more names, rarer finds.' },
   { id: 'PH', name: 'Physio', short: 'Physio', stations: ['F05', 'F15', 'F22'], verb: 'Treating players', colour: '#2E86C1', line: 'Keeps the squad fresh: faster recovery, less fatigue (injuries: M25).' },
-  { id: 'YC', name: 'Youth Coach', short: 'Youth', stations: ['F09', 'F14', 'F26'], verb: 'Working with the youth', colour: '#3FA34D', line: 'Brings on the academy’s young players (the academy opens in M15).' },
+  { id: 'YC', name: 'Youth Coach', short: 'Youth', stations: ['F09', 'F14', 'F26'], verb: 'Working with the youth', colour: '#3FA34D', line: 'Brings on the academy’s young players: more XP, faster position learning, potential read better.' },
   { id: 'AN', name: 'Analyst', short: 'Analyst', stations: ['F13', 'F24', 'F08'], verb: 'Studying match video', colour: '#7D3C98', line: 'Prepares each match: opponent clues, preparation, quicker changes in Manage.' },
 ];
 export const STAFF_FALLBACK_STATION = 'F02';
@@ -54,9 +54,9 @@ export const STAFF = [
   S('PH04', 'Dr. Selene Ward', 'Legendary', 'Return Strong', 'recovered players return with +5 morale', 'Secret', [{ key: 'returnMorale', value: 5 }], 'Players back from injury return with +5 morale.'),
   S('PH05', 'Dr. Zero Hale', 'Secret', 'Second Wind', 'one serious injury/season downgrades one severity tier', 'NG+ secret', [{ key: 'secondWind', value: 1 }], 'Once a season a serious injury drops one severity tier.'),
 
-  S('YC01', 'Ben Moss', 'Standard', 'Patient', '+5% academy XP', 'Start', [{ key: 'academyXpPct', value: 5 }], 'Academy players get 5% more XP (stored until the academy opens in M15).'),
-  S('YC02', 'Zoe Grant', 'Rare', 'Position Teacher', 'position learning +10%', 'County', [{ key: 'positionLearnPct', value: 10 }], 'Players learn new positions 10% faster (stored for M15).'),
-  S('YC03', 'Hana Vale', 'Elite', 'Wonderkid Eye', '+10% youth potential reveal accuracy', 'Rank B', [{ key: 'youthRevealPct', value: 10 }], 'Youth potential is read 10% more accurately (stored for M15).'),
+  S('YC01', 'Ben Moss', 'Standard', 'Patient', '+5% academy XP', 'Start', [{ key: 'academyXpPct', value: 5 }], 'Academy players get 5% more XP.'),
+  S('YC02', 'Zoe Grant', 'Rare', 'Position Teacher', 'position learning +10%', 'County', [{ key: 'positionLearnPct', value: 10 }], 'Players retraining to a new position learn it 10% faster.'),
+  S('YC03', 'Hana Vale', 'Elite', 'Wonderkid Eye', '+10% youth potential reveal accuracy', 'Rank B', [{ key: 'youthRevealPct', value: 10 }], 'Youth potential is read 10% more accurately: narrower ranges at the trials and in the academy.'),
   S('YC04', 'Milo Crest', 'Legendary', 'Golden Generation', 'one extra high-potential academy roll every second season', 'Secret', [{ key: 'goldenRoll', value: 1 }], 'One extra high-potential academy roll every second season.'),
   S('YC05', 'Sage Future', 'Secret', 'Prodigy Maker', 'eligible youth can exceed projected potential by +5', 'NG+ secret', [{ key: 'prodigyPotential', value: 5 }], 'Eligible youth can beat their projected potential by up to 5.'),
 
@@ -86,11 +86,11 @@ export const STAFF_EFFECTS = {
   injuryResistPct: { waits: 'M25', what: 'injuries' },
   returnMorale: { waits: 'M25', what: 'injuries' },
   secondWind: { waits: 'M25', what: 'injuries' },
-  academyXpPct: { waits: 'M15', what: 'the academy' },
-  positionLearnPct: { waits: 'M15', what: 'the academy' },
-  youthRevealPct: { waits: 'M15', what: 'the academy' },
-  goldenRoll: { waits: 'M15', what: 'the academy' },
-  prodigyPotential: { waits: 'M15', what: 'the academy' },
+  academyXpPct: { live: true, system: 'academy' }, // (Milestone 15)
+  positionLearnPct: { live: true, system: 'position learning' },
+  youthRevealPct: { live: true, system: 'academy' },
+  goldenRoll: { waits: 'M28', what: 'the Secret Engine' }, // (Legendary / Secret: not in M15)
+  prodigyPotential: { waits: 'M28', what: 'the Secret Engine' },
   evolutionChecks: { waits: 'M28', what: 'ability evolution' },
   hiddenTraitReveal: { waits: 'M28', what: 'hidden traits' },
   secretRumours: { waits: 'M28', what: 'the Secret Engine' },

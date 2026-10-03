@@ -103,11 +103,15 @@ export const EFFECT_KEYS = {
   injuryRecoveryPct: { waits: 'M25', what: 'injuries' },
   injuryPreventionPct: { waits: 'M25', what: 'injuries' },
   kitCare: { waits: 'M23', what: 'the club finances (kit and equipment costs)' },
-  academyIntake: { waits: 'M15', what: 'the academy' },
-  academyFull: { waits: 'M15', what: 'the academy' },
-  youthPotential: { waits: 'M15', what: 'the academy' },
-  physicalCap: { waits: 'M15', what: 'player potential and caps' },
-  trainingGroups: { waits: 'M35', what: 'a second Head Coach (separate training groups)' }, // (M14: one coach per role; no milestone schedules a second — parked for the M35 pass, DECISIONS 3 Oct)
+  // (Milestone 15) the academy (src/systems/academy.js): the trials need a Youth Corner; the Academy Building is the full
+  // youth system, the Elite Academy higher potential rolls
+  academyIntake: { live: true, where: 'The academy: a yearly intake of 3–6 young players at the trials (Month 3)' },
+  academyFull: { live: true, where: 'The full youth system: one more trial player, better rolls, more places, +10% academy XP' },
+  youthPotential: { live: true, where: 'Higher youth potential rolls at the trials' },
+  physicalCap: { waits: 'M16', what: 'player age curves and caps' }, // (M15: not the academy — moved with the age curves, DECISIONS 3 Oct)
+  // (Milestone 15) the second group: the squad splits in two, each with its own focus; one Head Coach covers both, at half
+  // strength on this pitch (DECISIONS 3 Oct)
+  trainingGroups: { live: true, where: 'A second training group: its own session focus on this pitch (the Head Coach at half strength here)' },
   tacticalPrepPct: { live: true, where: 'Match preparation +{v}% (with an Analyst on the staff)' }, // (Milestone 14)
   matchdayIncomePct: { waits: 'M23', what: 'matchday income' },
   fanIncomePct: { waits: 'M23', what: 'fans and fan income' },
