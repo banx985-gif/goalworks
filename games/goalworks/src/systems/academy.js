@@ -17,6 +17,8 @@
 //   canPromote / canLoan / canSign → a plain reason or null      mentorsFor(data, p) → seniors who could mentor him
 //   academyDay(data, day) → events: window | intake | closed | missed | breakthrough | learned | left
 //   validateAcademy(data) → [] or what is wrong (tests, ?debug=1)
+// Milestone 16: the regens of your retired players (data.careers.academyRegens) come to the next trials first, each with
+// the retiree's position and a share of his quality as the projection (youth.regenOf: whose).
 import { Rng } from '../../../../core/Rng.js';
 import { INTAKE, POTENTIAL, YOUTH_SCALE, BREAKTHROUGH, REVEAL, LABELS, PLACES, ACADEMY_XP, DEFAULT_ACADEMY_FOCUS, MENTOR, AGES, YOUTH_LOAN } from '../../data/academy.js';
 import { FEATURED_NAMES, POSITION_ORDER } from '../../data/players.js';
@@ -29,6 +31,7 @@ import { effect } from './effects.js';
 import { facilityLevel } from './facilities.js';
 import { inRole } from './staff.js';
 import { squadCount, freeShirt, log as transferLog, ownerName } from './transfers.js';
+import { takeAcademyRegens } from './careers.js';
 
 const YEAR = 336;
 const MONTH = 28;
@@ -164,17 +167,17 @@ function youthBits(p, projected, year, extra = {}) {
   normalisePlayer(p);
   return p;
 }
-function newCandidate(data, rng, used, year, golden) {
+function newCandidate(data, rng, used, year, golden, regen = null) {
   const A = data.academy;
-  const position = rng.pick(INTAKE.positions);
+  const position = regen?.position ?? rng.pick(INTAKE.positions);
   const age = rng.int(...INTAKE.ages);
-  let proj = rollPotential(data, rng, golden);
+  let proj = regen ? regen.potential : rollPotential(data, rng, golden);
   const tier = proj >= POTENTIAL.rareFrom ? 'Rare' : 'Standard';
   const p = generatePlayer(rng, { id: `y${A.nextId++}`, position, tier, ageRange: [age, age], area: data.club?.area ?? 'fen', usedNames: used });
   const k = YOUTH_SCALE[age] ?? 0.9; // a youngster has not grown into an adult's stats yet
   for (const s of Object.keys(p.stats)) p.stats[s] = Math.max(8, Math.round(p.stats[s] * k));
   proj = Math.min(POTENTIAL.cap, Math.max(proj, overall(p) + POTENTIAL.room));
-  return youthBits(p, proj, year);
+  return youthBits(p, proj, year, regen ? { regenOf: regen.of } : {});
 }
 // The trial players for this year's intake (seeded by the run and the year). The first intake takes the M7 watch list
 // (they leave the watch list now) and still has at least one new face.
@@ -193,6 +196,8 @@ export function generateIntake(data, year) {
     }
     data.squad.watch = [];
   }
+  // (M16) the regens of your retired players come to these trials first (they take the places of new faces)
+  for (const r of takeAcademyRegens(data, Math.min(n, INTAKE.max) - out.length)) out.push(newCandidate(data, rng, used, year, false, r));
   const fresh = Math.max(INTAKE.newFromWatch * (out.length ? 1 : 0), n - out.length);
   for (let i = 0; i < fresh && out.length < INTAKE.max; i++) out.push(newCandidate(data, rng, used, year, golden));
   return { candidates: out, golden };

@@ -17,6 +17,10 @@
 // Milestone 15: an academy player can be loaned out too (src/systems/academy.js loanOut: loanedOut entries with academy:
 // true) — he is not counted against the senior squad and comes back to the academy, not the senior squad. Names stay
 // unique across the academy and the trials as well.
+// Milestone 16: the season's end also retires players (src/systems/careers.js seasonRetire, before the contracts count
+// down: yours as announced, the world by the bible's windows, each with a regen) and, once everyone is a year older, grows
+// the world's players and declines the old ones (seasonAge; the oldest free agents now retire instead of just leaving).
+// A player who has announced his retirement can't be renewed or signed on a pre-contract.
 // Every finished deal returns { ok: true, autosave: true } so the game saves at once (bible §36).
 import { Rng } from '../../../../core/Rng.js';
 import { VALUE, CONTRACT_TERMS, NEGOTIATION, SQUAD_RULES, LOAN, POOL, AI, WAGES, PROMISE } from '../../data/transfers.js';
@@ -29,6 +33,7 @@ import { normaliseLeague, rank as clubRank } from './league.js';
 import { createTalk, respond, askTerms } from './negotiation.js';
 import { normaliseScouting, scoutDay } from './scouting.js';
 import { scoutingFac } from './effects.js';
+import { seasonRetire, seasonAge } from './careers.js';
 
 const YEAR = 336;
 const WEEK = 7;
@@ -109,7 +114,7 @@ function listOf(data, owner) {
   const T = data.transfers;
   return owner === 'us' ? data.squad.players : owner === 'free' ? T.free : owner === 'market' ? T.market : T.clubs[owner]?.players;
 }
-function take(data, owner, p) {
+export function take(data, owner, p) {
   const list = listOf(data, owner);
   const i = list.indexOf(p);
   if (i >= 0) list.splice(i, 1);
@@ -204,7 +209,8 @@ export function canTalk(data, kind, p, owner, day) {
   if (!p) return 'That player is no longer available.';
   const cd = data.transfers.talks[talkKey(kind, p.id)]?.cooldownUntil ?? -1;
   if (cd > day) return `They will not talk again for ${cd - day} day${cd - day === 1 ? '' : 's'}.`;
-  if (kind === 'renew') return owner !== 'us' ? 'Not your player.' : p.loan ? `He is on loan from ${ownerName(p.loan.from)}.` : null;
+  if (kind === 'renew') return owner !== 'us' ? 'Not your player.' : p.loan ? `He is on loan from ${ownerName(p.loan.from)}.` : p.retiring ? 'He retires at the end of the season.' : null;
+  if (p.retiring && kind === 'pre') return 'He retires at the end of the season.';
   if (owner === 'us') return 'He already plays for you.';
   if (p.preContract) return 'He has already agreed to join another club.';
   if (p.loan) return 'He is out on loan.';
@@ -324,7 +330,7 @@ function joinUs(data, p, day) {
   delete data.transfers.scouting.knowledge[p.id]; // known exactly now
   data.squad.players.push(p);
 }
-function purgeTactics(data, id) {
+export function purgeTactics(data, id) {
   for (const set of Object.values(data.tactics?.lineup ?? {})) for (const [slot, pid] of Object.entries(set)) if (pid === id) delete set[slot];
   data.transfers.listed = data.transfers.listed.filter((x) => x !== id);
   data.transfers.bids = data.transfers.bids.filter((b) => b.playerId !== id);
@@ -673,8 +679,8 @@ function refreshPools(data, day, rng) {
     ['market', POOL.market],
   ]) {
     const list = T[key];
-    // a few sign elsewhere (never one you are scouting closely or talking to)
-    for (const p of list.slice()) if (rng.next() < POOL.refreshShare && !T.talks[`free:${p.id}`]?.state && !T.talks[`transfer:${p.id}`]?.state) list.splice(list.indexOf(p), 1);
+    // a few sign elsewhere (never one you are scouting closely or talking to; (M16) never on the day he became free)
+    for (const p of list.slice()) if (rng.next() < POOL.refreshShare && p.leftDay !== day && !T.talks[`free:${p.id}`]?.state && !T.talks[`transfer:${p.id}`]?.state) list.splice(list.indexOf(p), 1);
     while (list.length < cfg.target) list.push(genPlayer(data, rng, { kind: key }));
     while (list.length > cfg.max) list.splice(list.reduce((oi, p, i) => (p.age > list[oi].age ? i : oi), 0), 1);
   }
@@ -693,6 +699,7 @@ function seasonEnd(data, day, rng) {
     log(data, day, `${p.name} arrives on his pre-contract from ${ownerName(owner)}.`);
   }
   T.pending = [];
+  seasonRetire(data, day); // (M16) the season's retirements, each with a regen
   // your contracts count down; those that end leave (the Founder re-signs: he stays with the club)
   for (const p of data.squad.players.slice()) {
     if (p.loan) continue;
@@ -721,10 +728,10 @@ function seasonEnd(data, day, rng) {
     }
   }
   for (const p of T.market) if ((p.contract.years -= 1) <= 0) p.contract.years = rng.int(1, 3);
-  // everyone a season older (the watch list waits for the academy, M15); the oldest free agents leave the game
+  // everyone a season older (the watch list waits for the academy, M15); (M16) then growth and decline, and the oldest free
+  // agents retire
   for (const p of [...data.squad.players, ...Object.values(T.clubs).flatMap((c) => c.players), ...T.free, ...T.market]) p.age += 1;
-  T.free = T.free.filter((p) => p.age < POOL.freeAgentLeaveAge);
-  T.market = T.market.filter((p) => p.age < POOL.freeAgentLeaveAge);
+  seasonAge(data, day);
 }
 
 // After a match: a player promised a Starter / Star role who sat it out loses morale on top of the M8 benched hit.

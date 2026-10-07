@@ -8,6 +8,8 @@
 // players are known exactly), and a Manage contract button (renew, release, sell, loan out — the Transfers flows).
 // Milestone 8: a Training button opens the Training screen; each row shows fatigue; Player Detail gains a
 // Condition section (fatigue, form, morale, injury risk stored for later) and the player's training.
+// Milestone 16: a player who has announced his retirement says "last season" on his row and wears a LAST SEASON tag;
+// Player Detail gains "At the club" (appearances, goals, assists, clean sheets since M16).
 //   createSquadScreen({ layout, assets, sheet, club, onBack, onTraining })   club() → the open campaign { data } or null
 import { THEME } from '../../../../core/Theme.js';
 import { ScrollPanel } from '../../../../core/ui/ScrollPanel.js';
@@ -20,6 +22,7 @@ import { focusById, FATIGUE, FORM } from '../../data/training.js';
 import { normaliseTraining } from '../systems/training.js';
 import { drawSilhouette } from '../ui/clubArt.js';
 import { silhouetteKey } from '../ui/kitArt.js';
+import { CAREER_TEXT } from '../../data/careers.js';
 
 const C = THEME.color;
 const S = THEME.size;
@@ -96,7 +99,8 @@ export function createSquadScreen({ layout, assets, sheet, club, onBack, onTrain
     text(ctx, p.position, tx + 38, r.y + 101, { size: S.small, bold: true, color: '#FFFFFF', align: 'center', baseline: 'middle' });
     const role = p.founder ? `Founder · ${p.contract.role}` : p.loan ? `On loan · ${p.contract.role}` : p.contract.role;
     const tired = p.fatigue > FATIGUE.riskFrom ? ' · tired' : '';
-    text(ctx, `Age ${p.age} · ${role}${tired}`, tx + 92, r.y + 101, { size: S.small, color: tired ? C.bad : C.textMuted, baseline: 'middle', maxWidth: tw - 92 });
+    const last = p.retiring ? ' · last season' : ''; // (M16) he retires at the season's end
+    text(ctx, `Age ${p.age} · ${role}${last}${tired}`, tx + 92, r.y + 101, { size: S.small, color: tired || last ? C.bad : C.textMuted, baseline: 'middle', maxWidth: tw - 92 });
     // the overall
     const o = { x: r.x + r.w - ovrW - 18, y: r.y + 20, w: ovrW, h: r.h - 40 };
     ctx.save();
@@ -152,11 +156,12 @@ export function createSquadScreen({ layout, assets, sheet, club, onBack, onTrain
       subtitle: `${pos.name} · Age ${p.age} · ${p.tier} · Level ${p.level} · Overall ${overall(p)}`,
       art,
       accent: pos.colour,
-      tag: p.founder ? { text: 'FOUNDER', color: C.purple } : p.watch ? { text: 'WATCH LIST' } : { text: c.role.toUpperCase() },
+      tag: p.retiring ? { text: CAREER_TEXT.lastSeason, color: C.bad } : p.founder ? { text: 'FOUNDER', color: C.purple } : p.watch ? { text: 'WATCH LIST' } : { text: c.role.toUpperCase() },
       sections: [
         { title: 'Core stats', bars: CORE.map((k) => ({ label: `${k} · ${CORE_NAMES[k]}`, value: p.stats[k], max: 100, color: pos.colour })) },
         { title: 'Ratings', bars: DERIVED_KEYS.map((k) => ({ label: k, value: d[k], max: 100, color: C.progress })) },
         { title: 'Trait', lines: [p.trait, ...(p.founder ? [`Founder Perk: ${founderById(p.featuredId).perk.name} — ${founderById(p.featuredId).perk.text}`] : [])] },
+        ...careerSection(p), // (M16) at the club: appearances, goals, assists, clean sheets; retiring
         ...detailExtra(p), // (M12c) Items: "Loves: …", items received, Give an item
         {
           title: 'Condition',
@@ -181,6 +186,13 @@ export function createSquadScreen({ layout, assets, sheet, club, onBack, onTrain
         },
       ],
     };
+  }
+  // (M16) His career at the club (counted from Milestone 16 on) and, once announced, his retirement.
+  function careerSection(p) {
+    if (p.watch || !p.career) return [];
+    const c = p.career;
+    const keeper = p.position === 'GK' || p.position === 'DF';
+    return [{ title: 'At the club', lines: [`${c.apps} appearance${c.apps === 1 ? '' : 's'} · ${c.goals} goal${c.goals === 1 ? '' : 's'} · ${c.assists} assist${c.assists === 1 ? '' : 's'}${keeper ? ` · ${c.cleanSheets} clean sheet${c.cleanSheets === 1 ? '' : 's'}` : ''}`, ...(p.retiring ? ['Last season: he retires when it ends.'] : [])] }];
   }
   function trainingLine(p) {
     const tr = club()?.data ? normaliseTraining(club().data) : null;

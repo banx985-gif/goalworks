@@ -108,7 +108,8 @@ export const EFFECT_KEYS = {
   academyIntake: { live: true, where: 'The academy: a yearly intake of 3–6 young players at the trials (Month 3)' },
   academyFull: { live: true, where: 'The full youth system: one more trial player, better rolls, more places, +10% academy XP' },
   youthPotential: { live: true, where: 'Higher youth potential rolls at the trials' },
-  physicalCap: { waits: 'M16', what: 'player age curves and caps' }, // (M15: not the academy — moved with the age curves, DECISIONS 3 Oct)
+  // (Milestone 16) slows your older players' Physical decline (src/systems/careers.js, data/careers.js DECLINE.strength)
+  physicalCap: { live: true, where: 'Physical cap training: your players from 30 (keepers 33) lose PHY more slowly (−25% at level 1, −37% at 2, −50% at 3)' },
   // (Milestone 15) the second group: the squad splits in two, each with its own focus; one Head Coach covers both, at half
   // strength on this pitch (DECISIONS 3 Oct)
   trainingGroups: { live: true, where: 'A second training group: its own session focus on this pitch (the Head Coach at half strength here)' },

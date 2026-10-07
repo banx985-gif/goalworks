@@ -26,6 +26,9 @@ export const ASSETS = {
   // Milestone 13: the Research icon and the six branch icons (Batch 6 UI).
   // Milestone 12b: the Club Menu's icons (M14: Staff, ui_02; Team, Develop, Transfer, League, Match Play, Achievement, Rumour).
   ...Object.fromEntries(['ui_02', 'ui_26', 'ui_08', 'ui_09', 'ui_12', 'ui_13', 'ui_07', 'ui_05', 'ui_01', 'ui_03', 'ui_10', 'ui_19', 'ui_30', 'ui_27', 'ui_28'].map((k) => [k, `assets/images/ui/${k}.png`])),
+  // Milestone 16: the Hall of Fame — its Menu icon, the plaque and the legend shirt display (Batch 6).
+  ...Object.fromEntries(['ui_29'].map((k) => [k, `assets/images/ui/${k}.png`])),
+  ...Object.fromEntries(['trophy_17', 'trophy_18'].map((k) => art('trophies', k))),
   // Milestone 0 loader test (?screen=test): the placeholder PWA icon as a real image, and one deliberately missing file.
   m0Real: 'assets/branding/pwa/icon-192.png',
   m0Missing: 'assets/m0-missing-test.png',

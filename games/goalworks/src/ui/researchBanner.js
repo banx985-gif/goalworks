@@ -2,7 +2,8 @@
 // Research icon, the node and what it gives. Several in a row wait their turn. It never takes a tap.
 // Milestone 12c: the same banner announces an item arriving and a finished facility upgrade — a node may carry its own
 // title, line, icon and colour ({ id, title, line, gives, icon, color }).
-//   createResearchBanner({ layout, assets }) → { show(node), update(dt), render(ctx), active, current, shown }
+//   createResearchBanner({ layout, assets }) → { show(node), update(dt), render(ctx), active, current, shown, clear() }
+// (M16) clear(): drop the waiting banners and the one on screen (tests, after fast-forwarding a season).
 import { THEME, font } from '../../../../core/Theme.js';
 import { RESEARCH_ICON } from '../../data/research.js';
 
@@ -23,6 +24,10 @@ export function createResearchBanner({ layout, assets }) {
   return {
     show(node) {
       if (node) queue.push(node);
+    },
+    clear() {
+      queue.length = 0;
+      cur = null;
     },
     get active() {
       return !!cur || queue.length > 0;

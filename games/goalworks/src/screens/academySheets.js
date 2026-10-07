@@ -121,7 +121,7 @@ export function createAcademySheets({ sheet, dialog, assets, run, today = () => 
       tag: { text: 'AT THE TRIALS', color: C.good },
       sections: [
         ...msgSection(),
-        { title: 'Potential', lines: [`${r.low}–${r.high} · ${r.label}`, `Read to about ±${Math.ceil(r.width / 2)}: the exact number stays hidden.`, ...(p.youth.fromWatch ? ['On your youth watch list since the club began.'] : [])] },
+        { title: 'Potential', lines: [`${r.low}–${r.high} · ${r.label}`, `Read to about ±${Math.ceil(r.width / 2)}: the exact number stays hidden.`, ...(p.youth.fromWatch ? ['On your youth watch list since the club began.'] : []), ...(p.youth.regenOf ? [`A new face in the mould of ${p.youth.regenOf}, who retired from your club.`] : [])] }, // (M16) a regen
         { title: 'Core stats', bars: CORE.map((k) => ({ label: `${k} · ${CORE_NAMES[k]}`, value: p.stats[k], max: 100, color: POSITIONS[p.position].colour })) },
         { title: 'Trait', lines: [p.trait] },
         { columns: 1, buttons: [

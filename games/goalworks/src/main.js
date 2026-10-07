@@ -89,6 +89,11 @@
 // Academy sheet (Club Menu → Academy, the Youth Corner / Academy Building / Elite Academy). Saved in the run: data.academy
 // (an older save: empty, its first trials at the next window). The Second Training Pitch now splits training into two
 // groups (the Training screen), and the hint line says where to hire a Head Coach / a Scout.
+// Milestone 16: careers (src/systems/careers.js, data/careers.js; the sheets in src/screens/hallOfFameSheets.js). Every
+// match counts appearances, goals, assists and clean sheets; at the season's end the world's players grow (inside their
+// club's band) and the old ones decline (from 30, keepers 33; the Strength Centre slows yours); players retire inside the
+// bible's windows (yours announce it four weeks ahead: a banner, a "Last season" tag), each leaving a regen behind; a
+// retired legend of yours goes into the Hall of Fame in the account save (Club Menu → Hall of Fame), which every club sees.
 // Add ?debug=1 for the FPS/state overlay, ?screen=test for the scaling / tap / asset-loader test screen, ?screen=match
 // (&seed=…, &mode=watch|manage|play, &km=1 for Key Moment prompts, &stats=35,70 for flat home,away test stats) for a
 // test match between two test teams (never saved). With ?debug=1, &safe=phone|tablet stands in a notch and home bar (safe-area insets) on any screen.
@@ -167,6 +172,8 @@ import { facilityById } from '../data/facilities.js';
 import { normaliseStaff, staffDay, inRole as staffInRole, candidates as staffCandidates, eligibility as staffEligibility } from './systems/staff.js';
 import * as AC from './systems/academy.js';
 import { createAcademySheets } from './screens/academySheets.js';
+import * as CA from './systems/careers.js';
+import { createHallOfFameSheets } from './screens/hallOfFameSheets.js';
 import { POSITIONS as POS_NAMES } from '../data/setup.js';
 import { createStaffSheets } from './screens/staffSheets.js';
 import { STAFF, staffById, roleById, STAFF_TIERS } from '../data/staff.js';
@@ -371,7 +378,18 @@ function openRun(n, data) {
   // (an M14 save: an empty academy; its first trials are at the next window)
   if (data.academy?.v !== 15) setTimeout(() => autosave.request('academy:start'), 0);
   AC.normaliseAcademy(data, data.calendar?.clock?.totalDays ?? 0);
+  // (an M15 save: careers start now — every player's appearances count from today; ages carry on as before)
+  if (!data.careers) setTimeout(() => autosave.request('careers:start'), 0);
+  CA.normaliseCareers(data, data.calendar?.clock?.totalDays ?? 0);
+  syncHallOfFame(data);
   open = { n, data, layout: createLayout(data, { bus }), research: createResearch(data, { bus }), items: createItems(data, { bus }), calendar: createCalendar({ bus, saved: data.calendar ?? null, flags: speedFlags(), isIssued: (o) => !!open && LG.isIssued(open.data, o) }), setupShown: false };
+}
+// Milestone 16: the run's Hall of Famers go into the account save (they survive new games and other slots). Checked when a
+// club opens and when one is inducted, so a closed app can't lose one.
+function syncHallOfFame(data) {
+  if (!campaigns || !CA.syncAccountHof(account, data)) return;
+  campaigns.slots.saveAccount(account).catch((err) => debug.log(`account save failed: ${err?.message ?? err}`));
+  debug.log(`hall of fame: ${account.hallOfFame.length} in the account`);
 }
 // The run save: the calendar written into the campaign data (and the date on the slot card).
 function saveRun() {
@@ -398,6 +416,7 @@ bus.on('clock:day', () => {
   LG.leagueDay(open.data, c.clock.totalDays); // (M10) clubs issue / expire challenges; the Promotion Match once unlocked
   for (const e of staffDay(open.data, c.clock.totalDays)) staffLeft(e); // (M14) staff wages each week; contracts at the season's end
   TR.transfersDay(open.data, c.clock.totalDays); // (M11) scouting, bids, loans, wages, the AI clubs' moves, the season's end
+  for (const e of CA.careersDay(open.data, c.clock.totalDays)) careerEvent(e); // (M16) retirements announced / done, the Hall of Fame
   if (open.layout.sync()) debug.log(`the ground grows: ${open.layout.stage.name} ${open.layout.stage.cols}×${open.layout.stage.rows}`); // (M12) by the Club Rank
   // (M11) contracts ending: one warning a season, from Month 9
   const T = open.data.transfers;
@@ -431,6 +450,17 @@ function academyEvent(e) {
   else if (e.kind === 'learned') show('Position learned', `${e.name} is now a ${POS_NAMES[e.to]?.name ?? e.to}`, 'Retraining complete', COL.progress, 'training_tactic_08');
   else if (e.kind === 'left') show('Left the academy', `${e.name} (${e.age})`, 'Too old for the academy: promote prospects by 19', COL.bad);
   debug.log(`academy: ${e.kind}${e.name ? ` ${e.name}` : ''}${e.n ? ` (${e.n})` : ''}`);
+}
+// Milestone 16: a player of yours announces his retirement (four weeks ahead), retires, goes into the Hall of Fame.
+function careerEvent(e) {
+  const id = `career:${e.kind}:${e.id}:${open?.calendar.today}`;
+  if (e.kind === 'announce') researchBanner.show({ id, title: 'Last season', line: `${e.name} (${e.age}) will retire`, gives: 'At the end of the season · plan for his place', icon: 'ui_29', color: COL.bad });
+  else if (e.kind === 'retired' && !e.hof) researchBanner.show({ id, title: 'Retired', line: `${e.name} has hung up his boots`, gives: 'Thanks for everything · Menu → Hall of Fame', icon: 'ui_29', color: COL.progress });
+  else if (e.kind === 'hof') {
+    researchBanner.show({ id, title: 'Into the Hall of Fame!', line: e.name, gives: e.reasons[0] ?? '', icon: 'trophy_17', color: C_GOLD });
+    syncHallOfFame(open.data);
+  }
+  debug.log(`career: ${e.kind} ${e.name}`);
 }
 // Milestone 14: a staff contract ran out.
 function staffLeft(e) {
@@ -818,6 +848,7 @@ function matchFinished(world) {
   // Milestone 8: the XI tire; form and morale follow the result, minutes and roles
   const xiIds = world.setup.home.players.map((p) => p.id).filter(Boolean);
   if (open.data.squad) applyMatch(open.data, { xiIds, score: r.score, scorers: r.scorers });
+  if (open.data.squad) CA.recordMatch(open.data, { xiIds, score: r.score, scorers: r.scorers }); // (M16) career stats, club records
   if (open.data.transfers) TR.afterMatch(open.data, xiIds); // (M11) a promised role not met: morale
   // (M9) familiarity: the formation / style the match started in
   if (world.setup.formation) familiarityMatch(open.data, pairKey(world.setup.formation[0], world.setup.tactics?.[0]?.build ?? 'balanced'));
@@ -1016,6 +1047,7 @@ const MENU_OPEN = {
   research: () => researchUi.openResearch(),
   staff: () => staffUi.openStaff(), // (M14)
   academy: () => academyUi.openAcademy(), // (M15)
+  hallOfFame: () => hofUi.openHallOfFame(), // (M16)
   settings: () => openSettings(),
   mainMenu: () => leaveClub(),
 };
@@ -1037,6 +1069,11 @@ function menuState(id) {
     if (I?.candidates && AC.intakeOpen(d, open.calendar.today)) return { badge: I.candidates.length || null, sub: `Trials open: ${I.candidates.length} young players · sign up to ${3 - I.signed.length}` };
     if (!AC.placesOf(d)) return { sub: 'No academy yet: build a Youth Corner first' };
     return { sub: `${AC.academyCount(d)} of ${AC.placesOf(d)} places · trials every Month 3` };
+  }
+  if (id === 'hallOfFame') {
+    const n = account.hallOfFame?.length ?? 0;
+    const leaving = open?.data.squad.players.filter((p) => p.retiring).length ?? 0;
+    return { badge: leaving || null, sub: leaving ? `${leaving} player${leaving === 1 ? ' retires' : 's retire'} this season · ${n} legend${n === 1 ? '' : 's'}` : n ? `${n} legend${n === 1 ? '' : 's'} · club records` : 'Club legends and records' };
   }
   if (id === 'clubStore') return openClubStore && open?.items ? { badge: open.items.inventory.length || null } : { hidden: true };
   return {};
@@ -1124,6 +1161,8 @@ const academyUi = createAcademySheets({
   onBuild: () => MENU_OPEN.build(),
   onYouthCoach: () => openStaffRole('YC'),
 });
+// Milestone 16: the Hall of Fame sheets (the account's legends; this club's records and retirements).
+const hofUi = createHallOfFameSheets({ sheet, assets, entries: () => account.hallOfFame ?? [], run: () => open?.data ?? null });
 // Player Detail's Items section: what they love, what they've had, Give an item.
 function playerItemsSection(p) {
   const I = open?.items;
@@ -1216,7 +1255,7 @@ function acceptChallenge(clubId = 'REG01') {
 }
 // ?debug=1: a test hook for automated checks.
 if (debug.enabled) {
-  window.__gw = { renderer, layout, input, loop, router, assets, sheet, dialog, systemBack, textPrompt, splashScreen, menuScreen, slotsScreen, setupScreen, clubScreen, squadScreen, trainingScreen, openTraining, tacticsScreen, openTactics, openMatchTactics, playSlot, startClub, deleteSlot, openShop, setRank, facilityBonus, researchUi, researchBanner, get research() { return open?.research ?? null; }, newGame, openLeague, openCountyOffer, acceptChallenge, issueChallenge, transfers: transfersUi, TR, openMatchSetup, playPlaceholder, kickOff, startTestMatch, matchScreen, restoreMatchWorld, get match() { return match; }, toggleSpeedFlag, autosave, saveRun, canvasLost, canvasLossCount, itemsUi, staffUi, normaliseStaff, academyUi, AC, openStaffRole, facilityLevel: (id) => (open ? facilityLevel(open.data, id) : 0), get items() { return open?.items ?? null; }, settings, governor, lowFx, haptics, hintLine, openNavMenu, MENU_OPEN, menuState, openSettings, get account() { return account; }, taps: [], get campaigns() { return campaigns; }, get open() { return open; } };
+  window.__gw = { renderer, layout, input, loop, router, assets, sheet, dialog, systemBack, textPrompt, splashScreen, menuScreen, slotsScreen, setupScreen, clubScreen, squadScreen, trainingScreen, openTraining, tacticsScreen, openTactics, openMatchTactics, playSlot, startClub, deleteSlot, openShop, setRank, facilityBonus, researchUi, researchBanner, get research() { return open?.research ?? null; }, newGame, openLeague, openCountyOffer, acceptChallenge, issueChallenge, transfers: transfersUi, TR, openMatchSetup, playPlaceholder, kickOff, startTestMatch, matchScreen, restoreMatchWorld, get match() { return match; }, toggleSpeedFlag, autosave, saveRun, canvasLost, canvasLossCount, itemsUi, staffUi, normaliseStaff, academyUi, AC, openStaffRole, hofUi, CA, syncHallOfFame, facilityLevel: (id) => (open ? facilityLevel(open.data, id) : 0), get items() { return open?.items ?? null; }, settings, governor, lowFx, haptics, hintLine, openNavMenu, MENU_OPEN, menuState, openSettings, get account() { return account; }, taps: [], get campaigns() { return campaigns; }, get open() { return open; } };
 }
 
 router.go('boot');

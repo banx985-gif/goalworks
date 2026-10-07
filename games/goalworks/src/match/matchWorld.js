@@ -171,6 +171,7 @@ export function createMatchWorld(setup, { play = null, start = play ? 'play' : '
     ownerSince: 0,
     lastTouch: 0,
     lastToucher: null,
+    lastPass: null, // (M16) { from, to } — the last completed pass (assists)
     pass: null, // { from, to, team } — the intended receiver goes for the ball
     shot: null, // { team, by, step, resolved }
     steps: 0,
@@ -309,8 +310,12 @@ export function createMatchWorld(setup, { play = null, start = play ? 'play' : '
 
     // --- actions the AI calls -----------------------------------------------------------------------------------
     give(p) {
-      if (world.pass && world.pass.team === p.team && world.pass.from !== p) world.stats[p.team].passesDone++;
+      if (world.pass && world.pass.team === p.team && world.pass.from !== p) {
+        world.stats[p.team].passesDone++;
+        world.lastPass = { from: world.pass.from, to: p }; // (M16) the assist, if he scores
+      }
       if (world.possTeam !== p.team) {
+        world.lastPass = null;
         // (M9) the moment a side wins the ball (a counter-attacking side breaks from here)
         world.possTeam = p.team;
         world.wonAt[p.team] = world.steps;
@@ -420,7 +425,11 @@ export function createMatchWorld(setup, { play = null, start = play ? 'play' : '
     world.score[team]++;
     const by = world.lastToucher && world.lastToucher.team === team ? world.lastToucher : world.shot?.by ?? world.lastToucher;
     const own = by && by.team !== team;
-    const entry = { team, name: by ? by.name : 'Unknown', minute: world.minute + 1, own };
+    // (M16) the assist: the last completed pass to the scorer while his side kept the ball
+    const lp = world.lastPass;
+    const assist = !own && by && lp && lp.to === by && lp.from.team === team && lp.from !== by ? lp.from.name : null;
+    world.lastPass = null;
+    const entry = { team, name: by ? by.name : 'Unknown', minute: world.minute + 1, own, assist };
     world.scorers.push(entry);
     world.event({ type: 'goal', team, by: entry.name, own, score: [...world.score] });
     // the ball rests in the net

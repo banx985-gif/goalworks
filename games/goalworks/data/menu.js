@@ -15,6 +15,7 @@ export const MENU_GROUPS = [
     row('staff', 'Staff', 'Hire a head coach, scout, physio, youth coach and analyst', 'ui_02'), // (Milestone 14)
     row('academy', 'Academy', 'Young players: the yearly trials, promote, loan, retrain, mentor', 'ui_12'), // (Milestone 15)
     row('transfers', 'Transfers & Scouting', 'Buy, sell and loan players; send the scout out', 'ui_10'),
+    row('hallOfFame', 'Hall of Fame', 'Club legends, records and this season’s retirements', 'ui_29'), // (Milestone 16)
     row('clubStore', 'Club Store', 'Items the club has earned: give one to a player to raise a stat for good', 'item_25'),
   ] },
   { title: 'Club', rows: [
