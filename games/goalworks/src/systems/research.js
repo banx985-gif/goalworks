@@ -158,22 +158,23 @@ export function createResearch(data, { bus = null } = {}) {
       return completed;
     },
     // What a league result would give (the result screen, before Continue): RP, nothing changed.
-    previewMatch({ clubId, score, promotion = false }) {
+    // (M17) league: the promotion match's league — the first Promotion Match and the first Promotion Playoff each count once
+    previewMatch({ clubId, score, promotion = false, league = 'regional' }) {
       const [us, them] = score;
       const res = us > them ? 'win' : us < them ? 'loss' : 'draw';
       let rp = RP.result[res];
       if (res === 'win' && !(sys.firsts.win ?? []).includes(clubId)) rp += RP.firstWin;
-      if (promotion && !(sys.firsts.promotion ?? []).includes('regional')) rp += RP.firstPromotion;
+      if (promotion && !(sys.firsts.promotion ?? []).includes(league)) rp += RP.firstPromotion;
       return rp;
     },
     // A league result: RP for the result, the first win against each club, the first Promotion Match. → RP gained
-    match({ clubId, score, promotion = false }, day) {
+    match({ clubId, score, promotion = false, league = 'regional' }, day) {
       const [us, them] = score;
       const res = us > them ? 'win' : us < them ? 'loss' : 'draw';
       const name = clubById(clubId)?.name ?? clubId;
       let got = sys.addRp(RP.result[res], `${res === 'win' ? 'Win' : res === 'draw' ? 'Draw' : 'Loss'} vs ${name}`, day);
       if (res === 'win' && sys.firstTime('win', clubId)) got += sys.addRp(RP.firstWin, `First win vs ${name}`, day);
-      if (promotion && sys.firstTime('promotion', 'regional')) got += sys.addRp(RP.firstPromotion, 'First Promotion Match', day);
+      if (promotion && sys.firstTime('promotion', league)) got += sys.addRp(RP.firstPromotion, league === 'regional' ? 'First Promotion Match' : 'First Promotion Playoff', day);
       write();
       return got;
     },

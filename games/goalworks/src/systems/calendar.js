@@ -81,6 +81,7 @@ export function createCalendar({ bus = null, saved = null, flags = {}, sources =
     };
     if (offer.chain) fixture.chain = { id: offer.chain.id, round: offer.chain.round };
     if (offer.offerId) Object.assign(fixture, { offerId: offer.offerId, home: offer.home !== false, promotion: !!offer.promotion }); // (M10)
+    if (offer.cup) fixture.cup = { ...offer.cup }; // (M17) a cup tie (the County Shield): { id, edition, round, name }
     return fixture;
   }
 
@@ -148,6 +149,7 @@ export function createCalendar({ bus = null, saved = null, flags = {}, sources =
       const result = { text, won, ...(score ? { score: [...score] } : {}) };
       const entry = { id: played.id, source: played.source, opponent: played.opponent, matchDay: played.matchDay, playedDay: clock.totalDays, result: result.text };
       if (played.promotion) entry.promotion = true;
+      if (played.cup) entry.cup = { ...played.cup };
       if (score) Object.assign(entry, { score: [...score], scorers: (scorers ?? []).map((s) => ({ ...s })) });
       history.push(entry);
       if (history.length > HISTORY_KEEP) history = history.slice(-HISTORY_KEEP);

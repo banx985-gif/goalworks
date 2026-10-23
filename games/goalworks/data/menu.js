@@ -5,8 +5,9 @@
 const row = (id, label, line, icon) => ({ id, label, line, icon });
 export const MENU_GROUPS = [
   { title: 'League & Matches', rows: [
-    row('league', 'Find a match', 'Regional clubs challenge you: accept one to fix a match day', 'ui_19'),
+    row('league', 'Find a match', 'Clubs in your league challenge you: accept one to fix a match day', 'ui_19'),
     row('matchSetup', 'Match Setup', 'Today is match day: pick Watch, Manage or Play and kick off', 'ui_30'),
+    row('shield', 'County Shield', 'The County cup: the bracket, your next tie and past winners', 'tournament_c02'), // (Milestone 17: shown once in County)
   ] },
   { title: 'Team', rows: [
     row('squad', 'Team / Squad', 'Your players: stats, form, fitness, contracts', 'ui_01'),
@@ -44,4 +45,6 @@ export const NEXT_HINTS = {
   scout: 'Hire a scout at the Scout Desk to find players',
   trials: (n, left) => `${n} young player${n === 1 ? ' is' : 's are'} at the academy trials: tap to sign up to ${left}`, // (M15)
   upgrade: (name) => `The ${name} can be upgraded: tap to see it`,
+  promotion: (name) => `The ${name} offer is waiting: tap to answer it`, // (M17)
+  cupTie: (cup, round, opp) => `${cup} ${round.toLowerCase()} against ${opp} is coming: tap for the bracket`, // (M17)
 };

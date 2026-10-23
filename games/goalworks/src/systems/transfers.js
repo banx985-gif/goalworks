@@ -24,12 +24,13 @@
 // Every finished deal returns { ok: true, autosave: true } so the game saves at once (bible §36).
 import { Rng } from '../../../../core/Rng.js';
 import { VALUE, CONTRACT_TERMS, NEGOTIATION, SQUAD_RULES, LOAN, POOL, AI, WAGES, PROMISE } from '../../data/transfers.js';
-import { ROLES, FEATURED_NAMES, POSITION_ORDER } from '../../data/players.js';
-import { REGIONAL_CLUBS, clubById } from '../../data/fixtures.js';
+import { ROLES, FEATURED_NAMES, POSITION_ORDER, CLUB_AREAS } from '../../data/players.js';
+import { REGIONAL_CLUBS, ALL_CLUBS, clubById } from '../../data/fixtures.js';
+import { LEAGUES } from '../../data/league.js';
 import { overall, generatePlayer, generatedName } from './players.js';
-import { opponentSquad, bestXI, salaryFor, contractFor } from './squad.js';
+import { opponentSquad, bestXI, salaryFor, contractFor, toClubLevel } from './squad.js';
 import { normalisePlayer } from './training.js';
-import { normaliseLeague, rank as clubRank } from './league.js';
+import { normaliseLeague, rank as clubRank, leagueOf } from './league.js';
 import { createTalk, respond, askTerms } from './negotiation.js';
 import { normaliseScouting, scoutDay } from './scouting.js';
 import { scoutingFac } from './effects.js';
@@ -58,8 +59,7 @@ function genPlayer(data, rng, { position = null, area = null, kind = 'free', clu
   const used = new Set([...FEATURED_NAMES, ...allPlayers(data).map((p) => p.name)]);
   const pos = position ?? rng.pick(['GK', 'DF', 'DF', 'DF', 'MF', 'MF', 'MF', 'WG', 'WG', 'FW', 'FW']);
   const p = generatePlayer(rng, { id: `g${T.nextId++}`, position: pos, area: area ?? rng.pick(POOL.areas), usedNames: used });
-  const k = clubId ? clubById(clubId)?.strength ?? 1 : 1;
-  if (k !== 1) for (const key of Object.keys(p.stats)) p.stats[key] = Math.max(10, Math.round(p.stats[key] * k));
+  if (clubId) toClubLevel(p, clubId);
   p.contract = kind === 'free' ? { salary: salaryFor(p, 'Rotation'), years: 0, role: 'Rotation' } : contractFor(rng, p, rng.pick(['Rotation', 'Rotation', 'Starter']));
   p.origin = kind;
   p.shirt = null;
@@ -89,6 +89,21 @@ export function normaliseTransfers(data) {
     T.wageBase = Math.ceil((wageBill(data) * WAGES.supportShare) / WAGES.round) * WAGES.round;
   }
   const T = data.transfers;
+  // (M17) every league's clubs live in the world from the start (they age, retire and regen like the rest); an older save
+  // gets the County clubs' squads once, here
+  const rngMore = new Rng(`${data.seed}:transfers:more`);
+  for (const club of ALL_CLUBS.filter((c) => !T.clubs[c.id])) {
+    const used = new Set([...FEATURED_NAMES, ...allPlayers(data).map((p) => p.name)]);
+    const sq = opponentSquad({ seed: `${data.seed}:club:${club.id}`, clubId: club.id });
+    for (const p of sq.players) {
+      p.id = `g${T.nextId++}`;
+      if (used.has(p.name)) p.name = generatedName(rngMore, CLUB_AREAS[club.id] ?? 'fen', used);
+      used.add(p.name);
+      p.origin = 'club';
+      normalisePlayer(p);
+    }
+    T.clubs[club.id] = { players: sq.players };
+  }
   for (const k of ['free', 'market', 'listed', 'bids', 'pending', 'loanedOut', 'log']) T[k] ??= [];
   T.talks ??= {};
   normaliseScouting(T);
@@ -120,18 +135,25 @@ export function take(data, owner, p) {
   if (i >= 0) list.splice(i, 1);
 }
 
+// (M17) The clubs you deal with: those of your league and the leagues below it (a Regional club doesn't see the County
+// clubs' players yet; they are in the world all the same).
+export function knownClubs(data) {
+  const tier = leagueOf(data).tier;
+  const ids = new Set(LEAGUES.filter((l) => l.tier <= tier).flatMap((l) => l.clubs));
+  return Object.entries(data.transfers.clubs).filter(([cid]) => ids.has(cid));
+}
 // The region's pools for scouting and the Transfers sheet.
 export function pool(data, region) {
   const T = data.transfers;
   if (region === 'free') return T.free;
   if (region === 'market') return T.market;
-  return Object.values(T.clubs).flatMap((c) => c.players.filter((p) => !p.loan && !p.preContract));
+  return knownClubs(data).flatMap(([, c]) => c.players.filter((p) => !p.loan && !p.preContract));
 }
-// Regional players their club could spare on loan (not in its best XI), and everyone at the wider market.
+// League players their club could spare on loan (not in its best XI), and everyone at the wider market.
 export function loanable(data) {
   const T = data.transfers;
   const out = [];
-  for (const [cid, c] of Object.entries(T.clubs)) {
+  for (const [cid, c] of knownClubs(data)) {
     const xi = new Set(bestXI(c.players).map((p) => p?.id));
     for (const p of c.players) if (!xi.has(p.id) && !p.loan && !p.preContract) out.push({ p, owner: cid });
   }
@@ -401,7 +423,11 @@ export function release(data, id, day) {
   log(data, day, `${p.name} released (payout ${fmt(pay)} Credits).`);
   return { ok: true, autosave: true };
 }
+// (M17) A player a club above the Regional League lets go doesn't join the Regional free agents: he finds a club beyond the
+// leagues and leaves the game (the free pool keeps its Regional band; that club signs at its own level instead).
+const UPPER = new Set(LEAGUES.filter((l) => l.tier > 1).flatMap((l) => l.clubs));
 function toFree(data, p, from, day = null) {
+  if (UPPER.has(from)) return;
   p.contract = { salary: p.contract?.salary ?? salaryFor(p, 'Rotation'), years: 0, role: 'Rotation' };
   p.origin = 'released';
   p.releasedBy = from;
@@ -605,7 +631,7 @@ export function transfersDay(data, day) {
 }
 
 function bidderFor(data, p, rng) {
-  const clubs = Object.entries(data.transfers.clubs).filter(([, c]) => c.players.length < POOL.clubSquad[1]);
+  const clubs = knownClubs(data).filter(([, c]) => c.players.length < POOL.clubSquad[1]);
   return clubs.length ? rng.pick(clubs)[0] : null;
 }
 
@@ -744,7 +770,7 @@ export function afterMatch(data, xiIds) {
 export function marketList(data) {
   const T = data.transfers;
   const out = [];
-  for (const [cid, c] of Object.entries(T.clubs)) for (const p of c.players) if (!p.loan && !p.preContract) out.push({ p, owner: cid });
+  for (const [cid, c] of knownClubs(data)) for (const p of c.players) if (!p.loan && !p.preContract) out.push({ p, owner: cid });
   for (const p of T.market) out.push({ p, owner: 'market' });
   return out.sort((a, b) => valueOf(data, b.p, b.owner) - valueOf(data, a.p, a.owner));
 }

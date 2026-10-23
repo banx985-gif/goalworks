@@ -45,7 +45,7 @@ import { text } from '../../../../core/ui/Kit.js';
 import { characterPose, drawCharacter } from '../../../../core/CharacterMotion.js';
 import { drawClubFlag } from '../ui/kitArt.js';
 import { drawBadge } from '../ui/clubArt.js';
-import { rank as clubRank } from '../systems/league.js';
+import { rank as clubRank, leagueOf } from '../systems/league.js';
 import { founderById, colourById, POSITIONS } from '../../data/setup.js';
 import { COMPLEX, TREES, PROPS, PERSON, LOOK as L, DRILL } from '../../data/complex.js';
 import { facilityById, ART_LOOK, ART_TWEAK, PITCHES } from '../../data/facilities.js';
@@ -1338,7 +1338,10 @@ export function createClubScreen({ renderer, layout, assets, bus, sheet, club, o
     text(ctx, `Rank ${rk}`, chip.x + chip.w / 2, chip.y + chip.h / 2 + 1, { size: S.small, bold: true, color: C.text, align: 'center', baseline: 'middle', maxWidth: chip.w - 12 });
     const tx = r.x + 14 + bh * 0.84 + 12;
     const tr = chip.x - 12;
-    text(ctx, c.name, tx + (tr - tx) / 2, r.y + r.h / 2, { size: S.body, bold: true, color: prim.ink, align: 'center', baseline: 'middle', maxWidth: tr - tx });
+    // (M17) the league under the club's name ("County League")
+    const lg = club()?.data.league ? leagueOf(club().data).name : null;
+    text(ctx, c.name, tx + (tr - tx) / 2, lg ? r.y + r.h * 0.38 : r.y + r.h / 2, { size: S.body, bold: true, color: prim.ink, align: 'center', baseline: 'middle', maxWidth: tr - tx });
+    if (lg) text(ctx, lg, tx + (tr - tx) / 2, r.y + r.h * 0.74, { size: S.small, bold: true, color: prim.ink, align: 'center', baseline: 'middle', maxWidth: tr - tx });
   }
   // The calendar strip's words: the date, the speed, and the next match (or why a speed was refused).
   function calendarLines() {

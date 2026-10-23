@@ -67,7 +67,7 @@ export function createSplashScreen({ renderer, assets, load, done }) {
         ctx.font = font(110, true);
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
-        ctx.fillText('BANX GAMEX', W / 2, H / 2 - 40, W - 80);
+        ctx.fillText('BANX GAMES', W / 2, H / 2 - 40, W - 80); // (the studio is Banx Games, 14 Oct)
       }
       ctx.fillStyle = 'rgba(255,255,255,0.7)';
       ctx.font = font(30, true);

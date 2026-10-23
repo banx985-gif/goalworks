@@ -30,7 +30,7 @@
 // that starts at SETTLE.pen and fades to nothing over sec (the Analyst's Live Read shortens sec). Without settle a change
 // applies in full at once, as before.
 import { Rng } from '../../../../core/Rng.js';
-import { PITCH, MATCH_TIME, FORMATION_442, TUNING, TACTICS, TACTIC_FX, FX_BASE, TACTIC_ALIASES } from '../../data/match.js';
+import { PITCH, MATCH_TIME, FORMATION_442, TUNING, TACTICS, TACTIC_FX, FX_BASE, TACTIC_ALIASES, ASSIST } from '../../data/match.js';
 import { formationById, FORMATIONS, ROLES, rolesForSlot, FAMILIARITY, pairKey } from '../../data/tactics.js';
 import { SETTLE } from '../../data/staff.js';
 import { createBall, stopBall, stepBall, crossing } from './ballPhysics.js';
@@ -171,7 +171,7 @@ export function createMatchWorld(setup, { play = null, start = play ? 'play' : '
     ownerSince: 0,
     lastTouch: 0,
     lastToucher: null,
-    lastPass: null, // (M16) { from, to } — the last completed pass (assists)
+    lastPass: null, // (M16) { from, to, step, touches } — the last completed pass (assists; M17: when and how many touches)
     pass: null, // { from, to, team } — the intended receiver goes for the ball
     shot: null, // { team, by, step, resolved }
     steps: 0,
@@ -312,8 +312,8 @@ export function createMatchWorld(setup, { play = null, start = play ? 'play' : '
     give(p) {
       if (world.pass && world.pass.team === p.team && world.pass.from !== p) {
         world.stats[p.team].passesDone++;
-        world.lastPass = { from: world.pass.from, to: p }; // (M16) the assist, if he scores
-      }
+        world.lastPass = { from: world.pass.from, to: p, step: world.steps, touches: 1 }; // (M16) the assist, if he scores
+      } else if (world.lastPass?.to === p) world.lastPass.touches++; // (M17) he got it back himself: another touch
       if (world.possTeam !== p.team) {
         world.lastPass = null;
         // (M9) the moment a side wins the ball (a counter-attacking side breaks from here)
@@ -425,9 +425,12 @@ export function createMatchWorld(setup, { play = null, start = play ? 'play' : '
     world.score[team]++;
     const by = world.lastToucher && world.lastToucher.team === team ? world.lastToucher : world.shot?.by ?? world.lastToucher;
     const own = by && by.team !== team;
-    // (M16) the assist: the last completed pass to the scorer while his side kept the ball
+    // (M16) the assist: the last completed pass to the scorer while his side kept the ball; (M17) only when it reached him
+    // within ASSIST.withinSec of his shot and he took no more than ASSIST.maxTouches touches
     const lp = world.lastPass;
-    const assist = !own && by && lp && lp.to === by && lp.from.team === team && lp.from !== by ? lp.from.name : null;
+    const shotStep = world.shot?.by === by ? world.shot.step : world.steps;
+    const quick = lp && (shotStep - lp.step) * MATCH_TIME.step <= ASSIST.withinSec && lp.touches <= ASSIST.maxTouches;
+    const assist = !own && by && lp && quick && lp.to === by && lp.from.team === team && lp.from !== by ? lp.from.name : null;
     world.lastPass = null;
     const entry = { team, name: by ? by.name : 'Unknown', minute: world.minute + 1, own, assist };
     world.scorers.push(entry);

@@ -26,6 +26,11 @@ export const MATCH_TIME = {
   speeds: [1, 2],
 };
 
+// Assists (Milestone 16, tightened in M17): the last completed pass to the scorer counts only when it reached him within
+// `withinSec` simulation seconds before his shot and he took at most `maxTouches` touches (the control, then each new run
+// with the ball). Aim: roughly 55–70% of goals assisted (M16's rule gave ~88%).
+export const ASSIST = { withinSec: 6, maxTouches: 3 };
+
 // 4-4-2 for a team attacking up the pitch (towards y = 0), as fractions: fx across (0 left … 1 right), fy along its own
 // half-and-a-bit (0 = the goal it attacks … 1 = its own goal line). The engine mirrors it for the other side.
 export const FORMATION_442 = [

@@ -405,6 +405,7 @@ function ownerDecide(world, p, restartType) {
   if (best.kind === 'pass' && best.to) return pass(world, p, best.to, press, best.lane < 1.5 || best.d > loftOver || restartType === 'corner' || restartType === 'goalkick');
   if (best.kind === 'pass') return clear(world, p);
   p.dribble = dribbleTarget(world, p);
+  if (world.lastPass?.to === p) world.lastPass.touches++; // (M17) a new run with the ball: another touch (assists)
 }
 
 // The carrier's options scored: { kind: 'shoot'|'dribble'|'pass', score, to?, lane?, d? }. noise(a, b) and chance(c)

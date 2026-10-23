@@ -3,7 +3,7 @@
 import { founderById, colourById, areaById, shapeById, symbolById, POSITIONS, FOUNDER_FLAG } from '../../data/setup.js';
 import { patternById } from '../../data/kits.js';
 import { createStartingSquad } from './squad.js';
-import { rank as clubRank } from './league.js';
+import { rank as clubRank, leagueOf } from './league.js';
 import { newStaff } from './staff.js';
 import { newAcademy } from './academy.js';
 
@@ -52,7 +52,7 @@ export function slotSummary(data) {
     founderPosition: founder ? POSITIONS[founder.position].name : '',
     year: data.date.year,
     month: data.date.month,
-    league: data.league ? 'Regional' : null, // (Milestone 10: the Regional League and the Club Rank E–S)
+    league: data.league ? leagueOf(data).short : null, // (Milestone 10: the Regional League and the Club Rank E–S; M17: County)
     rank: data.league ? clubRank(data).id : null,
     ngPlus: data.ngPlus ?? 0,
     playSec: data.playSec ?? 0,

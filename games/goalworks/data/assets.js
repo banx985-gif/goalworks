@@ -1,7 +1,8 @@
 // GOALWORKS image list: key → path (relative to index.html). Batch art is added here milestone by milestone; anything
 // missing draws the placeholder box, never crashes.
 import { FOUNDERS } from './setup.js';
-import { REGIONAL_CLUBS } from './fixtures.js';
+import { ALL_CLUBS } from './fixtures.js';
+import { CUPS } from './cups.js';
 import { FACILITIES } from './facilities.js';
 
 const art = (folder, key) => [key, `assets/images/${folder}/${key}.png`];
@@ -19,7 +20,7 @@ export const ASSETS = {
   // dugout, tunnel), the kit patterns for Club Setup, the Regional clubs' crests and the Club Complex props.
   ...Object.fromEntries(['match_05', 'match_06', 'match_09', 'match_10', 'match_11', 'match_12', 'match_17', 'match_18', 'match_19', 'match_23', 'match_24'].map((k) => art('match', k))),
   ...Object.fromEntries(['custom_13', 'custom_14', 'custom_15', 'custom_16', 'custom_17', 'custom_18', 'custom_19', 'custom_20'].map((k) => art('custom', k))),
-  ...Object.fromEntries(REGIONAL_CLUBS.map((c) => art('crests', c.crest))),
+  ...Object.fromEntries(ALL_CLUBS.map((c) => art('crests', c.crest))), // (M17: the County clubs' crests too)
   ...Object.fromEntries(['prop_01', 'prop_02', 'prop_03', 'prop_11', 'prop_12', 'prop_25'].map((k) => art('props', k))),
   // Milestone 8: the training focus icons (Batch 5).
   ...Object.fromEntries(Array.from({ length: 20 }, (_, i) => `training_tactic_${String(i + 1).padStart(2, '0')}`).map((k) => art('training', k))), // (11–20, the tactic icons: Milestone 9)
@@ -29,6 +30,8 @@ export const ASSETS = {
   // Milestone 16: the Hall of Fame — its Menu icon, the plaque and the legend shirt display (Batch 6).
   ...Object.fromEntries(['ui_29'].map((k) => [k, `assets/images/ui/${k}.png`])),
   ...Object.fromEntries(['trophy_17', 'trophy_18'].map((k) => art('trophies', k))),
+  // Milestone 17: the cups' pictures (C02 County Shield).
+  ...Object.fromEntries(Object.values(CUPS).map((c) => art('tournaments', c.art))),
   // Milestone 0 loader test (?screen=test): the placeholder PWA icon as a real image, and one deliberately missing file.
   m0Real: 'assets/branding/pwa/icon-192.png',
   m0Missing: 'assets/m0-missing-test.png',

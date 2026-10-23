@@ -23,7 +23,7 @@ export const VALUE = {
   // formFactor: 1 + perPoint × form (form −10 … +10)
   formPerPoint: 0.015,
   // reputationFactor: the club that owns him (free agents and the wider market have none of their own)
-  reputation: { free: 0.8, market: 1, club: { 1: 0.95, 2: 1, 3: 1.08 }, rank: { E: 1, D: 1.05, C: 1.1, B: 1.18, A: 1.26, S: 1.35 } },
+  reputation: { free: 0.8, market: 1, club: { 1: 0.95, 2: 1, 3: 1.08, 4: 1.12, 5: 1.16, 6: 1.2 }, rank: { E: 1, D: 1.05, C: 1.1, B: 1.18, A: 1.26, S: 1.35 } },
   // contractFactor: by years left (0 = a free agent)
   contract: { 0: 0.5, 1: 0.65, 2: 0.85, 3: 1, 4: 1.08, 5: 1.15 },
   // potentialFactor: 1 + perPoint × (potential midpoint − overall), at most max
@@ -95,7 +95,7 @@ export const POOL = {
   refreshShare: 0.3,
   freeAgentLeaveAge: 35, // a free agent this old leaves the pool at the season's end
   areas: ['fen', 'border', 'moor', 'valley', 'coast', 'mid', 'cape', 'lakes', 'mills', 'dales', 'estuary', 'iron'],
-  // the six Regional clubs' squads: they keep between these sizes
+  // every league club's squad (the six Regional clubs; M17 the six County clubs too): they keep between these sizes
   clubSquad: [17, 24],
 };
 
@@ -113,7 +113,7 @@ export const AI = {
 export const SCOUTING = {
   scout: { name: 'Pat Doyle', title: 'Founder-era scout (a save without staff only; since M14 the hired Scout goes)' },
   regions: [
-    { id: 'regional', name: 'Regional clubs', line: 'Players at the six Regional clubs.' },
+    { id: 'regional', name: 'League clubs', line: 'Players at the clubs of your league and the leagues below it (M17).' },
     { id: 'free', name: 'Free agents', line: 'Out of contract: no fee, just wages and a bonus.' },
     { id: 'market', name: 'Wider market', line: 'Players at clubs beyond the region.' },
   ],

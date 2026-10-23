@@ -93,4 +93,11 @@ export const CLUB_TACTICS = {
   REG04: { formation: '4231', build: 'balanced', press: 'high' },
   REG05: { formation: '352', build: 'direct' },
   REG06: { formation: '4141', build: 'counter', line: 'deep' },
+  // (M17) the County clubs; CNT01 Devonians plays the wide game the bible gives rival RV02
+  CNT01: { formation: '433', build: 'balanced', width: 'wide' },
+  CNT02: { formation: '442', build: 'direct', press: 'high' },
+  CNT03: { formation: '4231', build: 'possession', tempo: 'slow' },
+  CNT04: { formation: '352', build: 'counter' },
+  CNT05: { formation: '4411', build: 'balanced', line: 'high' },
+  CNT06: { formation: '343', build: 'direct', mentality: 'attacking' },
 };

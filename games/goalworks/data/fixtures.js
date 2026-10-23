@@ -18,7 +18,7 @@ export const CALENDAR = {
 
 export const FIXTURE_SOURCES = [
   { id: 'test', name: 'Test Challenge', live: false, line: 'Retired in Milestone 10: the Regional League issues challenges now.' },
-  { id: 'league', name: 'League challenge', live: true, line: 'A Regional club challenged you; accepted, it plays 7 days later.' },
+  { id: 'league', name: 'League challenge', live: true, line: 'A club in your league challenged you; accepted, it plays 7 days later. (M17: County Shield ties come this way too.)' },
   { id: 'tournament', name: 'Tournament round', live: false, line: 'Tournaments come later.' },
   { id: 'event', name: 'Event match', live: false, line: 'Events come later.' },
 ];
@@ -42,7 +42,22 @@ export const REGIONAL_CLUBS = [
   { id: 'REG05', name: 'Coastfolk', crest: 'club_reg05_crest', colours: { primary: 'sky', secondary: 'white' }, ground: 'Lighthouse Road', strength: 1.05, rep: 340, cooldown: 18, reward: 3, rivalry: null },
   { id: 'REG06', name: 'Midlanders', crest: 'club_reg06_crest', colours: { primary: 'claret', secondary: 'gold' }, ground: 'Castle Works', strength: 1.09, rep: 460, cooldown: 18, reward: 3, rivalry: null },
 ];
-export const clubById = (id) => REGIONAL_CLUBS.find((c) => c.id === id) ?? null;
+// Milestone 17: the County League clubs (bible §8, L2), the same fields. Their squads sit clearly above the Regional ones:
+// strength 1.16 → 1.32 makes squads of about 69 → 79 overall (the top Regional band, REG06 ~65, +4 → +14). Reward tiers
+// 4–6 (data/league.js: bigger than Regional). You only meet them once you are in the County League; the two weakest
+// challenge a newly promoted club at once, the others want more reputation first. CNT01 Devonians is the future promotion
+// rival RV02 (bible §23: data only, rivalry is M22).
+export const COUNTY_CLUBS = [
+  { id: 'CNT01', name: 'Devonians', crest: 'club_cnt01_crest', colours: { primary: 'green', secondary: 'white' }, ground: 'Tor View Park', strength: 1.16, rep: 0, cooldown: 14, reward: 4, rivalry: 'RV02' },
+  { id: 'CNT02', name: 'Cornish', crest: 'club_cnt02_crest', colours: { primary: 'black', secondary: 'white' }, ground: 'Tin Mine Lane', strength: 1.19, rep: 0, cooldown: 14, reward: 4, rivalry: null },
+  { id: 'CNT03', name: 'Somerset Folk', crest: 'club_cnt03_crest', colours: { primary: 'claret', secondary: 'white' }, ground: 'Orchard Ground', strength: 1.23, rep: 600, cooldown: 16, reward: 5, rivalry: null },
+  { id: 'CNT04', name: 'Norfolkers', crest: 'club_cnt04_crest', colours: { primary: 'gold', secondary: 'green' }, ground: 'Broadland Road', strength: 1.26, rep: 750, cooldown: 16, reward: 5, rivalry: null },
+  { id: 'CNT05', name: 'Suffolkers', crest: 'club_cnt05_crest', colours: { primary: 'royal', secondary: 'white' }, ground: 'Heathside', strength: 1.29, rep: 900, cooldown: 18, reward: 6, rivalry: null },
+  { id: 'CNT06', name: 'Cumbrians', crest: 'club_cnt06_crest', colours: { primary: 'teal', secondary: 'gold' }, ground: 'Fellside', strength: 1.32, rep: 1100, cooldown: 18, reward: 6, rivalry: null },
+];
+// Every club the game knows (each league's clubs, data/league.js LEAGUES); a fixture's opponent is looked up here.
+export const ALL_CLUBS = [...REGIONAL_CLUBS, ...COUNTY_CLUBS];
+export const clubById = (id) => ALL_CLUBS.find((c) => c.id === id) ?? null;
 
 // The account-wide speed unlocks (bible §3 / §36 account save). Nothing sets them yet.
 export const SPEED_FLAGS = {

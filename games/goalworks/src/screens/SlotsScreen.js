@@ -1,7 +1,7 @@
 // Campaign Slots (Milestone 0, bible §5 "Four campaign slots"): the four slot cards. An occupied card shows the
 // club-colour accent strip and the code-drawn badge, the Founder portrait (their Batch 1 picture) with name and
-// position, the club name, "Club Manager <name>" and Year / Month (league, rank, play time, NG+ and grade stay hidden
-// until those systems exist). An empty card says NEW CLUB and opens Club Setup for that slot. A slot that will not
+// position, the club name, "Club Manager <name>" and Year / Month (M10: the Club Rank; M17: the league — "County League" in
+// place of "Founder: <position>"; play time, NG+ and grade stay hidden until those systems exist). An empty card says NEW CLUB and opens Club Setup for that slot. A slot that will not
 // read can only be deleted.
 // Two modes: 'browse' (Play / Delete — Delete asks first) and 'new' (pick where the new club goes: an empty slot, or
 // Replace on an occupied one; START CLUB asks again before anything is overwritten).
@@ -107,7 +107,9 @@ export function createSlotsScreen({ layout, assets, cards, last, onBack, onPlay,
       ty += 60 * k;
       text(ctx, `Club Manager ${m.manager}`, tx, ty, { size: S.body, maxWidth: tw });
       ty += 52 * k;
-      text(ctx, `Founder: ${m.founderPosition}`, tx, ty, { size: S.small, color: C.textMuted, maxWidth: tw });
+      // (M17) the league in place of the Founder's position (his badge on the portrait already shows it)
+      if (m.league) text(ctx, `${m.league} League`, tx, ty, { size: S.small, bold: true, color: C.progress, maxWidth: tw });
+      else text(ctx, `Founder: ${m.founderPosition}`, tx, ty, { size: S.small, color: C.textMuted, maxWidth: tw });
       ty += 46 * k;
       text(ctx, `Year ${m.year} · Month ${m.month}${m.rank ? ` · Rank ${m.rank}` : ""}`, tx, ty, { size: S.body, bold: true, color: C.actionDark, maxWidth: tw }); // (M10: the Club Rank)
     }

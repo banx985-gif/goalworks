@@ -5,12 +5,13 @@
 //   bestXI(players, formation = '442', fixed) → 11 players in the formation's slot order (keeper first): the best of each slot's own position,
 //                     playing someone out of position only when that position has nobody left
 //   xiForMatch(players) → the 11 as match set-up players { name, shirt, stats } (stats: the engine's six numbers)
-//   opponentSquad({ seed, clubId }) → a generated 18 of the same Regional level (names from the club's area)
+//   opponentSquad({ seed, clubId }) → a generated 18 at that club's level (names from the club's area)
+//   toClubLevel(p, clubId) → a generated player raised to his club's strength (M17: County potential rises too)
 //   ensureSquad(data) → true when it had to generate one (a Milestone 0–6 save: once, from its stored Founder)
 import { Rng } from '../../../../core/Rng.js';
 import { SQUAD, GEN, CONTRACT, ROLES, POSITION_ORDER, CLUB_AREAS, FEATURED_NAMES } from '../../data/players.js';
 import { formationById } from '../../data/tactics.js';
-import { clubById } from '../../data/fixtures.js';
+import { clubById, REGIONAL_CLUBS } from '../../data/fixtures.js';
 import { founderPlayer, generatePlayer, overall, matchStats } from './players.js';
 import { conditionFactor, normaliseSquad } from './training.js';
 
@@ -128,10 +129,29 @@ export function createStartingSquad({ founderId, seed, area = 'fen' }) {
 export function opponentSquad({ seed, clubId }) {
   const rng = new Rng(`${seed}:opponent:${clubId}`);
   const { players } = generateSide(rng, { area: CLUB_AREAS[clubId] ?? 'fen' });
-  const k = clubById(clubId)?.strength ?? 1;
-  if (k !== 1) for (const p of players) for (const key of Object.keys(p.stats)) p.stats[key] = Math.max(10, Math.round(p.stats[key] * k));
+  for (const p of players) toClubLevel(p, clubId);
   assignRoles(rng, players, []);
   return { players, watch: [], nextId: players.length + 1 };
+}
+// A generated player brought up to his club's level: × its strength on every core stat. (M17) Above the Regional League
+// (County on) his hidden potential rises with him (the same gap above his overall, at most LIFT_CAP — never below his
+// overall) and no stat passes 99;
+// the Regional clubs' players stay exactly as M10 made them.
+const LIFT_CAP = 90;
+export function toClubLevel(p, clubId) {
+  const k = clubById(clubId)?.strength ?? 1;
+  if (k === 1) return p;
+  const lift = !REGIONAL_CLUBS.some((c) => c.id === clubId);
+  const before = lift ? overall(p) : 0;
+  for (const key of Object.keys(p.stats)) p.stats[key] = Math.max(10, Math.round(p.stats[key] * k));
+  if (lift) {
+    for (const key of Object.keys(p.stats)) p.stats[key] = Math.min(99, p.stats[key]);
+    const ovr = overall(p);
+    const up = ovr - before;
+    const high = Math.max(ovr, Math.min(LIFT_CAP, p.potential.high + up)); // (a rare star already past the cap keeps his level)
+    p.potential = { low: Math.min(high, Math.max(ovr, p.potential.low + up)), high };
+  }
+  return p;
 }
 
 // Coverage (bible §5): at least 2 GK, 6 DEF, 5 MID/WNG and 5 FWD/WNG, each winger counted once.
