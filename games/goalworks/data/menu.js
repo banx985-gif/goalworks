@@ -8,6 +8,8 @@ export const MENU_GROUPS = [
     row('league', 'Find a match', 'Clubs in your league challenge you: accept one to fix a match day', 'ui_19'),
     row('matchSetup', 'Match Setup', 'Today is match day: pick Watch, Manage or Play and kick off', 'ui_30'),
     row('shield', 'County Shield', 'The County cup: the bracket, your next tie and past winners', 'tournament_c02'), // (Milestone 17: shown once in County)
+    row('knockout', 'National Knockout', 'The National cup: the bracket, your next tie and past winners', 'tournament_c03'), // (Milestone 18: shown once in National)
+    row('crownCup', 'Crown Cup', 'The cup for the strongest clubs in the land, from Rank C', 'tournament_c04'), // (Milestone 18: shown from Rank C)
   ] },
   { title: 'Team', rows: [
     row('squad', 'Team / Squad', 'Your players: stats, form, fitness, contracts', 'ui_01'),

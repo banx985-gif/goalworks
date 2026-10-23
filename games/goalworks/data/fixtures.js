@@ -55,8 +55,20 @@ export const COUNTY_CLUBS = [
   { id: 'CNT05', name: 'Suffolkers', crest: 'club_cnt05_crest', colours: { primary: 'royal', secondary: 'white' }, ground: 'Heathside', strength: 1.29, rep: 900, cooldown: 18, reward: 6, rivalry: null },
   { id: 'CNT06', name: 'Cumbrians', crest: 'club_cnt06_crest', colours: { primary: 'teal', secondary: 'gold' }, ground: 'Fellside', strength: 1.32, rep: 1100, cooldown: 18, reward: 6, rivalry: null },
 ];
+// Milestone 18: the National League clubs (bible §8, L3), the same fields. Squads clearly above County: strength 1.40 →
+// 1.58 makes squads of about 82 → 90 overall (the top County band, CNT06 ~78, +4 → +12; stats stop at 99, so the top end
+// flattens). Reward tiers 7–9. NAT02 Yorkshire Tykes is the promotion rival RV03 (bible §23: hard-running, high press;
+// data only, rivalry is M22): beating it in the Promotion Decider is the last step to the Championship.
+export const NATIONAL_CLUBS = [
+  { id: 'NAT01', name: 'Lancastrians', crest: 'club_nat01_crest', colours: { primary: 'red', secondary: 'gold' }, ground: 'Red Rose Park', strength: 1.4, rep: 0, cooldown: 14, reward: 7, rivalry: null },
+  { id: 'NAT02', name: 'Yorkshire Tykes', crest: 'club_nat02_crest', colours: { primary: 'royal', secondary: 'white' }, ground: 'Ridings Road', strength: 1.43, rep: 0, cooldown: 14, reward: 7, rivalry: 'RV03' },
+  { id: 'NAT03', name: 'Essex Boys', crest: 'club_nat03_crest', colours: { primary: 'claret', secondary: 'gold' }, ground: 'Saxon Fields', strength: 1.47, rep: 1700, cooldown: 16, reward: 8, rivalry: null },
+  { id: 'NAT04', name: 'Kentish', crest: 'club_nat04_crest', colours: { primary: 'navy', secondary: 'white' }, ground: 'Invicta Park', strength: 1.5, rep: 2100, cooldown: 16, reward: 8, rivalry: null },
+  { id: 'NAT05', name: 'Teessiders', crest: 'club_nat05_crest', colours: { primary: 'white', secondary: 'red' }, ground: 'Transporter Road', strength: 1.54, rep: 2600, cooldown: 18, reward: 9, rivalry: null },
+  { id: 'NAT06', name: 'Black Country', crest: 'club_nat06_crest', colours: { primary: 'black', secondary: 'gold' }, ground: 'Pithead Ground', strength: 1.58, rep: 3200, cooldown: 18, reward: 9, rivalry: null },
+];
 // Every club the game knows (each league's clubs, data/league.js LEAGUES); a fixture's opponent is looked up here.
-export const ALL_CLUBS = [...REGIONAL_CLUBS, ...COUNTY_CLUBS];
+export const ALL_CLUBS = [...REGIONAL_CLUBS, ...COUNTY_CLUBS, ...NATIONAL_CLUBS];
 export const clubById = (id) => ALL_CLUBS.find((c) => c.id === id) ?? null;
 
 // The account-wide speed unlocks (bible §3 / §36 account save). Nothing sets them yet.

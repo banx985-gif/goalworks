@@ -21,6 +21,10 @@
 // Both are builder functions for sheet.open(), rebuilt every frame so the countdown stays live.
 import { THEME, font } from '../../../../core/Theme.js';
 import { sourceById, SPEED_FLAGS, clubById } from '../../data/fixtures.js';
+import { cupById } from '../../data/cups.js';
+import { LEAGUES } from '../../data/league.js';
+
+const leagueOfClub = (id) => LEAGUES.find((l) => l.clubs.includes(id)) ?? null;
 import { COLOURS } from '../../data/setup.js';
 import { KEEPER_COLOURS } from '../../data/kits.js';
 
@@ -67,7 +71,8 @@ const dateText = (cal, day) => {
 // the strength hint: a word for the club's strength within its league (data/fixtures.js: Regional 0.88 … 1.09; M17 County
 // 1.16 … 1.32 — the same six words, so a County "Easy" is still far above any Regional club)
 const HINTS = ['Easy', 'Steady', 'Even', 'Tough', 'Strong', 'Strongest'];
-const strengthHint = (k) => (k >= 1.12 ? HINTS[Math.max(0, Math.min(5, Math.round((k - 1.16) / 0.032)))] : k < 0.9 ? 'Easy' : k < 0.95 ? 'Steady' : k < 0.99 ? 'Even' : k < 1.03 ? 'Tough' : k < 1.07 ? 'Strong' : 'Strongest');
+// (M18) the club's place in its own league, weakest → strongest (every league's clubs are listed in that order)
+const strengthHint = (club) => HINTS[Math.max(0, leagueOfClub(club.id)?.clubs.indexOf(club.id) ?? 2)] ?? 'Even';
 const tick = (ok) => (ok ? '✓' : '✗');
 // leagueSheet({ calendar, league: () => api }) where api = { league (the LEAGUES entry), offers, record, reputation, rank,
 // promotion, promotionOpponent, credits, clubs, club(id), clubState(id), news, cup (the cup's status or null), past
@@ -91,16 +96,16 @@ export function leagueSheet({ calendar, league, debugFlags = null, message = () 
       title: `Club Rank ${rk.id} · ${rk.line}`,
       lines: [`Reputation ${Math.round(rp.total)} (history ${Math.round(rp.history)} + form ${Math.round(rp.momentum)})`, `Credits ${L.credits().toLocaleString('en-GB')} (placeholder until the club's money arrives)`],
     });
-    if (f) sections.push({ title: f.cup ? `Scheduled: ${cup?.cup.name ?? 'Cup'} ${f.cup.name.toLowerCase()}` : f.promotion ? `Scheduled: ${lg.promotion.final === 'match' ? 'Promotion Match' : 'Promotion Playoff'}` : 'Scheduled', lines: [`${f.opponent.name} · ${f.home === false ? 'away' : 'home'} · ${dateText(cal, f.matchDay)} (${cal.atKickoff ? 'today' : `in ${plural(cal.daysToMatch, 'day')}`})`] });
+    if (f) sections.push({ title: f.cup ? `Scheduled: ${cupById(f.cup.id)?.name ?? 'Cup'} ${f.cup.name.toLowerCase()}` : f.promotion ? `Scheduled: ${lg.promotion.stepName}` : 'Scheduled', lines: [`${f.opponent.name} · ${f.home === false ? 'away' : 'home'} · ${dateText(cal, f.matchDay)} (${cal.atKickoff ? 'today' : `in ${plural(cal.daysToMatch, 'day')}`})`] });
     const offers = L.offers().slice().sort((a, b) => !!b.cup - !!a.cup);
     const tie = offers.find((o) => o.cup);
     const msg = message();
-    const promoWord = lg.promotion.final === 'match' ? 'PROMOTION MATCH' : 'PROMOTION PLAYOFF';
+    const promoWord = lg.promotion.stepName.toUpperCase();
     sections.push({
       title: 'Challenges',
       lines: [
         ...(offers.length ? [] : ['No club is challenging you right now. Challenges come and go; check back in a few days.']),
-        ...(tie ? [`${cup?.cup.name ?? 'Cup'} week: the tie is fixed as soon as no match is pending, and no challenge can take its slot.`] : []),
+        ...(tie ? [`${cupById(tie.cup.id)?.name ?? 'Cup'} week: the tie is fixed as soon as no match is pending, and no challenge can take its slot.`] : []),
         ...(f && offers.length && !tie ? ['One match per 7 days: accept the next once this one is played.'] : []),
         ...(msg ? [msg] : []),
       ],
@@ -113,8 +118,8 @@ export function leagueSheet({ calendar, league, debugFlags = null, message = () 
         return [
           {
             id: o.cup ? `cup:${o.clubId}` : `accept:${o.clubId}`,
-            label: `${o.cup ? `${(cup?.cup.name ?? 'Cup').toUpperCase()} · ${o.cup.name.toUpperCase()} · ` : o.promotion ? `${promoWord} · ` : ''}${c.name}`,
-            sub: `${strengthHint(c.strength)} · ${o.home ? 'home' : `away at ${c.ground}`} · win: ${r.credits} Cr, +${r.rep} rep · ${o.cup ? 'knockout: lose and you are out' : o.until == null ? 'open until played' : `until ${dateText(cal, o.until)}`}`,
+            label: `${o.cup ? `${(cupById(o.cup.id)?.name ?? 'Cup').toUpperCase()} ·${o.cup.name.toUpperCase()} · ` : o.promotion ? `${promoWord} · ` : ''}${c.name}`,
+            sub: `${strengthHint(c)} · ${o.home ? 'home' : `away at ${c.ground}`} · win: ${r.credits} Cr, +${r.rep} rep · ${o.cup ? 'knockout: lose and you are out' : o.until == null ? 'open until played' : `until ${dateText(cal, o.until)}`}`,
             icon: c.crest,
             accent: o.cup ? C.gold : o.promotion ? C.purple : C.good,
             locked: !can.ok || blocked,
@@ -131,17 +136,17 @@ export function leagueSheet({ calendar, league, debugFlags = null, message = () 
     if (pr.offer === 'offered' || pr.offer === 'accepted') {
       sections.push({
         title: `${nextName} promotion offer`,
-        lines: pr.offer === 'accepted' ? [`Accepted. ${nextName} coming soon — you stay in the ${lg.name} until it opens.`] : [`${pr.via === 'cup' ? `You won the ${cup?.cup.name ?? 'cup'}` : pr.via === 'playoff' ? 'You won the Promotion Playoff' : 'You won the Promotion Match'}: the ${nextName} wants you.`],
+        lines: pr.offer === 'accepted' ? [`Accepted. ${nextName} coming soon — you stay in the ${lg.name} until it opens.`] : [`${pr.via === 'cup' ? `You won the ${cup?.cup.name ?? 'cup'}` : `You won the ${lg.promotion.stepName}`}: the ${nextName} wants you.`],
         buttons: pr.offer === 'offered' ? [{ id: 'offer:accept', label: `Accept ${nextName} offer`, accent: C.purple, onTap: () => L.onOffer(true) }, { id: 'offer:later', label: 'Later', accent: C.progress, onTap: () => L.onOffer(false) }] : [],
       });
     }
-    if (cup) sections.push(shieldSummary(cal, cup, L));
+    for (const st of L.cups?.() ?? (cup ? [cup] : [])) sections.push(shieldSummary(cal, st, L)); // (M18: every cup running)
     sections.push({ title: `${lg.short} record`, lines: recordLines(lg, rec, pr, rk, L, cup) });
     sections.push({
       title: 'Clubs',
       lines: L.clubs().map((c) => {
         const r = rec.clubs[c.id];
-        return `${c.name} ${strengthHint(c.strength)} · W${r.w} D${r.d} L${r.l} · ${L.clubState(c.id)}`;
+        return `${c.name} ${strengthHint(c)} · W${r.w} D${r.d} L${r.l} · ${L.clubState(c.id)}`;
       }),
     });
     for (const p of L.past?.() ?? []) sections.push({ title: `${p.league.short} record (kept)`, lines: [`${p.record.wins} wins · ${p.record.distinct} of ${p.league.clubs.length} clubs beaten · promoted`] });
@@ -167,6 +172,17 @@ function recordLines(lg, rec, pr, rk, L, cup) {
       pr.won ? 'Promotion Match won.' : pr.unlocked ? `Promotion Match unlocked: against ${L.promotionOpponent().name}.` : `Promotion Match: beat ${pr.need.distinct} different clubs and win ${pr.need.wins} ${lg.short} matches to unlock it.`,
     ];
   }
+  // (M18) National: 12 wins + 5 different clubs + Rank C, then the Promotion Decider against the rival (RV03)
+  if (lg.promotion.final.rival) {
+    const rival = L.club(lg.promotion.final.rival).name;
+    const notYet = lg.clubs.filter((id) => !rec.beaten.includes(id)).map((id) => L.club(id).name);
+    return [
+      `${tick(rec.wins >= pr.need.wins)} ${pr.need.wins} ${lg.short} wins (${rec.wins} so far)`,
+      `${tick(rec.distinct >= pr.need.distinct)} Beat ${pr.need.distinct} different ${lg.short} clubs (${rec.distinct} of ${n}${notYet.length ? `; not yet ${notYet.join(', ')}` : ''})`,
+      `${tick(pr.rankOk)} Club Rank ${pr.need.rank} or better (now ${rk.id})`,
+      pr.won ? `✓ Promotion Decider won against ${rival}` : pr.unlocked ? `✗ Beat ${rival} in the Promotion Decider (it is waiting for you)` : `✗ Then beat ${rival}, your promotion rival, in the Promotion Decider`,
+    ];
+  }
   const cupName = cup?.cup.name ?? 'the cup';
   const finalLine = pr.won
     ? `✓ ${pr.via === 'cup' ? `${cupName} won` : 'Promotion Playoff won'}`
@@ -190,9 +206,12 @@ function shieldSummary(cal, st, L) {
   else if (st.next) lines.push(`${st.next.round} against ${L.club(st.next.opponent)?.name ?? st.next.opponent} · about ${dateText(cal, st.next.day)} (${st.next.home ? 'home' : 'away'})`);
   else if (st.running) lines.push(`${st.roundName}: you are through, waiting for the other ties.`);
   else if (st.nextStart != null) lines.push(`${st.edition?.champion ? `Last winner: ${st.edition.champion === 'us' ? 'your club!' : L.club(st.edition.champion)?.name}. ` : ''}The next ${st.cup.name} opens ${dateText(cal, st.nextStart)}.`);
-  lines.push(`Won ${st.wins} time${st.wins === 1 ? '' : 's'} · prize ${st.cup.prize.credits.toLocaleString('en-GB')} Credits + reputation + sponsor interest`);
-  return { title: st.cup.name, lines, columns: 1, buttons: [{ id: 'shield', label: `${st.cup.name} bracket`, sub: 'Quarter-final · semi-final · final', icon: st.cup.art, accent: C.gold, onTap: () => L.onShield() }] };
+  lines.push(`Won ${st.wins} time${st.wins === 1 ? '' : 's'} · prize ${st.cup.prize.credits.toLocaleString('en-GB')} Credits + ${prizeWords(st.cup)}`);
+  const id = st.cup.id === 'C02' ? 'shield' : `cup:${st.cup.id}`; // (M17's button id kept for the Shield)
+  return { title: st.cup.name, lines, columns: 1, buttons: [{ id, label: `${st.cup.name} bracket`, sub: 'Quarter-final · semi-final · final', icon: st.cup.art, accent: C.gold, onTap: () => L.onShield(st.cup.id) }] };
 }
+// What a cup's prize gives besides Credits (data/cups.js prize).
+const prizeWords = (cup) => [cup.prize.history >= 400 ? 'major reputation' : 'reputation', ...(cup.prize.flags?.includes('sponsorInterest') ? ['sponsor interest'] : []), ...(cup.id === 'C04' ? ['a place in club history'] : [])].join(' + ');
 
 // (M17) The cup bracket sheet: each round's ties (scores, penalties, who went through), your next tie, past winners.
 // shieldSheet({ calendar, status: () => cup.js status, name(id), crest(id), onBack })
@@ -204,10 +223,10 @@ export function shieldSheet({ calendar, status, name, onBack = null }) {
     const ed = st.edition;
     const sections = [];
     const head = [];
-    if (!ed) head.push(`The first ${st.cup.name} opens when you enter the County League.`);
+    if (!ed) head.push(st.cup.opens.rank ? `The first ${st.cup.name} opens when the club reaches Rank ${st.cup.opens.rank}.` : `The first ${st.cup.name} opens when you enter the ${st.cup.opens.league[0].toUpperCase()}${st.cup.opens.league.slice(1)} League.`);
     else if (st.running) head.push(st.out ? 'You are out: the other ties are played out without you.' : st.next ? `Your ${st.next.round.toLowerCase()}: ${name(st.next.opponent)}, about ${dateText(cal, st.next.day)}.` : `${st.roundName}: through! Waiting for the other ties.`);
     else head.push(`Season ${ed.year} edition finished — winner: ${name(ed.champion)}${ed.champion === 'us' ? '!' : '.'}${st.nextStart != null ? ` The next opens ${dateText(cal, st.nextStart)}.` : ''}`);
-    head.push(`8 teams: you, the six County clubs and one invited Regional club. One tie about every 4 weeks; a draw goes to penalties. Win it: ${st.cup.prize.credits.toLocaleString('en-GB')} Credits, reputation and sponsor interest.`);
+    head.push(`8 teams: ${st.cup.blurb}. One tie about every 4 weeks; a draw goes to penalties. Win it: ${st.cup.prize.credits.toLocaleString('en-GB')} Credits + ${prizeWords(st.cup)}.`);
     sections.push({ title: ed ? `Season ${ed.year} · edition ${ed.edition}` : st.cup.name, lines: head });
     if (ed) {
       st.cup.rounds.forEach((rn, r) => {
@@ -230,7 +249,7 @@ export function shieldSheet({ calendar, status, name, onBack = null }) {
     }
     if (st.history.length) sections.push({ title: 'Past winners', lines: st.history.slice(-5).reverse().map((h) => `Season ${h.year}: ${name(h.champion)}${h.reached && h.reached !== 'won' ? ` · you went out in the ${h.reached.toLowerCase()}` : ''}`) });
     if (onBack) sections.push({ columns: 1, buttons: [{ id: 'back', label: '‹ League', accent: C.progress, onTap: () => onBack() }] });
-    return { title: st.cup.name, subtitle: `C02 · County cup · ${st.wins ? `won ${st.wins}×` : 'not won yet'}`, art: st.cup.art, accent: C.gold, tag: { text: 'CUP', color: C.gold }, sections };
+    return { title: st.cup.name, subtitle: `${st.cup.id} · ${st.cup.short} · ${st.wins ? `won ${st.wins}×` : 'not won yet'}`, art: st.cup.art, accent: C.gold, tag: { text: 'CUP', color: C.gold }, sections };
   };
 }
 
@@ -239,10 +258,11 @@ export function shieldSheet({ calendar, status, name, onBack = null }) {
 export function promotionOfferSheet({ clubName, league, nextName, via, nextBuilt, onAnswer }) {
   return () => {
     const lg = league();
-    const why =
-      lg.promotion.final === 'match'
-        ? `Four ${lg.short} clubs beaten, eight ${lg.short} wins, and now the Promotion Match. The ${nextName} is offering you a place.`
-        : `All six ${lg.short} clubs beaten, Club Rank ${lg.promotion.rank} or better, and ${via() === 'cup' ? 'the County Shield won' : 'the Promotion Playoff won'}. The ${nextName} is offering you a place.`;
+    const why = lg.promotion.final.rival
+      ? `${lg.promotion.wins} ${lg.short} wins, ${lg.promotion.distinct} different ${lg.short} clubs beaten, Club Rank ${lg.promotion.rank} or better, and your rival beaten in the Promotion Decider. The ${nextName} is offering you a place.`
+      : lg.promotion.final === 'match'
+        ?`Four ${lg.short} clubs beaten, eight ${lg.short} wins, and now the Promotion Match. The ${nextName} is offering you a place.`
+        : `All six ${lg.short} clubs beaten, Club Rank ${lg.promotion.rank} or better, and ${via() === 'cup' ? `the ${cupById(lg.promotion.final.cup)?.name} won` : `the ${lg.promotion.stepName} won`}. The ${nextName} is offering you a place.`;
     const what = nextBuilt ? `Accept and you move up at once: the ${nextName}'s clubs start challenging you, and your ${lg.short} record is kept.` : `${nextName} coming soon: accepting records it, and you keep playing the ${lg.name} until it opens.`;
     return {
       title: `${nextName} promotion offer`,
@@ -250,7 +270,7 @@ export function promotionOfferSheet({ clubName, league, nextName, via, nextBuilt
       art: 'facility_f03',
       accent: C.purple,
       tag: { text: 'PROMOTION', color: C.purple },
-      sections: [{ title: via() === 'cup' ? 'Shield winners!' : `You won the ${lg.promotion.final === 'match' ? 'Promotion Match' : 'Promotion Playoff'}`, lines: [why, what], buttons: [{ id: 'offer:accept', label: 'Accept', accent: C.purple, onTap: () => onAnswer(true) }, { id: 'offer:later', label: 'Later', accent: C.progress, onTap: () => onAnswer(false) }] }],
+      sections: [{ title: via() === 'cup' ? 'Shield winners!' : `You won the ${lg.promotion.stepName}`, lines: [why, what], buttons: [{ id: 'offer:accept', label: 'Accept', accent: C.purple, onTap: () => onAnswer(true) }, { id: 'offer:later', label: 'Later', accent: C.progress, onTap: () => onAnswer(false) }] }],
     };
   };
 }
@@ -272,7 +292,7 @@ export function matchSetupSheet({ calendar, clubName, kits = () => null, onKickO
           { id: 'kickoffPlay', label: 'Kick off · Play', sub: 'You play: stick + Pass / Shoot / Tackle', accent: C.action, onTap: () => onKickOff('play') },
         ];
     return {
-      title: f.cup ? `${f.cup.id === 'C02' ? 'County Shield' : 'Cup'} · ${f.cup.name}` : f.promotion ? (f.opponent.id.startsWith('REG') ? 'Promotion Match' : 'Promotion Playoff') : 'Match Setup', // (M17: a cup tie, the playoff)
+      title: f.cup ? `${cupById(f.cup.id)?.name ?? 'Cup'} · ${f.cup.name}` : f.promotion ? leagueOfClub(f.opponent.id)?.promotion.stepName ?? 'Promotion Match' : 'Match Setup', // (M17: a cup tie, the playoff; M18 the Decider)
       subtitle: `${clubName()} vs ${f.opponent.name}${f.home === false ? ' (away)' : ''}`,
       art: clubById(f.opponent.id)?.crest ?? 'facility_f01', // (M12b) the opponent's crest
       accent: C.action,

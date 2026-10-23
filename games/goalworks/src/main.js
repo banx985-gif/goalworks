@@ -99,7 +99,13 @@
 // News line and a banner): the six County clubs challenge you, the League sheet, slot card and top bar say County League,
 // and the C02 County Shield opens (src/systems/cup.js, data/cups.js — a simple reusable cup: 8 teams, a tie about every 4
 // weeks, each a normal fixture that takes the week's slot; the Shield sheet shows the bracket). Beat all six County clubs +
-// Rank D + win the Shield (or the Promotion Playoff) → the National offer (National League: M18).
+// Rank D + win the Shield (or the Promotion Playoff) → the National offer.
+// Milestone 18: the National League — more data on the same systems. Accepting the National offer moves the club up (an
+// older save that had accepted it moves up on load); six National clubs, C03 National Knockout (the National cup), and C04
+// Crown Cup, which opens the first day the club reaches Rank C in any league (you + the seven strongest clubs). Two of your
+// cup ties never fall in one week (the later cup's round moves back a week). 12 National wins + 5 clubs beaten + Rank C,
+// then beat rival RV03 (NAT02 Yorkshire Tykes) in the Promotion Decider → the Championship offer (Championship: M19).
+// Promotions and cups won go into the club's history (Hall of Fame sheet).
 // Add ?debug=1 for the FPS/state overlay, ?screen=test for the scaling / tap / asset-loader test screen, ?screen=match
 // (&seed=…, &mode=watch|manage|play, &km=1 for Key Moment prompts, &stats=35,70 for flat home,away test stats) for a
 // test match between two test teams (never saved). With ?debug=1, &safe=phone|tablet stands in a notch and home bar (safe-area insets) on any screen.
@@ -390,11 +396,14 @@ function openRun(n, data) {
   if (!data.careers) setTimeout(() => autosave.request('careers:start'), 0);
   CA.normaliseCareers(data, data.calendar?.clock?.totalDays ?? 0);
   syncHallOfFame(data);
-  // (M17) a save that accepted the County offer while County was "coming soon" moves up now: a News line and a banner
-  if (LG.catchUp(data, data.calendar?.clock?.totalDays ?? 0)) {
+  // (M17) a save that accepted a promotion offer while the next league was "coming soon" moves up now (M17 County, M18
+  // National): a News line and a banner
+  const movedTo = LG.catchUp(data, data.calendar?.clock?.totalDays ?? 0);
+  if (movedTo) {
+    const lg = leagueById(movedTo);
     setTimeout(() => {
-      researchBanner.show({ id: `league:catchup:${n}`, title: 'The County League is open!', line: `${data.club.name} move up from the Regional League`, gives: 'New clubs, the County Shield · Menu → Find a match', icon: 'club_cnt01_crest', color: C_GOLD });
-      autosave.request('league:county');
+      researchBanner.show({ id: `league:catchup:${n}`, title: `The ${lg.name} is open!`, line: `${data.club.name} move up to the ${lg.name}`, gives: `New clubs${lg.cup ? `, the ${cupById(lg.cup).name}` : ''} · Menu → Find a match`, icon: clubById(lg.clubs[0]).crest, color: C_GOLD });
+      autosave.request(`league:${movedTo}`);
     }, 0);
   }
   open = { n, data, layout: createLayout(data, { bus }), research: createResearch(data, { bus }), items: createItems(data, { bus }), calendar: createCalendar({ bus, saved: data.calendar ?? null, flags: speedFlags(), isIssued: (o) => !!open && LG.isIssued(open.data, o) }), setupShown: false };
@@ -670,6 +679,7 @@ function leagueApi() {
     news: () => d.league.news ?? [],
     nextName: nextLeagueName,
     cup: () => (lg.cup ? CUP.status(d, lg.cup) : null),
+    cups: () => LG.activeCups(d).map((c) => CUP.status(d, c.id)), // (M18: every cup running — league cup and Crown Cup)
     // the leagues you came up from (their records are kept)
     past: () => LEAGUES.filter((x) => x.tier < lg.tier).map((x) => ({ league: x, record: LG.record(d, x.id) })),
     calendarOffer: LG.calendarOffer,
@@ -690,7 +700,7 @@ function leagueApi() {
     },
     onDecline: (offerId) => LG.decline(d, offerId, open.calendar.today),
     onOffer: (yes) => answerOffer(yes),
-    onShield: () => openShield(true),
+    onShield: (cupId) => openShield(true, cupId),
   };
 }
 function openLeague() {
@@ -715,10 +725,12 @@ function openPromotionOffer(leagueId = open ? LG.leagueOf(open.data).id : 'regio
 }
 const openCountyOffer = () => openPromotionOffer('regional'); // (the M10 name, kept for the debug hook)
 // (M17) The County Shield bracket (from the League sheet, the Club Menu and the Manager Office).
-function openShield(fromLeague = false) {
+// (M18) Any cup's bracket: the County Shield, the National Knockout, the Crown Cup (default: your league's cup).
+function openShield(fromLeague = false, cupId = null) {
   if (!open) return;
   const d = open.data;
-  sheet.open(shieldSheet({ calendar, status: () => (open ? CUP.status(open.data, 'C02') : null), name: (id) => CUP.teamName(d, id), onBack: fromLeague ? () => openLeague() : null }));
+  const id = cupId ?? LG.leagueOf(d).cup ?? 'C02';
+  sheet.open(shieldSheet({ calendar, status: () => (open ? CUP.status(open.data, id) : null), name: (x) => CUP.teamName(d, x), onBack: fromLeague ? () => openLeague() : null }));
 }
 // (M17) A cup tie takes the week's slot: committed as soon as no match is pending (it was issued a week ahead).
 function commitCupTie() {
@@ -733,7 +745,8 @@ function cupEvent(e) {
   const cup = cupById(e.cup);
   if (!cup || !open) return;
   const id = `cup:${e.kind}:${e.cup}:${e.edition ?? ''}:${e.round ?? ''}:${open.calendar.today}`;
-  if (e.kind === 'start') researchBanner.show({ id, title: `${cup.name} draw made!`, line: `Edition ${e.edition}: 8 teams, a tie about every 4 weeks`, gives: 'See the bracket · League → the Shield', icon: cup.art, color: C_GOLD });
+  if (e.kind === 'opened') researchBanner.show({ id, title: `The ${cup.name} opens!`, line: `Rank ${cup.opens.rank}: ${cup.blurb}`, gives: `${cup.prize.credits.toLocaleString('en-GB')} Credits and a place in club history to win`, icon: cup.art, color: C_GOLD }); // (M18 C04)
+  else if (e.kind === 'start') researchBanner.show({ id, title: `${cup.name} draw made!`, line: `Edition ${e.edition}: 8 teams, a tie about every 4 weeks`, gives: `See the bracket · Menu → ${cup.name}`, icon: cup.art, color: C_GOLD });
   else if (e.kind === 'champion' && e.champion !== 'us') researchBanner.show({ id, title: `${cup.name} final`, line: `${CUP.teamName(open.data, e.champion)} win it`, gives: 'The next edition opens next season', icon: cup.art, color: COL.progress });
   debug.log(`cup: ${e.kind} ${e.cup}${e.round != null ? ` round ${e.round}` : ''}`);
 }
@@ -991,7 +1004,7 @@ const matchScreen = createMatchScreen({
     const rep = p.history + p.momentum;
     const rp = open.research.previewMatch({ clubId: fx.opponent.id, score: world.score, promotion: !!fx.promotion, league: LG.leagueOfClub(fx.opponent.id)?.id }); // (M13)
     const lg = LG.leagueOf(open.data);
-    const promoName = lg.promotion.final === 'match' ? 'Promotion Match' : 'Promotion Playoff';
+    const promoName = lg.promotion.stepName;
     // (M17) a cup tie: penalties after a draw, through / out / the cup won (what Continue will record)
     let cupLine = null;
     if (fx.cup) {
@@ -1082,7 +1095,8 @@ function facilitySections(defId) {
   const training = { title: 'What it’s for', lines: ['The team trains here every club day: set the session, its intensity and each player’s focus.'], buttons: [{ id: 'training', label: 'Set training', accent: COL.action, onTap: () => openTraining('club') }] };
   const office = { title: 'What it’s for', lines: ['Where you run the club: find a match, set tactics, do transfers and contracts.'], columns: 2, buttons: [{ id: 'league', label: 'Find a match', accent: COL.good, onTap: () => openLeague() }, { id: 'contracts', label: 'Contracts', accent: COL.gold, onTap: () => transfersUi.openTransfers('mine') }] };
   const lgNow = open ? LG.leagueOf(open.data) : leagueById('regional');
-  const league = { title: lgNow.name, lines: [`Challenges, your Club Rank and the road to the ${nextLeagueName(lgNow.promotion.to)}.`], columns: lgNow.cup ? 2 : 1, buttons: [{ id: 'league', label: 'League', accent: COL.good, onTap: () => openLeague() }, ...(lgNow.cup ? [{ id: 'shield', label: cupById(lgNow.cup).name, icon: cupById(lgNow.cup).art, accent: COL.gold, onTap: () => openShield() }] : [])] };
+  const cupsNow = open ? LG.activeCups(open.data).map((c) => cupById(c.id)) : [];
+  const league = { title: lgNow.name, lines: [`Challenges, your Club Rank and the road to the ${nextLeagueName(lgNow.promotion.to)}.`], columns: cupsNow.length ? 2 : 1, buttons: [{ id: 'league', label: 'League', accent: COL.good, onTap: () => openLeague() }, ...cupsNow.map((c) => ({ id: c.id === 'C02' ? 'shield' : `cup:${c.id}`, label: c.name, icon: c.art, accent: COL.gold, onTap: () => openShield(false, c.id) }))] };
   const tactics = { title: 'Tactics', lines: ['Formation, team instructions, roles and familiarity.'], buttons: [{ id: 'tactics', label: 'Tactics', accent: COL.purple, onTap: () => openTactics('club') }] };
   const transfers = { title: 'Transfers', lines: ['Market, free agents, loans and your contracts.'], buttons: [{ id: 'transfers', label: 'Transfers', accent: COL.gold, onTap: () => transfersUi.openTransfers('market') }] };
   const research = { title: 'Research', lines: ['Research Points, the research slot and the 36 nodes in six branches.'], buttons: [{ id: 'research', label: 'Research', accent: COL.progress, onTap: () => researchUi.openResearch() }] };
@@ -1127,7 +1141,9 @@ const MENU_OPEN = {
   staff: () => staffUi.openStaff(), // (M14)
   academy: () => academyUi.openAcademy(), // (M15)
   hallOfFame: () => hofUi.openHallOfFame(), // (M16)
-  shield: () => openShield(), // (M17)
+  shield: () => openShield(false, 'C02'), // (M17)
+  knockout: () => openShield(false, 'C03'), // (M18)
+  crownCup: () => openShield(false, 'C04'), // (M18)
   settings: () => openSettings(),
   mainMenu: () => leaveClub(),
 };
@@ -1139,11 +1155,13 @@ function menuState(id) {
     if (open?.calendar.fixture && !open.calendar.atKickoff) return { sub: `Next match: ${open.calendar.fixture.opponent.name} in ${open.calendar.daysToMatch} days` };
     return n ? { badge: n, sub: `${n} club${n === 1 ? ' wants' : 's want'} a match: accept one to fix a match day` } : open ? { sub: `${LG.leagueOf(open.data).name}: clubs challenge you; accept one to fix a match day` } : {};
   }
-  // (M17) the County Shield row: only once the club's league has a cup
-  if (id === 'shield') {
-    const lg = open ? LG.leagueOf(open.data) : null;
-    if (!lg?.cup) return { hidden: true };
-    const st = CUP.status(open.data, lg.cup);
+  // (M17) the County Shield row; (M18) the National Knockout and Crown Cup rows — each shown while its cup runs or once it
+  // has run at least once
+  const CUP_ROWS = { shield: 'C02', knockout: 'C03', crownCup: 'C04' };
+  if (CUP_ROWS[id]) {
+    const cid = CUP_ROWS[id];
+    if (!open || !(LG.activeCups(open.data).some((c) => c.id === cid) || open.data.cups?.[cid]?.editions)) return { hidden: true };
+    const st = CUP.status(open.data, cid);
     return { sub: st.next ? `${st.next.round} against ${CUP.teamName(open.data, st.next.opponent)} · the bracket` : st.running && st.out ? 'Out this season · see the bracket' : `Won ${st.wins} time${st.wins === 1 ? '' : 's'} · the bracket and past winners` };
   }
   if (id === 'staff' && open?.data.staff) {
@@ -1179,7 +1197,7 @@ function hintRules() {
     { id: 'trials', text: () => NEXT_HINTS.trials(d().academy.intake.candidates.length, 3 - d().academy.intake.signed.length), when: () => AC.intakeOpen(d(), cal().today) && d().academy.intake.candidates.length > 0 && d().academy.intake.signed.length < 3 && AC.academyCount(d()) < AC.placesOf(d()), open: () => academyUi.openAcademy() },
     // (M17) a promotion offer waiting for an answer; a cup tie coming (it is fixed by itself: the hint shows the bracket)
     { id: 'promotion', text: () => NEXT_HINTS.promotion(nextLeagueName(LG.leagueOf(d()).promotion.to)), when: () => LG.promotion(d()).offer === 'offered', open: () => openPromotionOffer() },
-    { id: 'cupTie', text: () => { const o = LG.cupOffer(d()) ?? LG.acceptedOffer(d()); return NEXT_HINTS.cupTie(cupById(o.cup.id).name, o.cup.name, clubById(o.clubId).name); }, when: () => !!(LG.cupOffer(d()) ?? LG.acceptedOffer(d()))?.cup && !cal().atKickoff, open: () => openShield() },
+    { id: 'cupTie', text: () => { const o = LG.cupOffer(d()) ?? LG.acceptedOffer(d()); return NEXT_HINTS.cupTie(cupById(o.cup.id).name, o.cup.name, clubById(o.clubId).name); }, when: () => !!(LG.cupOffer(d()) ?? LG.acceptedOffer(d()))?.cup && !cal().atKickoff, open: () => openShield(false, (LG.cupOffer(d()) ?? LG.acceptedOffer(d())).cup.id) },
     { id: 'firstMatch', text: NEXT_HINTS.firstMatch, when: () => !cal().fixture && matchesPlayed(d()) === 0, open: () => openLeague() },
     { id: 'offers', text: () => NEXT_HINTS.offers(LG.openOffers(d()).length), when: () => !cal().fixture && LG.openOffers(d()).length > 0, open: () => openLeague() },
     { id: 'training', text: () => NEXT_HINTS.training(cal().daysToMatch), when: () => !!cal().fixture && !d().prefs?.trainingSeen, open: () => openTraining('club') },

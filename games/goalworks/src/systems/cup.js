@@ -1,7 +1,8 @@
-// A simple reusable knockout cup (Milestone 17, bible §22 — C02 County Shield; data in data/cups.js). Plain functions over
-// the run save (data.cups); M21's full tournament engine extends this. The league (src/systems/league.js) runs it: it
-// calls cupDay each club day while you are in the cup's league, turns your tie into a fixture offer (the tie takes the
-// week's slot) and hands your result back with recordOurTie.
+// A simple reusable knockout cup (Milestone 17, bible §22 — C02 County Shield; M18 C03 National Knockout and C04 Crown Cup;
+// data in data/cups.js). Plain functions over the run save (data.cups); M21's full tournament engine extends this. The
+// league (src/systems/league.js) runs it: it calls cupDay each club day for every cup that is open (data/cups.js `opens`),
+// keeps two of your ties out of one week (separate), turns your tie into a fixture offer (the tie takes the week's slot)
+// and hands your result back with recordOurTie.
 //   data.cups = { v: 17, C02: { editions, current, last, nextStart, wins, history } }
 //     an edition = { edition, year, startDay, teams, rounds: [[tie]], round, tieDay, issued, out, done, champion }
 //     a tie = { a, b, day, score: [a, b] | null, pens: [a, b] | null, winner: id | null }  ('us' is your club)
@@ -13,7 +14,7 @@
 import { Rng } from '../../../../core/Rng.js';
 import { CUPS, cupById, US } from '../../data/cups.js';
 import { leagueById } from '../../data/league.js';
-import { clubById } from '../../data/fixtures.js';
+import { clubById, ALL_CLUBS } from '../../data/fixtures.js';
 import { bestXI, opponentSquad } from './squad.js';
 import { overall } from './players.js';
 
@@ -37,10 +38,14 @@ export function strength(data, id) {
 function startEdition(data, cup, day) {
   const C = data.cups[cup.id];
   const rng = new Rng(`${data.seed}:cup:${cup.id}:${C.editions + 1}:draw`);
-  const own = leagueById(cup.teams.league).clubs;
-  const inv = cup.teams.invite;
-  const invited = inv ? leagueById(inv.league).clubs.slice().sort((a, b) => strength(data, b) - strength(data, a)).slice(0, inv.count) : [];
-  const teams = rng.shuffle([US, ...own, ...invited]);
+  const byStrength = (ids) => ids.map((id) => [id, strength(data, id)]).sort((a, b) => b[1] - a[1]).map(([id]) => id);
+  let others;
+  if (cup.teams.strongest) others = byStrength(ALL_CLUBS.map((c) => c.id)).slice(0, cup.teams.strongest); // (M18 C04)
+  else {
+    const inv = cup.teams.invite;
+    others = [...leagueById(cup.teams.league).clubs, ...(inv ? byStrength(leagueById(inv.league).clubs).slice(0, inv.count) : [])];
+  }
+  const teams = rng.shuffle([US, ...others]);
   const first = [];
   for (let i = 0; i < teams.length; i += 2) first.push({ a: teams[i], b: teams[i + 1], day: null, score: null, pens: null, winner: null });
   C.editions++;
@@ -108,11 +113,11 @@ const oppOf = (t) => (t.a === US ? t.b : t.a);
 
 // One club day of a cup (only while you are in its league): open an edition, issue your tie a week ahead, sim the AI ties
 // on their day, move the bracket on.
-export function cupDay(data, cupId, day, { issueTie, hasTie = () => true } = {}) {
+export function cupDay(data, cupId, day, { issueTie, hasTie = () => true, startNew = true } = {}) {
   const cup = cupById(cupId);
   const C = normaliseCups(data)[cupId];
   const events = [];
-  if (!C.current && day >= C.nextStart) {
+  if (!C.current && startNew && day >= C.nextStart) {
     startEdition(data, cup, day);
     events.push({ kind: 'start', cup: cupId, edition: C.current.edition });
   }
@@ -134,6 +139,28 @@ export function cupDay(data, cupId, day, { issueTie, hasTie = () => true } = {})
   }
   advance(data, cup, day, events);
   return events;
+}
+
+// (M18) Two of your cup ties never in one week: going through the cups in order, a cup whose next tie for you is not yet
+// issued and falls within 7 days of another cup's tie for you moves its whole round back a week (its AI ties too).
+// Called by the league before each day's cupDay. → [cup ids moved]
+export function separate(data, cupIds) {
+  const moved = [];
+  const mine = (id) => {
+    const cur = data.cups?.[id]?.current;
+    return cur && !cur.done && ourTieIn(cur) ? cur : null;
+  };
+  for (const id of cupIds) {
+    const cur = mine(id);
+    if (!cur || cur.issued === cur.round) continue;
+    for (let guard = 0; guard < 8; guard++) {
+      const clash = cupIds.some((o) => o !== id && mine(o) && Math.abs(mine(o).tieDay - cur.tieDay) < 7 && (mine(o).issued === mine(o).round || cupIds.indexOf(o) < cupIds.indexOf(id)));
+      if (!clash) break;
+      cur.tieDay += 7;
+      if (!moved.includes(id)) moved.push(id);
+    }
+  }
+  return moved;
 }
 
 // Your tie's shootout after a draw (a coin toss, the same every time for that tie: the result screen shows it before

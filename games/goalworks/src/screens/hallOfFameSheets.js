@@ -1,7 +1,7 @@
 // The Hall of Fame sheets (Milestone 16, bible §10 / §33 / §36; style guide §3 bottom sheets). From the Club Menu.
 //   Hall of Fame — every Hall of Famer in the account save (this club's first, then the other clubs you have run: they
-//     survive new games), this season's retirements ("Last season"), the club records, and the club's other retired
-//     players. The picture is the legend shirt display (trophy_18); every legend wears the plaque badge (trophy_17).
+//     survive new games), this season's retirements ("Last season"), (M18) the club's history (promotions, cups won), the
+//     club records, and the club's other retired players. The picture is the legend shirt display (trophy_18); every legend wears the plaque badge (trophy_17).
 //   Legend card — portrait (a Founder's art) or the code-drawn silhouette in his club's colours, the plaque, why he is in,
 //     years at the club, career totals, his best overall and his stats when he retired, staff-conversion eligibility.
 //   createHallOfFameSheets({ sheet, assets, entries, run }) → { openHallOfFame(), openEntry(uid), hofMenu() }
@@ -33,6 +33,9 @@ export function createHallOfFameSheets({ sheet, assets, entries = () => [], run 
     if (d) {
       const leaving = d.squad.players.filter((p) => p.retiring);
       if (leaving.length) sections.push({ title: 'Last season', lines: leaving.map((p) => `${p.name} (${p.position}, ${p.age}) retires at the end of the season · ${p.career?.apps ?? 0} apps`) });
+      // (M18) the club's history: promotions and cup wins (the C04 Crown Cup's "club history" prize)
+      const H = d.clubHistory ?? [];
+      if (H.length) sections.push({ title: 'Club history', lines: H.slice(-8).reverse().map((h) => `Year ${h.year}: ${h.text}`) });
       const R = d.careers?.records ?? {};
       sections.push({ title: 'Club records', lines: RECORD_KEYS.map(({ key, name }) => (R[key] ? `${name}: ${R[key].value} · ${R[key].name}` : `${name}: nobody yet`)) });
       const retired = (d.careers?.retired ?? []).filter((e) => !e.hof);

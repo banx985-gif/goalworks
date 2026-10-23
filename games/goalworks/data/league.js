@@ -23,17 +23,17 @@ export const RANKS = [
 // "never deletes long-term club history") + momentum (short-term form: a win adds some, a loss takes some away, it fades
 // back day by day, and it is never below 0 — so reputation never drops below what history earned).
 //   win / draw: { history, momentum } added · loss: momentum lost · fade: momentum lost per day
-// (M17) Tiers 4–6 are the County clubs: bigger rewards than any Regional club.
+// (M17) Tiers 4–6 are the County clubs: bigger rewards than any Regional club. (M18) Tiers 7–9 the National clubs.
 export const REPUTATION = {
-  win: { 1: { history: 30, momentum: 12 }, 2: { history: 42, momentum: 16 }, 3: { history: 55, momentum: 20 }, 4: { history: 70, momentum: 24 }, 5: { history: 85, momentum: 28 }, 6: { history: 100, momentum: 32 } },
-  draw: { 1: { history: 6, momentum: 4 }, 2: { history: 10, momentum: 5 }, 3: { history: 14, momentum: 6 }, 4: { history: 20, momentum: 8 }, 5: { history: 25, momentum: 9 }, 6: { history: 30, momentum: 10 } },
-  loss: { 1: 18, 2: 14, 3: 10, 4: 10, 5: 8, 6: 6 }, // momentum lost (a loss to a weaker side stings more)
+  win: { 1: { history: 30, momentum: 12 }, 2: { history: 42, momentum: 16 }, 3: { history: 55, momentum: 20 }, 4: { history: 70, momentum: 24 }, 5: { history: 85, momentum: 28 }, 6: { history: 100, momentum: 32 }, 7: { history: 125, momentum: 38 }, 8: { history: 145, momentum: 42 }, 9: { history: 165, momentum: 46 } },
+  draw: { 1: { history: 6, momentum: 4 }, 2: { history: 10, momentum: 5 }, 3: { history: 14, momentum: 6 }, 4: { history: 20, momentum: 8 }, 5: { history: 25, momentum: 9 }, 6: { history: 30, momentum: 10 }, 7: { history: 38, momentum: 12 }, 8: { history: 44, momentum: 13 }, 9: { history: 50, momentum: 14 } },
+  loss: { 1: 18, 2: 14, 3: 10, 4: 10, 5: 8, 6: 6, 7: 8, 8: 6, 9: 5 }, // momentum lost (a loss to a weaker side stings more)
   promotionWin: { history: 150, momentum: 30 },
   fade: 0.5,
 };
 
 // Credits per result (a PLACEHOLDER counter until the real money ledger in Milestone 23).
-export const CREDITS = { win: { 1: 400, 2: 600, 3: 850, 4: 1100, 5: 1350, 6: 1600 }, draw: { 1: 150, 2: 220, 3: 300, 4: 400, 5: 480, 6: 560 }, loss: { 1: 60, 2: 80, 3: 100, 4: 140, 5: 160, 6: 180 }, promotionWin: 1500 };
+export const CREDITS = { win: { 1: 400, 2: 600, 3: 850, 4: 1100, 5: 1350, 6: 1600, 7: 2000, 8: 2300, 9: 2600 }, draw: { 1: 150, 2: 220, 3: 300, 4: 400, 5: 480, 6: 560, 7: 700, 8: 800, 9: 900 }, loss: { 1: 60, 2: 80, 3: 100, 4: 140, 5: 160, 6: 180, 7: 220, 8: 250, 9: 280 }, promotionWin: 1500 };
 
 // Regional → County (bible §8): beat 4 distinct Regional clubs + 8 total Regional wins → a Promotion Match against the
 // highest unlocked Regional opponent; win it → the County promotion offer.
@@ -46,11 +46,14 @@ export const PROMOTION = { distinct: 4, wins: 8, retryCooldown: 10 };
 //     distinct / wins / rank       clubs beaten at least once (all: the league's size), total wins, the Club Rank needed
 //     final                        then one more step: 'match' (a Promotion Match against the highest unlocked club —
 //                                  Regional) or { cup, playoff } (win that cup, or once the rest is met without having won
-//                                  it, a one-off Promotion Playoff against the league's strongest club — County)
-//     retryCooldown                days after a lost Promotion Match / Playoff before it comes back
+//                                  it, a one-off Promotion Playoff against the league's strongest club — County) or
+//                                  { rival } (M18: a one-off Promotion Decider against that club — National, RV03)
+//     stepName                     what the last step is called on the sheets (Promotion Match / Playoff / Decider)
+//     retryCooldown                days after a lost Promotion Match / Playoff / Decider before it comes back
 //     bonus                        Credits and reputation for winning that match ({ credits, history, momentum })
 //     to, offerLine                the next league's id (null: not built yet) and the offer's words
-//   cup                            the league's own cup (data/cups.js), opened when you enter the league
+//   cup                            the league's own cup (data/cups.js), opened when you enter the league (M18: the cups
+//                                  say when they open — data/cups.js `opens`; this is the one the League sheet leads with)
 //   achievement                    recorded when you are promoted out of it (the achievements screen is M27)
 //   stadiumFlag                    a stadium stage it unlocks as a flag only when you enter it (stages are M24)
 export const LEAGUES = [
@@ -60,7 +63,7 @@ export const LEAGUES = [
     name: 'Regional League',
     short: 'Regional',
     clubs: ['REG01', 'REG02', 'REG03', 'REG04', 'REG05', 'REG06'],
-    promotion: { distinct: PROMOTION.distinct, wins: PROMOTION.wins, rank: null, final: 'match', retryCooldown: PROMOTION.retryCooldown, bonus: { credits: CREDITS.promotionWin, ...REPUTATION.promotionWin }, to: 'county' },
+    promotion: { distinct: PROMOTION.distinct, wins: PROMOTION.wins, rank: null, final: 'match', stepName: 'Promotion Match', retryCooldown: PROMOTION.retryCooldown, bonus: { credits: CREDITS.promotionWin, ...REPUTATION.promotionWin }, to: 'county' },
     cup: null, // (C01 Regional Cup: Milestone 21)
     achievement: 'A10',
     stadiumFlag: null,
@@ -71,20 +74,34 @@ export const LEAGUES = [
     name: 'County League',
     short: 'County',
     clubs: ['CNT01', 'CNT02', 'CNT03', 'CNT04', 'CNT05', 'CNT06'],
-    promotion: { distinct: 6, wins: 0, rank: 'D', final: { cup: 'C02', playoff: true }, retryCooldown: 21, bonus: { credits: 2500, history: 220, momentum: 40 }, to: 'national' },
+    promotion: { distinct: 6, wins: 0, rank: 'D', final: { cup: 'C02', playoff: true }, stepName: 'Promotion Playoff', retryCooldown: 21, bonus: { credits: 2500, history: 220, momentum: 40 }, to: 'national' },
     cup: 'C02',
     achievement: 'A11',
     stadiumFlag: 'countyStand',
   },
+  // (M18) National → Championship (bible §8): 12 National wins + 5 different National clubs beaten + Rank C, then beat
+  // the designated rival RV03 (NAT02 Yorkshire Tykes) in a one-off Promotion Decider.
+  {
+    id: 'national',
+    tier: 3,
+    name: 'National League',
+    short: 'National',
+    clubs: ['NAT01', 'NAT02', 'NAT03', 'NAT04', 'NAT05', 'NAT06'],
+    promotion: { distinct: 5, wins: 12, rank: 'C', final: { rival: 'NAT02' }, stepName: 'Promotion Decider', retryCooldown: 28, bonus: { credits: 4000, history: 320, momentum: 60 }, to: 'championship' },
+    cup: 'C03',
+    achievement: 'A12',
+    stadiumFlag: 'nationalStand',
+  },
 ];
 export const leagueById = (id) => LEAGUES.find((l) => l.id === id) ?? null;
 // The next tiers, named before they are built (the offer says "coming soon").
-export const COMING = { national: { name: 'National League', milestone: 'M18' } };
+export const COMING = { championship: { name: 'Championship League', milestone: 'M19' } };
 
 // Achievement flags recorded now (bible §31; the achievements screen is M27).
 export const ACHIEVEMENTS = {
   A10: { name: 'Regional Kings', line: 'Clear Regional promotion' }, // recorded when you accept the County offer
   A11: { name: 'County Kings', line: 'Clear County promotion' }, // recorded when you accept the National offer
+  A12: { name: 'National Kings', line: 'Clear National promotion' }, // (M18) recorded when you accept the Championship offer
 };
 // Stadium stage flags (bible §26; the stages themselves are M24).
-export const STADIUM_FLAGS = { countyStand: { name: 'County Stand', stage: 2 } };
+export const STADIUM_FLAGS = { countyStand: { name: 'County Stand', stage: 2 }, nationalStand: { name: 'National Stand', stage: 3 } };

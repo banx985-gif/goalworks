@@ -23,7 +23,7 @@ export const VALUE = {
   // formFactor: 1 + perPoint × form (form −10 … +10)
   formPerPoint: 0.015,
   // reputationFactor: the club that owns him (free agents and the wider market have none of their own)
-  reputation: { free: 0.8, market: 1, club: { 1: 0.95, 2: 1, 3: 1.08, 4: 1.12, 5: 1.16, 6: 1.2 }, rank: { E: 1, D: 1.05, C: 1.1, B: 1.18, A: 1.26, S: 1.35 } },
+  reputation: { free: 0.8, market: 1, club: { 1: 0.95, 2: 1, 3: 1.08, 4: 1.12, 5: 1.16, 6: 1.2, 7: 1.25, 8: 1.3, 9: 1.35 }, rank: { E: 1, D: 1.05, C: 1.1, B: 1.18, A: 1.26, S: 1.35 } },
   // contractFactor: by years left (0 = a free agent)
   contract: { 0: 0.5, 1: 0.65, 2: 0.85, 3: 1, 4: 1.08, 5: 1.15 },
   // potentialFactor: 1 + perPoint × (potential midpoint − overall), at most max

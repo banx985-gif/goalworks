@@ -100,4 +100,11 @@ export const CLUB_TACTICS = {
   CNT04: { formation: '352', build: 'counter' },
   CNT05: { formation: '4411', build: 'balanced', line: 'high' },
   CNT06: { formation: '343', build: 'direct', mentality: 'attacking' },
+  // (M18) the National clubs; NAT02 Yorkshire Tykes (rival RV03) is the bible's hard-running, high-pressing side
+  NAT01: { formation: '4231', build: 'balanced' },
+  NAT02: { formation: '433', build: 'direct', press: 'high', tempo: 'fast' },
+  NAT03: { formation: '442', build: 'counter', line: 'deep' },
+  NAT04: { formation: '4141', build: 'possession' },
+  NAT05: { formation: '352', build: 'direct', line: 'high' },
+  NAT06: { formation: '433', build: 'possession', mentality: 'attacking' },
 };

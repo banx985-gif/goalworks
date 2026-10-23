@@ -324,7 +324,9 @@ function makeRegen(data, rng, from, parent, season, day) {
   const k = (YOUTH_SCALE[age] ?? 1) * (toClub ? clubById(parent)?.strength ?? 1 : 1);
   for (const s of Object.keys(p.stats)) p.stats[s] = Math.max(8, Math.round(p.stats[s] * k));
   const ovr = overall(p);
-  const exact = Math.min(REGEN.cap[tier], Math.max(Math.min(pot, ceiling), ovr + REGEN.room));
+  // (M18) a club regen may reach his club's ceiling even above the Regional caps (the National bands sit at 82–90)
+  const cap = toClub ? Math.max(REGEN.cap[tier], ceiling) : REGEN.cap[tier];
+  const exact = Math.min(cap, Math.max(Math.min(pot, ceiling), ovr + REGEN.room));
   p.potential = { low: Math.max(ovr, exact - REGEN.spread), high: exact + REGEN.spread, exact };
   p.peak = ovr;
   p.regen = { of: from.name, year: season + 1 };
