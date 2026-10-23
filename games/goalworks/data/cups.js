@@ -54,6 +54,24 @@ export const CUPS = {
     short: 'National cup',
     blurb: 'you, the six National clubs and one invited County club',
   },
+  // (M19) bible §22: opens when you enter the Championship; "promotion reputation". Its final is also the Promotion Final
+  // once the other Championship conditions are met (data/league.js).
+  C05: {
+    id: 'C05',
+    name: 'Championship Trophy',
+    art: 'tournament_c05',
+    opens: { league: 'championship' },
+    league: 'championship',
+    teams: { league: 'championship', invite: { league: 'national', count: 1 } },
+    rounds: ['Quarter-final', 'Semi-final', 'Final'],
+    firstTieDays: 14,
+    gapDays: 28,
+    sim: { scale: 5, drawChance: 0.22 },
+    prize: { credits: 7000, history: 650, momentum: 110, flags: [] },
+    roundWin: { credits: 1100 },
+    short: 'Championship cup',
+    blurb: 'you, the six Championship clubs and one invited National club',
+  },
   // (M18) bible §22: any tier, opens at Rank C; "large prize + club history". The first tie comes three weeks in, so it
   // seldom meets a league cup's quarter-final in the same week (and if it does, it moves back a week).
   C04: {

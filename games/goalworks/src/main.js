@@ -106,6 +106,11 @@
 // cup ties never fall in one week (the later cup's round moves back a week). 12 National wins + 5 clubs beaten + Rank C,
 // then beat rival RV03 (NAT02 Yorkshire Tykes) in the Promotion Decider → the Championship offer (Championship: M19).
 // Promotions and cups won go into the club's history (Hall of Fame sheet).
+// Milestone 19: the Championship League — more data again. Accepting the Championship offer moves the club up (older saves
+// too); six Championship clubs (CHP01 Bristolians = rival RV04); C05 Championship Trophy (you + six Championship clubs + the
+// strongest National squad). 14 wins + all six beaten + Rank B, then the Promotion Final: the Trophy's final once the rest
+// is met (Match Setup and the result say so), or a one-off final against CHP06 when you are out of that season's Trophy →
+// the Crown Premier offer (Crown Premier: M20).
 // Add ?debug=1 for the FPS/state overlay, ?screen=test for the scaling / tap / asset-loader test screen, ?screen=match
 // (&seed=…, &mode=watch|manage|play, &km=1 for Key Moment prompts, &stats=35,70 for flat home,away test stats) for a
 // test match between two test teams (never saved). With ?debug=1, &safe=phone|tablet stands in a notch and home bar (safe-area insets) on any screen.
@@ -765,7 +770,7 @@ function fixtureKits(club, opp) {
 function openMatchSetup() {
   if (!open?.calendar.atKickoff) return;
   open.setupShown = true;
-  sheet.open(matchSetupSheet({ calendar, clubName: () => open?.data.club.name ?? '', club: () => open?.data.club ?? null, kits: () => (open?.calendar.fixture ? fixtureKits(open.data.club, open.calendar.fixture.opponent) : null), onKickOff: (mode) => kickOff(mode), onPlayed: debug.enabled ? () => playPlaceholder() : null, resuming: () => savedMode(open?.data.match), clue: () => matchClue() }));
+  sheet.open(matchSetupSheet({ calendar, clubName: () => open?.data.club.name ?? '', club: () => open?.data.club ?? null, kits: () => (open?.calendar.fixture ? fixtureKits(open.data.club, open.calendar.fixture.opponent) : null), onKickOff: (mode) => kickOff(mode), onPlayed: debug.enabled ? () => playPlaceholder() : null, resuming: () => savedMode(open?.data.match), clue: () => matchClue(), promotionFinal: () => !!open && LG.isPromotionFinal(open.data, open.calendar.fixture) }));
 }
 
 // (M14) the Analyst's line on Match Setup: the opponent clue (Match Notes) and the match preparation
@@ -1015,7 +1020,9 @@ const matchScreen = createMatchScreen({
       const final = fx.cup.round === cup.rounds.length - 1;
       cupLine = `${sh ? `Penalties: ${sh.pens[0]}–${sh.pens[1]} · ` : ''}${through ? (final ? `${cup.name} winners! +${cup.prize.credits.toLocaleString('en-GB')} Credits` : `Through to the ${cup.rounds[fx.cup.round + 1].toLowerCase()} · +${cup.roundWin.credits} Credits`) : `Out of the ${cup.name}`}`;
     }
-    return [`${fx.cup ? `${cupById(fx.cup.id).name} ${fx.cup.name.toLowerCase()} · ` : fx.promotion ? `${promoName} · ` : ''}+${p.credits} Credits (placeholder) · reputation ${rep >= 0 ? '+' : ''}${Math.round(rep)} · +${rp} RP`, cupLine, fx.promotion && p.res === 'win' ? `Promotion earned: the ${nextLeagueName(lg.promotion.to)} offer is waiting.` : null].filter(Boolean);
+    const pf = LG.isPromotionFinal(open.data, fx); // (M19) the Trophy's final as the Promotion Final
+    if (pf && cupLine) cupLine = /winners/.test(cupLine) ? `PROMOTION FINAL WON · ${cupLine} · the ${nextLeagueName(lg.promotion.to)} offer is waiting` : `Promotion Final lost · ${cupLine} · it comes again after a wait`;
+    return [`${pf ? 'PROMOTION FINAL · ' : ''}${fx.cup ? `${cupById(fx.cup.id).name} ${fx.cup.name.toLowerCase()} · ` : fx.promotion ? `${promoName} · ` : ''}+${p.credits} Credits (placeholder) · reputation ${rep >= 0 ? '+' : ''}${Math.round(rep)} · +${rp} RP`, cupLine, fx.promotion && p.res === 'win' ? `Promotion earned: the ${nextLeagueName(lg.promotion.to)} offer is waiting.` : null].filter(Boolean);
   },
   held: () => sheet.active, // (the match waits while a sheet is open over it)
   leftHanded: () => settings.get('leftHanded') === true, // (M12b)
@@ -1144,6 +1151,7 @@ const MENU_OPEN = {
   shield: () => openShield(false, 'C02'), // (M17)
   knockout: () => openShield(false, 'C03'), // (M18)
   crownCup: () => openShield(false, 'C04'), // (M18)
+  trophy: () => openShield(false, 'C05'), // (M19)
   settings: () => openSettings(),
   mainMenu: () => leaveClub(),
 };
@@ -1157,7 +1165,7 @@ function menuState(id) {
   }
   // (M17) the County Shield row; (M18) the National Knockout and Crown Cup rows — each shown while its cup runs or once it
   // has run at least once
-  const CUP_ROWS = { shield: 'C02', knockout: 'C03', crownCup: 'C04' };
+  const CUP_ROWS = { shield: 'C02', knockout: 'C03', crownCup: 'C04', trophy: 'C05' };
   if (CUP_ROWS[id]) {
     const cid = CUP_ROWS[id];
     if (!open || !(LG.activeCups(open.data).some((c) => c.id === cid) || open.data.cups?.[cid]?.editions)) return { hidden: true };
@@ -1191,13 +1199,22 @@ function openNavMenu() {
 function hintRules() {
   const d = () => open.data;
   const cal = () => open.calendar;
+  // the cup tie coming: the open one, else the one already fixed (null when neither is a cup tie)
+  const cupTieNow = () => {
+    if (!open) return null;
+    const o = LG.cupOffer(d());
+    if (o) return o;
+    const a = LG.acceptedOffer(d());
+    return a?.cup ? a : null;
+  };
   return [
     { id: 'matchDay', text: NEXT_HINTS.matchDay, when: () => cal().atKickoff, open: () => openMatchSetup() },
     // (M15) the trials come once a year for a month: ahead of the everyday hints
     { id: 'trials', text: () => NEXT_HINTS.trials(d().academy.intake.candidates.length, 3 - d().academy.intake.signed.length), when: () => AC.intakeOpen(d(), cal().today) && d().academy.intake.candidates.length > 0 && d().academy.intake.signed.length < 3 && AC.academyCount(d()) < AC.placesOf(d()), open: () => academyUi.openAcademy() },
     // (M17) a promotion offer waiting for an answer; a cup tie coming (it is fixed by itself: the hint shows the bracket)
     { id: 'promotion', text: () => NEXT_HINTS.promotion(nextLeagueName(LG.leagueOf(d()).promotion.to)), when: () => LG.promotion(d()).offer === 'offered', open: () => openPromotionOffer() },
-    { id: 'cupTie', text: () => { const o = LG.cupOffer(d()) ?? LG.acceptedOffer(d()); return NEXT_HINTS.cupTie(cupById(o.cup.id).name, o.cup.name, clubById(o.clubId).name); }, when: () => !!(LG.cupOffer(d()) ?? LG.acceptedOffer(d()))?.cup && !cal().atKickoff, open: () => openShield(false, (LG.cupOffer(d()) ?? LG.acceptedOffer(d())).cup.id) },
+    // (M19 fix) the tie can be gone by the time the line redraws, and an accepted league match is no cup tie: read it safely
+    { id: 'cupTie', text: () => { const o = cupTieNow(); return o ? NEXT_HINTS.cupTie(cupById(o.cup.id).name, o.cup.name, clubById(o.clubId).name) : ''; }, when: () => !!cupTieNow() && !cal().atKickoff, open: () => openShield(false, cupTieNow()?.cup.id) },
     { id: 'firstMatch', text: NEXT_HINTS.firstMatch, when: () => !cal().fixture && matchesPlayed(d()) === 0, open: () => openLeague() },
     { id: 'offers', text: () => NEXT_HINTS.offers(LG.openOffers(d()).length), when: () => !cal().fixture && LG.openOffers(d()).length > 0, open: () => openLeague() },
     { id: 'training', text: () => NEXT_HINTS.training(cal().daysToMatch), when: () => !!cal().fixture && !d().prefs?.trainingSeen, open: () => openTraining('club') },

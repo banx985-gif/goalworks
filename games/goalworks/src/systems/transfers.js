@@ -34,7 +34,8 @@ import { normaliseLeague, rank as clubRank, leagueOf } from './league.js';
 import { createTalk, respond, askTerms } from './negotiation.js';
 import { normaliseScouting, scoutDay } from './scouting.js';
 import { scoutingFac } from './effects.js';
-import { seasonRetire, seasonAge } from './careers.js';
+import { seasonRetire, seasonAge, bandOf } from './careers.js';
+import { BAND } from '../../data/careers.js';
 
 const YEAR = 336;
 const WEEK = 7;
@@ -672,7 +673,10 @@ function weekly(data, day, rng) {
       for (const p of club.players) c[p.position]++;
       const pos = POSITION_ORDER.slice().sort((a, b) => c[a] - SHAPE[a] - (c[b] - SHAPE[b]))[0];
       const avg = club.players.reduce((s, x) => s + overall(x), 0) / Math.max(1, club.players.length);
-      const free = T.free.filter((p) => p.position === pos && Math.abs(overall(p) - avg) <= 6 && p.age < AI.releaseAge).sort((a, b) => overall(b) - overall(a))[0];
+      // (M19) never above the club's own quality band (M16: band + room, as its players' growth) — a weak club could ratchet
+      // up 6 points at a time on the free agents before
+      const top = bandOf(data, cid) + BAND.room;
+      const free = T.free.filter((p) => p.position === pos && Math.abs(overall(p) - avg) <= 6 && overall(p) <= top && p.age < AI.releaseAge).sort((a, b) => overall(b) - overall(a))[0];
       const p = free && rng.next() < 0.6 ? free : genPlayer(data, rng, { position: pos, kind: 'club', clubId: cid });
       if (p === free) take(data, 'free', p);
       p.contract = contractFor(rng, p, 'Rotation');

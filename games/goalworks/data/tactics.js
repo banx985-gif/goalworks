@@ -107,4 +107,11 @@ export const CLUB_TACTICS = {
   NAT04: { formation: '4141', build: 'possession' },
   NAT05: { formation: '352', build: 'direct', line: 'high' },
   NAT06: { formation: '433', build: 'possession', mentality: 'attacking' },
+  // (M19) the Championship clubs; CHP01 Bristolians (rival RV04) is the bible's technical, possession side
+  CHP01: { formation: '433', build: 'possession', tempo: 'slow' },
+  CHP02: { formation: '4231', build: 'balanced', press: 'high' },
+  CHP03: { formation: '442', build: 'direct' },
+  CHP04: { formation: '4141', build: 'possession', width: 'wide' },
+  CHP05: { formation: '343', build: 'counter', line: 'high' },
+  CHP06: { formation: '4411', build: 'balanced', mentality: 'attacking' },
 };

@@ -172,6 +172,23 @@ function recordLines(lg, rec, pr, rk, L, cup) {
       pr.won ? 'Promotion Match won.' : pr.unlocked ? `Promotion Match unlocked: against ${L.promotionOpponent().name}.` : `Promotion Match: beat ${pr.need.distinct} different clubs and win ${pr.need.wins} ${lg.short} matches to unlock it.`,
     ];
   }
+  // (M19) Championship: 14 wins + all six beaten + Rank B, then the C05 Promotion Final (or the one-off fallback)
+  if (lg.promotion.final.promotionFinal) {
+    const fin = lg.promotion.final;
+    const cupName = cupById(fin.cup).name;
+    const notYet = lg.clubs.filter((id) => !rec.beaten.includes(id)).map((id) => L.club(id).name);
+    const finalLine = pr.won
+      ? '✓ Promotion Final won'
+      : pr.met
+        ? `✗ Win the Promotion Final: the ${cupName} final${pr.unlocked && L.offers().some((o) => o.promotion) ? `, or the one-off final against ${L.club(fin.fallback).name} (it is waiting for you)` : ` (once you are out of this season's ${cupName}: a one-off final against ${L.club(fin.fallback).name})`}`
+        : `✗ Then win the Promotion Final (the ${cupName} final, once the rest is met)${pr.cupWon ? ` · ${cupName} won before: a cup win, not the final` : ''}`;
+    return [
+      `${tick(rec.wins >= pr.need.wins)} ${pr.need.wins} ${lg.short} wins (${rec.wins} so far, ${cupName} ties included)`,
+      `${tick(rec.distinct >= pr.need.distinct)} Beat all ${pr.need.distinct} ${lg.short} clubs at least once (${rec.distinct} of ${n}${notYet.length ? `; not yet ${notYet.join(', ')}` : ''})`,
+      `${tick(pr.rankOk)} Club Rank ${pr.need.rank} or better (now ${rk.id})`,
+      finalLine,
+    ];
+  }
   // (M18) National: 12 wins + 5 different clubs + Rank C, then the Promotion Decider against the rival (RV03)
   if (lg.promotion.final.rival) {
     const rival = L.club(lg.promotion.final.rival).name;
@@ -258,7 +275,9 @@ export function shieldSheet({ calendar, status, name, onBack = null }) {
 export function promotionOfferSheet({ clubName, league, nextName, via, nextBuilt, onAnswer }) {
   return () => {
     const lg = league();
-    const why = lg.promotion.final.rival
+    const why = lg.promotion.final.promotionFinal
+      ? `${lg.promotion.wins} ${lg.short} wins, all six ${lg.short} clubs beaten, Club Rank ${lg.promotion.rank} or better, and the Promotion Final won. The ${nextName} is offering you a place.`
+      : lg.promotion.final.rival
       ? `${lg.promotion.wins} ${lg.short} wins, ${lg.promotion.distinct} different ${lg.short} clubs beaten, Club Rank ${lg.promotion.rank} or better, and your rival beaten in the Promotion Decider. The ${nextName} is offering you a place.`
       : lg.promotion.final === 'match'
         ?`Four ${lg.short} clubs beaten, eight ${lg.short} wins, and now the Promotion Match. The ${nextName} is offering you a place.`
@@ -277,7 +296,8 @@ export function promotionOfferSheet({ clubName, league, nextName, via, nextBuilt
 
 // resuming() → null (no match yet) | 'watch' | 'manage' | 'play' (the match under way).  onKickOff(mode)
 // kits() → { home, away, sides } (src/match/kits.js matchKits + both sides' names) or null
-export function matchSetupSheet({ calendar, clubName, kits = () => null, onKickOff, onPlayed = null, resuming = () => null, clue = () => null }) {
+// (M19) promotionFinal() → true when today's cup final is also the Promotion Final (a banner line and the title say so)
+export function matchSetupSheet({ calendar, clubName, kits = () => null, onKickOff, onPlayed = null, resuming = () => null, clue = () => null, promotionFinal = () => false }) {
   return () => {
     const cal = calendar();
     const f = cal?.fixture;
@@ -292,14 +312,14 @@ export function matchSetupSheet({ calendar, clubName, kits = () => null, onKickO
           { id: 'kickoffPlay', label: 'Kick off · Play', sub: 'You play: stick + Pass / Shoot / Tackle', accent: C.action, onTap: () => onKickOff('play') },
         ];
     return {
-      title: f.cup ? `${cupById(f.cup.id)?.name ?? 'Cup'} · ${f.cup.name}` : f.promotion ? leagueOfClub(f.opponent.id)?.promotion.stepName ?? 'Promotion Match' : 'Match Setup', // (M17: a cup tie, the playoff; M18 the Decider)
-      subtitle: `${clubName()} vs ${f.opponent.name}${f.home === false ? ' (away)' : ''}`,
+      title: f.cup ? (promotionFinal() ? 'Promotion Final' : `${cupById(f.cup.id)?.name ?? 'Cup'} · ${f.cup.name}`) : f.promotion ? leagueOfClub(f.opponent.id)?.promotion.stepName ?? 'Promotion Match' : 'Match Setup', // (M17: a cup tie, the playoff; M18 the Decider; M19 the Trophy's final as the Promotion Final)
+      subtitle: `${promotionFinal() ? `${cupById(f.cup.id)?.name} final · ` : ''}${clubName()} vs ${f.opponent.name}${f.home === false ? ' (away)' : ''}`,
       art: clubById(f.opponent.id)?.crest ?? 'facility_f01', // (M12b) the opponent's crest
       accent: C.action,
-      tag: { text: 'MATCH DAY', color: C.action },
+      tag: promotionFinal() ? { text: 'PROMOTION FINAL', color: C.purple } : { text: 'MATCH DAY', color: C.action },
       sections: [
         // (kept short so all three Kick off buttons fit on a 9:16 phone without scrolling)
-        { title: 'Fixture', lines: [`${dateText(cal, f.matchDay)} · ${f.cup ? 'Knockout tie: a draw goes to penalties' : src?.name ?? f.source}${src?.temporary ? ' (temporary)' : ''}`, ...kitLine(kits()), ...(clue() ? [clue()] : [])] }, // (M14) the Analyst's clue and preparation
+        { title: promotionFinal() ? 'Fixture · win it and the Crown Premier League wants you' : 'Fixture', lines: [`${dateText(cal, f.matchDay)} · ${f.cup ? 'Knockout tie: a draw goes to penalties' : src?.name ?? f.source}${src?.temporary ? ' (temporary)' : ''}`, ...kitLine(kits()), ...(clue() ? [clue()] : [])] }, // (M14) the Analyst's clue and preparation
         {
           title: 'Match · 11 v 11, about 5 minutes',
           buttons: [

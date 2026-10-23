@@ -67,8 +67,21 @@ export const NATIONAL_CLUBS = [
   { id: 'NAT05', name: 'Teessiders', crest: 'club_nat05_crest', colours: { primary: 'white', secondary: 'red' }, ground: 'Transporter Road', strength: 1.54, rep: 2600, cooldown: 18, reward: 9, rivalry: null },
   { id: 'NAT06', name: 'Black Country', crest: 'club_nat06_crest', colours: { primary: 'black', secondary: 'gold' }, ground: 'Pithead Ground', strength: 1.58, rep: 3200, cooldown: 18, reward: 9, rivalry: null },
 ];
+// Milestone 19: the Championship League clubs (bible §8, L4), the same fields. Squads above National: strength 1.685 →
+// 1.82 makes squads of about 93 → 95.5 overall (the top National band, NAT06 ~90, +3 → +5). Stats stop at 99, so no squad
+// can average more than 99 however strong (strength 3 → 99.0): 96–99 is left for the Crown Premier clubs (M20, about
+// strength 1.9 → 3). Reward tiers 10–12. CHP01 Bristolians is the technical rival RV04 (bible §23: possession; data only, rivalry is
+// M22).
+export const CHAMPIONSHIP_CLUBS = [
+  { id: 'CHP01', name: 'Bristolians', crest: 'club_chp01_crest', colours: { primary: 'red', secondary: 'white' }, ground: 'Harbour Bridge Ground', strength: 1.685, rep: 0, cooldown: 14, reward: 10, rivalry: 'RV04' },
+  { id: 'CHP02', name: 'Loiners', crest: 'club_chp02_crest', colours: { primary: 'green', secondary: 'gold' }, ground: 'Elland Way', strength: 1.7, rep: 0, cooldown: 14, reward: 10, rivalry: null },
+  { id: 'CHP03', name: 'Dee-Dahs', crest: 'club_chp03_crest', colours: { primary: 'sky', secondary: 'white' }, ground: 'Steel Works Lane', strength: 1.73, rep: 4000, cooldown: 16, reward: 11, rivalry: null },
+  { id: 'CHP04', name: 'West Londoners', crest: 'club_chp04_crest', colours: { primary: 'royal', secondary: 'gold' }, ground: 'Riverside Walk', strength: 1.76, rep: 4800, cooldown: 16, reward: 11, rivalry: null },
+  { id: 'CHP05', name: 'South Londoners', crest: 'club_chp05_crest', colours: { primary: 'navy', secondary: 'red' }, ground: 'Crystal Hill', strength: 1.79, rep: 5600, cooldown: 18, reward: 12, rivalry: null },
+  { id: 'CHP06', name: 'Nottsfolk', crest: 'club_chp06_crest', colours: { primary: 'black', secondary: 'white' }, ground: 'Forest Gate', strength: 1.82, rep: 6500, cooldown: 18, reward: 12, rivalry: null },
+];
 // Every club the game knows (each league's clubs, data/league.js LEAGUES); a fixture's opponent is looked up here.
-export const ALL_CLUBS = [...REGIONAL_CLUBS, ...COUNTY_CLUBS, ...NATIONAL_CLUBS];
+export const ALL_CLUBS = [...REGIONAL_CLUBS, ...COUNTY_CLUBS, ...NATIONAL_CLUBS, ...CHAMPIONSHIP_CLUBS];
 export const clubById = (id) => ALL_CLUBS.find((c) => c.id === id) ?? null;
 
 // The account-wide speed unlocks (bible §3 / §36 account save). Nothing sets them yet.

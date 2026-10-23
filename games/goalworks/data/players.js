@@ -145,4 +145,4 @@ export const SHARED_NAMES = {
   last: ['Ashdown', 'Barlow', 'Carver', 'Denton', 'Eastwood', 'Fletcher', 'Goodwin', 'Hargrove', 'Ingram', 'Jarvis', 'Kemp', 'Lister', 'Mottram', 'Newbold', 'Oakes', 'Parr', 'Radley', 'Sadler', 'Thorne', 'Upton', 'Varley', 'Yates', 'Bramall', 'Cropper', 'Dunmore', 'Fowler', 'Gill', 'Hurst', 'Pendle', 'Wragg'],
 };
 // Opponents' areas (their names come from their own area's pool).
-export const CLUB_AREAS = { REG01: 'fen', REG02: 'border', REG03: 'moor', REG04: 'valley', REG05: 'coast', REG06: 'mid', CNT01: 'coast', CNT02: 'cape', CNT03: 'valley', CNT04: 'fen', CNT05: 'estuary', CNT06: 'lakes', NAT01: 'mills', NAT02: 'dales', NAT03: 'estuary', NAT04: 'coast', NAT05: 'iron', NAT06: 'mid' };
+export const CLUB_AREAS = { REG01: 'fen', REG02: 'border', REG03: 'moor', REG04: 'valley', REG05: 'coast', REG06: 'mid', CNT01: 'coast', CNT02: 'cape', CNT03: 'valley', CNT04: 'fen', CNT05: 'estuary', CNT06: 'lakes', NAT01: 'mills', NAT02: 'dales', NAT03: 'estuary', NAT04: 'coast', NAT05: 'iron', NAT06: 'mid', CHP01: 'estuary', CHP02: 'dales', CHP03: 'iron', CHP04: 'mid', CHP05: 'coast', CHP06: 'fen' };

@@ -151,10 +151,24 @@ export function promotionOpponent(data) {
   const clubs = clubsOf(data);
   if (lg.promotion.final === 'match') return unlockedClubs(data).slice(-1)[0] ?? clubs[0];
   if (lg.promotion.final.rival) return clubById(lg.promotion.final.rival);
+  if (lg.promotion.final.fallback) return clubById(lg.promotion.final.fallback); // (M19: the one-off Promotion Final)
   return clubs.slice().sort((a, b) => b.strength - a.strength)[0];
 }
 // How the promotion step was won: 'match' | 'playoff' | 'decider' (the cup is 'cup', set where it happens).
-const stepVia = (lg) => (lg.promotion.final === 'match' ? 'match' : lg.promotion.final.rival ? 'decider' : 'playoff');
+const stepVia = (lg) => (lg.promotion.final === 'match' ? 'match' : lg.promotion.final.rival ? 'decider' : lg.promotion.final.promotionFinal ? 'final' : 'playoff');
+// (M19) Still in an edition of that cup: it has a tie for you to play.
+const aliveIn = (data, cupId) => {
+  const cur = data.cups?.[cupId]?.current;
+  return !!cur && !cur.done && !cur.out && !!CUP.ourTieIn(cur);
+};
+// (M19) Is this fixture the Promotion Final? The final of the league's promotion cup while the other conditions are met.
+export function isPromotionFinal(data, fixture) {
+  if (!fixture?.cup) return false;
+  const lg = leagueOf(data);
+  const fin = lg.promotion.final;
+  if (!fin?.promotionFinal || fixture.cup.id !== fin.cup) return false;
+  return fixture.cup.round === cupById(fin.cup).rounds.length - 1 && promotion(data, lg.id).met;
+}
 
 export const openOffers = (data) => normaliseLeague(data).offers.filter((o) => o.state === 'open');
 export const acceptedOffer = (data) => normaliseLeague(data).offers.find((o) => o.state === 'accepted') ?? null;
@@ -178,7 +192,7 @@ function checkPromotion(data) {
   if (P.won || offerOf(lg.id, P)) return null;
   const st = promotion(data, lg.id);
   if (!st.met) return null;
-  if (rule.final !== 'match' && st.cupWon) {
+  if (rule.final !== 'match' && rule.final.playoff && st.cupWon) { // (County: the Shield won counts; M19's Trophy doesn't — its final must be the Promotion Final)
     P.won = true;
     P.via = 'cup';
     setOffer(lg.id, P, 'offered');
@@ -230,7 +244,11 @@ export function leagueDay(data, day) {
   checkPromotion(data); // (M17) the County conditions include a Club Rank, which can move any day
   // the promotion step, once unlocked (it stays open until played; after a loss it comes back after a short wait)
   const P = progressOf(data, lg.id);
-  if (P.unlocked && !P.won && !offerOf(lg.id, P) && day >= P.retryAt && !L.offers.some((o) => o.promotion)) {
+  // (M19) the one-off Promotion Final only while you are not still in an edition of the promotion cup (its final is the way
+  // then), and only with the conditions met
+  const fin = lg.promotion.final;
+  const finalWay = fin?.promotionFinal ? !aliveIn(data, fin.cup) && promotion(data, lg.id).met : true;
+  if (P.unlocked && !P.won && !offerOf(lg.id, P) && day >= P.retryAt && finalWay && !L.offers.some((o) => o.promotion)) {
     const opp = promotionOpponent(data);
     L.offers = L.offers.filter((o) => !(o.state === 'open' && o.clubId === opp.id && !o.cup)); // (it takes the place of that club's open challenge)
     issue(data, opp, day, true);
@@ -299,6 +317,7 @@ export function recordResult(data, fixture, score, day) {
   const before = rank(data);
   const promo = !!fixture.promotion;
   const reward = previewReward(data, club.id, score, promo);
+  const promotionFinal = isPromotionFinal(data, fixture); // (M19: the conditions as they stood at kickoff)
   const c = (L.clubs[club.id] ??= blankClub());
   c[reward.res === 'win' ? 'w' : reward.res === 'draw' ? 'd' : 'l']++;
   c.meetings++;
@@ -332,12 +351,22 @@ export function recordResult(data, fixture, score, day) {
       setOffer(lg.id, P, 'offered');
       offerNow = lg.id;
     } else P.retryAt = day + lg.promotion.retryCooldown;
+  } else if (promotionFinal && cup) {
+    // (M19) the cup's final as the Promotion Final: won (penalties count) → the offer; lost → the same wait as a Decider
+    if (cup.champion) {
+      P.won = true;
+      P.unlocked = true;
+      P.via = 'final';
+      setOffer(lg.id, P, 'offered');
+      L.offers = L.offers.filter((o) => !(o.promotion && o.state === 'open'));
+      offerNow = lg.id;
+    } else P.retryAt = day + lg.promotion.retryCooldown;
   } else {
     const ch = checkPromotion(data);
     if (ch === 'unlocked') unlockedNow = true;
     if (ch === 'offered') offerNow = lg.id;
   }
-  return { ...reward, club: club.id, rankBefore: before.id, rankAfter: rank(data).id, total: reputation(data).total, promotionUnlocked: unlockedNow, promotionWon: promo && reward.res === 'win', offerNow, league: lg.id, cup };
+  return { ...reward, club: club.id, rankBefore: before.id, rankAfter: rank(data).id, total: reputation(data).total, promotionUnlocked: unlockedNow, promotionWon: (promo && reward.res === 'win') || (promotionFinal && !!cup?.champion), promotionFinal, offerNow, league: lg.id, cup };
 }
 
 // (M17) Moving up: your league becomes the next one. Its clubs' records start (the old league's stay in the history), the
@@ -370,7 +399,10 @@ export function acceptOffer(data, id = leagueOf(data).id, day = normaliseLeague(
   achieve(data, lg.achievement, day);
   const next = leagueById(lg.promotion.to);
   if (next) enterLeague(data, next.id, day, `Promoted: welcome to the ${next.name}.${next.cup ? ` The ${cupById(next.cup).name} opens now.` : ''}`);
-  else news(data, day, `${COMING[lg.promotion.to]?.name ?? 'The next league'} offer accepted: coming soon.`);
+  else {
+    news(data, day, `${COMING[lg.promotion.to]?.name ?? 'The next league'} offer accepted: coming soon.`);
+    addHistory(data, day, `Earned promotion to the ${COMING[lg.promotion.to]?.name ?? 'next league'}`); // (M19)
+  }
   return true;
 }
 export const acceptCounty = (data) => acceptOffer(data, 'regional');
