@@ -157,6 +157,7 @@ import * as LG from './systems/league.js';
 import * as CUP from './systems/cup.js';
 import { leagueById, COMING, LEAGUES, AFTER_TITLE } from '../data/league.js';
 import { cupById } from '../data/cups.js';
+import { createTournamentSheets } from './screens/tournamentSheets.js'; // (M21)
 import * as TR from './systems/transfers.js';
 import { createTransferSheets } from './screens/transferSheets.js';
 import { AUTOSAVE_REASON } from '../data/transfers.js';
@@ -513,6 +514,11 @@ function godsDay(day) {
     const g = GODS[e.god];
     if (e.kind === 'clue') researchBanner.show({ id: `rumour:${e.id}:${e.stage}`, title: 'A rumour…', line: e.text, gives: 'Manager Office → Rumours', icon: 'ui_28', color: COL.purple });
     else if (e.kind === 'arrival') godUi.queueArrival(e.god, e.back);
+    else if (e.kind === 'cupFound' && !reveals.includes(e.cup)) {
+      reveals.push(e.cup); // (M21) the reveal pop-up; its first edition is drawn today
+      for (const c of LG.cupsDay(open.data, day)) cupEvent(c);
+      commitCupTie();
+    }
     else if (e.kind === 'gone') researchBanner.show({ id: `godGone:${e.god}:${day}`, title: `${g.name} has gone`, line: 'Nobody signed him in time', gives: 'Back at the gates after the season’s end', icon: g.art, color: COL.bad });
     debug.log(`gods: ${e.kind} ${e.god ?? e.id}`);
   }
@@ -520,7 +526,30 @@ function godsDay(day) {
 }
 // An arrival shows when the club is free (no sheet, no dialog); the rest wait their turn.
 function pumpArrivals() {
-  if (open && router.currentName === 'club' && !sheet.active && !dialog.active) godUi.pump();
+  if (open && router.currentName === 'club' && !sheet.active && !dialog.active && !godUi.pump()) pumpReveals();
+}
+// (M21) A secret tournament found: a one-tap pop-up reveals its name and art (several wait their turn).
+const reveals = [];
+function pumpReveals() {
+  if (!reveals.length || dialog.active) return false;
+  const cup = cupById(reveals.shift());
+  dialog.confirm({
+    title: 'A secret tournament!',
+    body: `The ${cup.name}. You got in by doing something special: ${cup.trigger.toLowerCase()}. Its first round is booked as soon as it is its turn.`,
+    art: cup.art,
+    yes: 'See it',
+    no: 'Later',
+    onYes: () => openShield(false, cup.id, 'tournaments'),
+  });
+  return true;
+}
+// (M21) Prestige Tokens (C08 Five Crowns) go into the account (NG+ spends them, M29).
+function syncPrestige(data) {
+  const P = data.prestige;
+  if (!P?.tokens || (P.synced ?? 0) >= P.tokens) return;
+  account.prestigeTokens = (account.prestigeTokens ?? 0) + (P.tokens - (P.synced ?? 0));
+  P.synced = P.tokens;
+  saveAccountNow('prestige');
 }
 function saveAccountNow(why) {
   if (!campaigns) return;
@@ -800,11 +829,13 @@ function openCrownChampions() {
 }
 // (M17) The County Shield bracket (from the League sheet, the Club Menu and the Manager Office).
 // (M18) Any cup's bracket: the County Shield, the National Knockout, the Crown Cup (default: your league's cup).
-function openShield(fromLeague = false, cupId = null) {
+// (M21) from: true / 'league' — back to the League sheet; 'tournaments' — back to the Tournaments screen.
+function openShield(fromLeague = false, cupId = null, from = null) {
   if (!open) return;
   const d = open.data;
   const id = cupId ?? LG.leagueOf(d).cup ?? 'C02';
-  sheet.open(shieldSheet({ calendar, status: () => (open ? CUP.status(open.data, id) : null), name: (x) => CUP.teamName(d, x), onBack: fromLeague ? () => openLeague() : null }));
+  const back = from === 'tournaments' ? { onBack: () => tournamentsUi.openTournaments(), backLabel: '‹ Tournaments' } : fromLeague ? { onBack: () => openLeague() } : {};
+  sheet.open(shieldSheet({ calendar, status: () => (open ? CUP.status(open.data, id) : null), name: (x) => CUP.teamName(d, x), queuedBehind: () => (open ? LG.queuedBehind(open.data, id) : null), ...back }));
 }
 // (M17) A cup tie takes the week's slot: committed as soon as no match is pending (it was issued a week ahead).
 function commitCupTie() {
@@ -819,8 +850,11 @@ function cupEvent(e) {
   const cup = cupById(e.cup);
   if (!cup || !open) return;
   const id = `cup:${e.kind}:${e.cup}:${e.edition ?? ''}:${e.round ?? ''}:${open.calendar.today}`;
-  if (e.kind === 'opened') researchBanner.show({ id, title: `The ${cup.name} opens!`, line: `Rank ${cup.opens.rank}: ${cup.blurb}`, gives: `${cup.prize.credits.toLocaleString('en-GB')} Credits and a place in club history to win`, icon: cup.art, color: C_GOLD }); // (M18 C04)
-  else if (e.kind === 'start') researchBanner.show({ id, title: `${cup.name} draw made!`, line: `Edition ${e.edition}: 8 teams, a tie about every 4 weeks`, gives: `See the bracket · Menu → ${cup.name}`, icon: cup.art, color: C_GOLD });
+  if (e.kind === 'opened' && !cup.opens.secret) researchBanner.show({ id, title: `The ${cup.name} opens!`, line: `${cup.trigger}: ${cup.blurb}`, gives: `${cup.prize.credits.toLocaleString('en-GB')} Credits to win · Menu → Tournaments`, icon: cup.art, color: C_GOLD }); // (M18 C04; M21 C01, C08)
+  else if (e.kind === 'start') {
+    const behind = LG.queuedBehind(open.data, e.cup);
+    researchBanner.show({ id, title: `${cup.name} draw made!`, line: `Edition ${e.edition}: ${cup.size} teams, a round every 7 days`, gives: behind ? `Queued: starts after the ${behind.name}` : `See the bracket · Menu → Tournaments`, icon: cup.art, color: C_GOLD });
+  } else if (e.kind === 'skipped') researchBanner.show({ id, title: `${cup.name} skipped`, line: 'It waited in the queue until the season ended', gives: 'It opens again next season', icon: cup.art, color: COL.bad }); // (M21)
   else if (e.kind === 'champion' && e.champion !== 'us') researchBanner.show({ id, title: `${cup.name} final`, line: `${CUP.teamName(open.data, e.champion)} win it`, gives: 'The next edition opens next season', icon: cup.art, color: COL.progress });
   debug.log(`cup: ${e.kind} ${e.cup}${e.round != null ? ` round ${e.round}` : ''}`);
 }
@@ -1022,6 +1056,7 @@ function matchFinished(world) {
     else researchBanner.show({ id, title: `Out of the ${cup.name}`, line: `${ct.roundName}${ct.pens ? ` · lost ${ct.pens[0]}–${ct.pens[1]} on penalties` : ''}`, gives: 'It opens again next season', icon: cup.art, color: COL.bad });
   }
   commitCupTie(); // (M17) the next Shield tie may be waiting for this slot
+  if (league?.cup?.champion) syncPrestige(open.data); // (M21 C08's Prestige Tokens)
   if (league?.crownTitle) setTimeout(() => openCrownChampions(), 0); // (M20) the title chain won
   else if (league?.offerNow) setTimeout(() => openPromotionOffer(league.offerNow), 0);
   else if (league?.promotionUnlocked) debug.log(`${league.league === 'regional' ? 'Promotion Match' : 'Promotion Playoff'} unlocked`);
@@ -1228,6 +1263,7 @@ const MENU_OPEN = {
   research: () => researchUi.openResearch(),
   staff: () => staffUi.openStaff(), // (M14)
   rumours: () => godUi.openRumours(), // (M20b)
+  tournaments: () => tournamentsUi.openTournaments(), // (M21)
   academy: () => academyUi.openAcademy(), // (M15)
   hallOfFame: () => hofUi.openHallOfFame(), // (M16)
   shield: () => openShield(false, 'C02'), // (M17)
@@ -1271,6 +1307,11 @@ function menuState(id) {
     const n = account.hallOfFame?.length ?? 0;
     const leaving = open?.data.squad.players.filter((p) => p.retiring).length ?? 0;
     return { badge: leaving || null, sub: leaving ? `${leaving} player${leaving === 1 ? ' retires' : 's retire'} this season · ${n} legend${n === 1 ? '' : 's'}` : n ? `${n} legend${n === 1 ? '' : 's'} · club records` : 'Club legends and records' };
+  }
+  if (id === 'tournaments' && open) {
+    const live = LG.activeCups(open.data).filter((c) => open.data.cups?.[c.id]?.current).length;
+    const q = LG.cupQueue(open.data).length - (LG.chainHolder(open.data) ? 0 : 1);
+    return { badge: live || null, sub: live ? `${live} running${q > 0 ? ` · ${q} queued` : ''} · brackets and the secret ones` : 'All 16 cups: open, queued, won, and the secret ones' };
   }
   if (id === 'rumours' && open) {
     const n = Object.keys(GODS).filter((g) => GD.offerFor(open.data, g)).length;
@@ -1358,6 +1399,31 @@ const staffUi = createStaffSheets({
   },
   extraSections: () => chairmanSeat(), // (M20b) Kaching's seat
   openGod: (id) => godUi.openCard(id), // (M20b) Bolt's card is his Divine card
+});
+// Milestone 21: the Tournaments screen (Club Menu → Tournaments; a cup's bracket one more tap). ?debug=1: open the secret ones.
+const tournamentsUi = createTournamentSheets({
+  sheet,
+  assets,
+  run: () => open?.data ?? null,
+  calendar: () => open?.calendar ?? null,
+  dateText: (day) => {
+    const dd = day != null ? open?.calendar.clock.dateOf(day) : null;
+    return dd ? `Year ${dd.year} · Month ${dd.month} · Day ${dd.day}` : 'soon';
+  },
+  onOpenCup: (id) => openShield(false, id, 'tournaments'),
+  onForce: (id) => {
+    if (!open) return;
+    const t = open.calendar.today;
+    if (cupById(id).opens.secret) SE.forceCup(open.data, id, t);
+    else SE.openCup(open.data, id, t);
+    for (const e of LG.cupsDay(open.data, t)) cupEvent(e);
+    commitCupTie();
+    autosave.request(`cup:debug:${id}`);
+    if (!reveals.includes(id)) reveals.push(id);
+    sheet.close();
+    pumpArrivals();
+  },
+  debug: debug.enabled,
 });
 // Milestone 20b: the Works Gods' sheets — a god's card, the arrival pop-up (one tap, one at a time) and the Rumours list.
 const godUi = createGodSheets({
@@ -1503,7 +1569,7 @@ function addFeaturedStar(fid) {
 }
 // ?debug=1: a test hook for automated checks.
 if (debug.enabled) {
-  window.__gw = { godUi, GD, SE, signGod, releaseGod, renderer, layout, input, loop, router, assets, sheet, dialog, systemBack, textPrompt, splashScreen, menuScreen, slotsScreen, setupScreen, clubScreen, squadScreen, trainingScreen, openTraining, tacticsScreen, openTactics, openMatchTactics, playSlot, startClub, deleteSlot, openShop, setRank, facilityBonus, researchUi, researchBanner, get research() { return open?.research ?? null; }, newGame, openLeague, openCountyOffer, openPromotionOffer, openCrownChampions, addFeaturedStar, overall, openShield, commitCupTie, LG, CUP, acceptChallenge, issueChallenge, transfers: transfersUi, TR, openMatchSetup, playPlaceholder, kickOff, startTestMatch, matchScreen, restoreMatchWorld, get match() { return match; }, toggleSpeedFlag, autosave, saveRun, canvasLost, canvasLossCount, itemsUi, staffUi, normaliseStaff, academyUi, AC, openStaffRole, hofUi, CA, syncHallOfFame, facilityLevel: (id) => (open ? facilityLevel(open.data, id) : 0), get items() { return open?.items ?? null; }, settings, governor, lowFx, haptics, hintLine, openNavMenu, MENU_OPEN, menuState, openSettings, get account() { return account; }, taps: [], get campaigns() { return campaigns; }, get open() { return open; } };
+  window.__gw = { tournamentsUi, pumpArrivals, godUi, GD, SE, signGod, releaseGod, renderer, layout, input, loop, router, assets, sheet, dialog, systemBack, textPrompt, splashScreen, menuScreen, slotsScreen, setupScreen, clubScreen, squadScreen, trainingScreen, openTraining, tacticsScreen, openTactics, openMatchTactics, playSlot, startClub, deleteSlot, openShop, setRank, facilityBonus, researchUi, researchBanner, get research() { return open?.research ?? null; }, newGame, openLeague, openCountyOffer, openPromotionOffer, openCrownChampions, addFeaturedStar, overall, openShield, commitCupTie, LG, CUP, acceptChallenge, issueChallenge, transfers: transfersUi, TR, openMatchSetup, playPlaceholder, kickOff, startTestMatch, matchScreen, restoreMatchWorld, get match() { return match; }, toggleSpeedFlag, autosave, saveRun, canvasLost, canvasLossCount, itemsUi, staffUi, normaliseStaff, academyUi, AC, openStaffRole, hofUi, CA, syncHallOfFame, facilityLevel: (id) => (open ? facilityLevel(open.data, id) : 0), get items() { return open?.items ?? null; }, settings, governor, lowFx, haptics, hintLine, openNavMenu, MENU_OPEN, menuState, openSettings, get account() { return account; }, taps: [], get campaigns() { return campaigns; }, get open() { return open; } };
 }
 
 router.go('boot');

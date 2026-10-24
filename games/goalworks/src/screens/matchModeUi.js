@@ -1,7 +1,7 @@
 // The match screen's mode layer (Milestone 5, bible §17), drawn around the pitch so it never covers the ball:
 //   top right   — the Mode button (WATCH / MANAGE / PLAY); it opens the mode picker: Watch · Manage · Play and the
 //                 Key Moments On / Off setting (the match waits while the picker is open)
-//   bottom      — Watch / Manage: 1× · 2× · Camera (Full → Follow → Close). Manage adds the team-commands panel above it:
+//   bottom      — Watch / Manage: 1× · 2× · Camera (Full → Follow → Close) · (M21) Skip to full time. Manage adds the team-commands panel above it:
 //                 Mentality, Press, Tempo, Width — three choices each, the one in force in graphite — and (Milestone 9) a
 //                 Tactics button on the bar: the full sheet (formation, all seven instructions, roles; the match waits).
 //   Key Moment  — the offer panel (title, one line, Play it · Skip) at the end of the screen away from the ball; while a
@@ -39,9 +39,9 @@ export function createModeUi({ layout, renderer, onTactics = null }) {
   const barY = () => sr().y + sr().h - 24 - BH;
   const bar = (manage = false) => {
     const r = sr();
-    const ids = manage && onTactics ? ['speed1', 'speed2', 'camera', 'tactics'] : ['speed1', 'speed2', 'camera'];
-    const ws = manage && onTactics ? [130, 130, 360, 240] : [150, 150, 340];
-    const gap = manage && onTactics ? 16 : 20;
+    const ids = manage && onTactics ? ['speed1', 'speed2', 'camera', 'tactics', 'skipFt'] : ['speed1', 'speed2', 'camera', 'skipFt'];
+    const ws = manage && onTactics ? [104, 104, 236, 178, 250] : [130, 130, 270, 260];
+    const gap = manage && onTactics ? 12 : 16;
     let x = r.x + (r.w - (ws.reduce((a, b) => a + b, 0) + gap * (ws.length - 1))) / 2;
     const y = barY();
     const out = {};
@@ -149,6 +149,7 @@ export function createModeUi({ layout, renderer, onTactics = null }) {
       if (hitRect(p, b.speed1)) return d.setSpeed(1), true;
       if (hitRect(p, b.speed2)) return d.setSpeed(2), true;
       if (hitRect(p, b.camera)) return d.setCamera(CAMERAS[(CAMERAS.indexOf(d.camera) + 1) % CAMERAS.length]), true;
+      if (b.skipFt && hitRect(p, b.skipFt)) return d.skipToEnd?.(), true; // (M21)
       if (d.mode === 'manage') {
         for (const g of segs())
           for (const o of g.opts)
@@ -173,6 +174,7 @@ export function createModeUi({ layout, renderer, onTactics = null }) {
         for (const s of MATCH_TIME.speeds) drawButton(ctx, b[`speed${s}`], `${s}×`, { accent: C.progress, selected: d.speed === s, disabled: world.done });
         drawButton(ctx, b.camera, `Camera: ${CAMERA_NAME[d.camera]}`, { accent: C.progress, disabled: world.done });
         if (b.tactics) drawButton(ctx, b.tactics, 'Tactics', { accent: C.purple, disabled: world.done });
+        drawButton(ctx, b.skipFt, 'Skip to full time', { accent: C.action, disabled: !d.canSkipToEnd, font: font(S.small, true) }); // (M21)
         if (d.mode === 'manage') drawManage(ctx, d);
       }
       if (d.km?.state === 'live') drawChip(ctx, d);

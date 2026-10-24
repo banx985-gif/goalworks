@@ -26,7 +26,7 @@
 import { Rng } from '../../../../core/Rng.js';
 import { REGIONAL_CLUBS, clubById } from '../../data/fixtures.js';
 import { ISSUE, RANKS, REPUTATION, CREDITS, LEAGUES, leagueById, COMING, ACHIEVEMENTS, STADIUM_FLAGS, AFTER_TITLE } from '../../data/league.js';
-import { cupById, CUPS } from '../../data/cups.js';
+import { cupById, CUPS, CUP_ORDER } from '../../data/cups.js';
 import * as CUP from './cup.js';
 import { incomeMult } from './gods.js';
 
@@ -86,7 +86,9 @@ export function activeCups(data) {
   const out = [];
   for (const cup of Object.values(CUPS)) {
     // (a Rank cup, or (M20) a cup unlocked by a season's results: open for good once unlocked)
-    const open = cup.opens.rank || cup.opens.seasonBeaten ? L.cupsOpen?.[cup.id] != null : cup.opens.league === L.tier; // (any day it opened, 0 included)
+    // (M21) C01: in its league once it has opened there (2 wins); C08 (wonAll), a found secret cup, a debug cup: for good
+    const forGood = cup.opens.rank || cup.opens.seasonBeaten || cup.opens.wonAll || cup.opens.secret || cup.opens.debug;
+    const open = forGood ? L.cupsOpen?.[cup.id] != null : cup.opens.wins ? cup.opens.league === L.tier && L.cupsOpen?.[cup.id] != null : cup.opens.league === L.tier; // (any day it opened, 0 included)
     if (open) out.push({ id: cup.id, startNew: true });
     else if (data.cups?.[cup.id]?.current) out.push({ id: cup.id, startNew: false });
   }
@@ -227,6 +229,44 @@ function checkPromotion(data) {
   return null;
 }
 
+// (M21) The cups' day (bible §3 chaining): every running cup moves on, and your next tie is issued for the cup whose turn it
+// is — none while another cup tie is waiting to be played (its chain), then the cups still mid-run, then the queue in the
+// order their editions started. Also called right after your cup result, so the next round is issued the same day (the
+// game commits it at once: 7 days after the result). → cup events
+export function cupQueue(data) {
+  const run = activeCups(data).map((c) => c.id).filter((id) => CUP.waitingFor(data.cups?.[id]?.current));
+  const begun = (id) => (data.cups[id].current.round > 0 || data.cups[id].current.rounds[0].some((t) => t.winner) ? 0 : 1);
+  return run.sort((a, b) => begun(a) - begun(b) || data.cups[a].current.startDay - data.cups[b].current.startDay || CUP_ORDER.indexOf(a) - CUP_ORDER.indexOf(b));
+}
+export const chainHolder = (data) => normaliseLeague(data).offers.find((o) => o.cup && (o.state === 'open' || o.state === 'accepted'))?.cup.id ?? null;
+export function cupsDay(data, day) {
+  const L = normaliseLeague(data);
+  const events = [];
+  for (const { id, startNew } of activeCups(data)) {
+    events.push(
+      ...CUP.cupDay(data, id, day, {
+        startNew,
+        issueTie: (clubId, ref, home) => issue(data, clubById(clubId), day, false, ref, home),
+        hasTie: (ref) => L.offers.some((o) => o.cup?.id === ref.id && o.cup.edition === ref.edition && o.cup.round === ref.round),
+        canIssue: (cid) => !chainHolder(data) && cupQueue(data)[0] === cid,
+      }),
+    );
+  }
+  // (a cup that queued earlier in the pass may now be first: one more pass issues it)
+  for (const { id, startNew } of activeCups(data)) {
+    if (chainHolder(data)) break;
+    events.push(...CUP.cupDay(data, id, day, { startNew, issueTie: (clubId, ref, home) => issue(data, clubById(clubId), day, false, ref, home), canIssue: (cid) => !chainHolder(data) && cupQueue(data)[0] === cid }));
+  }
+  return events;
+}
+// (M21) Which cup a queued one waits behind (its name for "Queued: starts after the …"), or null.
+export function queuedBehind(data, cupId) {
+  const held = chainHolder(data);
+  if (held && held !== cupId) return cupById(held);
+  const q = cupQueue(data);
+  return q.length && q[0] !== cupId ? cupById(q[0]) : null;
+}
+
 export function leagueDay(data, day) {
   const L = normaliseLeague(data);
   const lg = leagueOf(data);
@@ -247,24 +287,18 @@ export function leagueDay(data, day) {
     const byRank = cup.opens.rank && rankAtLeast(data, cup.opens.rank);
     // (M20) C07: in its league, at least `seasonBeaten` different clubs of it beaten this season
     const bySeason = cup.opens.seasonBeaten && L.tier === cup.opens.league && seasonBeaten(data, day).length >= cup.opens.seasonBeaten;
-    if (!byRank && !bySeason) continue;
+    // (M21) C01: wins in its league; C08: each of its cups won at least once; C09–C14: their secret found
+    const byWins = cup.opens.wins && L.tier === cup.opens.league && record(data, cup.opens.league).wins >= cup.opens.wins;
+    const byWonAll = cup.opens.wonAll && cup.opens.wonAll.every((id) => (data.cups?.[id]?.wins ?? 0) > 0);
+    const bySecret = cup.opens.secret && data.secrets?.state?.[cup.opens.secret]?.found != null;
+    if (!byRank && !bySeason && !byWins && !byWonAll && !bySecret) continue;
     L.cupsOpen = { ...(L.cupsOpen ?? {}), [cup.id]: day };
     const C = CUP.normaliseCups(data)[cup.id];
     if (!C.current) C.nextStart = day; // (nothing can run before it unlocks: its first edition opens today)
     events.push({ kind: 'opened', cup: cup.id });
   }
-  const cups = activeCups(data);
-  CUP.separate(data, cups.map((c) => c.id));
-  for (const { id, startNew } of cups) {
-    events.push(
-      ...CUP.cupDay(data, id, day, {
-        startNew,
-        issueTie: (clubId, ref, home) => issue(data, clubById(clubId), day, false, ref, home),
-        hasTie: (ref) => L.offers.some((o) => o.cup?.id === ref.id && o.cup.edition === ref.edition && o.cup.round === ref.round),
-      }),
-    );
-  }
-  CUP.separate(data, cups.map((c) => c.id)); // (a round drawn today got its date after the first pass)
+  events.push(...cupsDay(data, day));
+  for (const e of events.filter((x) => x.kind === 'skipped')) news(data, day, `${cupById(e.cup).name} skipped this season: it waited in the queue until the season ended. It opens again next season.`);
   checkPromotion(data); // (M17) the County conditions include a Club Rank, which can move any day
   // the promotion step, once unlocked (it stays open until played; after a loss it comes back after a short wait)
   const P = progressOf(data, lg.id);
@@ -361,8 +395,14 @@ export function recordResult(data, fixture, score, day) {
       L.rep.history = round1(L.rep.history + (pz.history ?? 0));
       L.rep.momentum = round1(L.rep.momentum + (pz.momentum ?? 0));
       for (const f of pz.flags ?? []) (data.unlocks ??= {})[f] ??= day;
+      if (pz.rumour) { // (M21) a clue line in the Rumours list (the clue chains are M28)
+        data.secrets ??= { v: 1, track: {}, state: {}, rumours: [] };
+        data.secrets.rumours = [...(data.secrets.rumours ?? []), { day, id: `cup:${cup.cup}`, stage: 0, text: pz.rumour }].slice(-40);
+      }
+      if (pz.tokens) data.prestige = { ...(data.prestige ?? {}), tokens: (data.prestige?.tokens ?? 0) + pz.tokens }; // (M21 C08; the account keeps them for NG+)
     }
     if (cup?.champion) addHistory(data, day, `Won the ${cupById(cup.cup).name}`); // (M18: the C04 "club history" prize)
+    if (cup) cup.events = [...(cup.events ?? []), ...cupsDay(data, day)]; // (M21) the next tie today: 7 days after the result
   }
   const lg = leagueOf(data);
   const P = progressOf(data, lg.id);

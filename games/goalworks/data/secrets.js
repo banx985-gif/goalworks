@@ -11,6 +11,7 @@
 export const SECRET_RULES = {
   clueAt: [1 / 3, 2 / 3],
   window: 56, // days
+  giantGap: 6, // (M21, Cowork: was 10) Jinx's giant-killing final: their team rating at least this much above yours
 };
 
 export const SECRETS = [
@@ -36,7 +37,7 @@ export const SECRETS = [
     conditions: [
       { key: 'seasonCleanSheets', need: 20, text: '20 clean sheets in one season (all competitions)' },
       { key: 'cupShootouts', need: 3, text: '3 cup penalty shoot-outs won in one cup run' },
-      { key: 'giantFinal', need: 1, text: 'A cup final won against a club whose team rating is at least 10 higher than yours' },
+      { key: 'giantFinal', need: 1, text: 'A cup final won against a club whose team rating is at least 6 higher than yours' },
     ],
     clues: [
       'A cat was seen sitting in the goalmouth before the shoot-out. It winked.',
@@ -50,8 +51,8 @@ export const SECRETS = [
     reward: { god: 'GOD3' },
     conditions: [
       { key: 'premier', need: 1, text: 'Be in the Crown Premier League' },
-      { key: 'seasonTopScorer', need: 35, text: 'One player scores 35 goals in a season (all competitions)' },
-      { key: 'bigWinStreak', need: 6, text: 'Win 6 matches in a row by 2 or more goals' },
+      { key: 'seasonTopScorer', need: 25, text: 'One player scores 25 goals in a season (all competitions)' }, // (M21, Cowork: was 35)
+      { key: 'bigWinStreak', need: 5, text: 'Win 5 matches in a row by 2 or more goals' }, // (M21: was 6)
     ],
     clues: [
       'Fans swear a golden blur ran the length of the pitch after the final whistle.',
@@ -64,7 +65,7 @@ export const SECRETS = [
     name: 'The gold coins',
     reward: { god: 'GOD4' },
     conditions: [
-      { key: 'creditsHeld', need: 1000000, text: 'Hold 1,000,000 Credits at once' },
+      { key: 'creditsHeld', need: 250000, text: 'Hold 250,000 Credits at once' }, // (M21, Cowork: was 1,000,000; a placeholder until M23 / M35)
       { key: 'crownCupWon', need: 1, text: 'Win the Crown Cup (C04)' },
       { key: 'premier', need: 1, text: 'Be in the Crown Premier League' },
     ],
@@ -91,5 +92,16 @@ export const SECRETS = [
     arrival: { title: 'Something’s not right in the dressing room…', line: 'After the defeat, a small impish god with one horn and a wonky halo is juggling three crackling sparks on the physio’s table. “Bad day?” says Havoc. “I can make it… interesting.”' },
   },
 ];
+// (M21) The secret tournaments' triggers (bible §22, C09–C14): registered here so the Secret Engine (M28) finds them. No
+// clue stages; found → the cup opens (a one-tap pop-up reveals its name and art) and runs at once, then once a season.
+const cupSecret = (cupId, name, conditions) => ({ id: `SEC-CUP-${cupId}`, name, kind: 'tournament', reward: { cup: cupId }, conditions, clues: [] });
+SECRETS.push(
+  cupSecret('C09', 'Giant killers', [{ key: 'giantRun', need: 3, text: 'Beat 3 clubs from a higher tier in one cup run' }]),
+  cupSecret('C10', 'The youth', [{ key: 'academyWins', need: 6, text: 'Win 6 matches each starting 5 or more academy players' }]),
+  cupSecret('C11', 'Redemption', [{ key: 'redemption', need: 3, text: 'Lose a cup final, then win your next 3 matches' }]),
+  cupSecret('C12', 'Iron XI', [{ key: 'unbeatenRun', need: 10, text: '10 competitive matches unbeaten' }]),
+  cupSecret('C13', 'Clean sheets', [{ key: 'cleanSheets8', need: 6, text: '6 clean sheets in 8 matches' }]),
+  cupSecret('C14', 'Comebacks', [{ key: 'comebacks', need: 3, text: 'Win 3 matches after trailing by 2 or more' }]),
+);
 export const secretById = (id) => SECRETS.find((s) => s.id === id) ?? null;
 export const secretForGod = (godId) => SECRETS.find((s) => s.reward.god === godId) ?? null;

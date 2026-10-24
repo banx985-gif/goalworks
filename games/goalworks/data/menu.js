@@ -13,6 +13,7 @@ export const MENU_GROUPS = [
     row('premierCup', 'Premier Cup', 'The Crown Premier cup: the bracket, your next tie and past winners', 'tournament_c06'), // (Milestone 20: shown once in the Crown Premier)
     row('masters', 'Continental Masters', 'The top clubs’ invitational, once you beat 4 Premier clubs in a season', 'tournament_c07'), // (Milestone 20)
     row('crownCup', 'Crown Cup', 'The cup for the strongest clubs in the land, from Rank C', 'tournament_c04'), // (Milestone 18: shown from Rank C)
+    row('tournaments', 'Tournaments', 'All 16 cups: which are open, queued or running, and the secret ones', 'tournament_c08'), // (Milestone 21)
   ] },
   { title: 'Team', rows: [
     row('squad', 'Team / Squad', 'Your players: stats, form, fitness, contracts', 'ui_01'),

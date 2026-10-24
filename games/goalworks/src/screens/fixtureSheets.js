@@ -21,7 +21,7 @@
 // Both are builder functions for sheet.open(), rebuilt every frame so the countdown stays live.
 import { THEME, font } from '../../../../core/Theme.js';
 import { sourceById, SPEED_FLAGS, clubById } from '../../data/fixtures.js';
-import { cupById } from '../../data/cups.js';
+import { cupById, CUP_FLAGS } from '../../data/cups.js';
 import { LEAGUES } from '../../data/league.js';
 
 const leagueOfClub = (id) => LEAGUES.find((l) => l.clubs.includes(id)) ?? null;
@@ -242,11 +242,14 @@ function shieldSummary(cal, st, L) {
   return { title: st.cup.name, lines, columns: 1, buttons: [{ id, label: `${st.cup.name} bracket`, sub: 'Quarter-final · semi-final · final', icon: st.cup.art, accent: C.gold, onTap: () => L.onShield(st.cup.id) }] };
 }
 // What a cup's prize gives besides Credits (data/cups.js prize).
-const prizeWords = (cup) => [cup.prize.history >= 400 ? 'major reputation' : 'reputation', ...(cup.prize.flags?.includes('sponsorInterest') ? ['sponsor interest'] : []), ...(cup.id === 'C04' ? ['a place in club history'] : [])].join(' + ');
+// (M21) every cup's prize in words: its flags (CUP_FLAGS), a clue line, Prestige Tokens
+const prizeWords = (cup) => [cup.prize.history >= 400 ? 'major reputation' : 'reputation', ...(cup.prize.flags ?? []).map((x) => CUP_FLAGS[x]?.name.toLowerCase()).filter(Boolean), ...(cup.prize.rumour ? ['a clue in the Rumours list'] : []), ...(cup.prize.tokens ? [`${cup.prize.tokens} Prestige Token${cup.prize.tokens === 1 ? '' : 's'}`] : []), ...(cup.id === 'C04' ? ['a place in club history'] : [])].join(' + ');
 
 // (M17) The cup bracket sheet: each round's ties (scores, penalties, who went through), your next tie, past winners.
 // shieldSheet({ calendar, status: () => cup.js status, name(id), crest(id), onBack })
-export function shieldSheet({ calendar, status, name, onBack = null }) {
+// (M21) any of the 16 tournaments: its size, bible §3 chaining (a round every 7 days), queued behind another cup's chain
+// (queuedBehind() → that cup), the booked match day, a season skipped in the queue. backLabel: the button back.
+export function shieldSheet({ calendar, status, name, onBack = null, queuedBehind = () => null, backLabel = '‹ League' }) {
   return () => {
     const cal = calendar();
     const st = status();
@@ -254,10 +257,13 @@ export function shieldSheet({ calendar, status, name, onBack = null }) {
     const ed = st.edition;
     const sections = [];
     const head = [];
-    if (!ed) head.push(st.cup.opens.rank ? `The first ${st.cup.name} opens when the club reaches Rank ${st.cup.opens.rank}.` : `The first ${st.cup.name} opens when you enter the ${st.cup.opens.league[0].toUpperCase()}${st.cup.opens.league.slice(1)} League.`);
-    else if (st.running) head.push(st.out ? 'You are out: the other ties are played out without you.' : st.next ? `Your ${st.next.round.toLowerCase()}: ${name(st.next.opponent)}, about ${dateText(cal, st.next.day)}.` : `${st.roundName}: through! Waiting for the other ties.`);
+    const behind = queuedBehind();
+    const booked = cal.fixture?.cup?.id === st.cup.id ? cal.fixture.matchDay : null; // (the day it is actually played)
+    if (!ed) head.push(st.opened ? `Open: its first edition starts ${dateText(cal, st.nextStart)} (the draw, then your first tie when it is its turn).` : `Not opened yet: ${st.cup.trigger}.`);
+    else if (st.running) head.push(st.out ? 'You are out: the other ties are played out without you, a round every 7 days.' : st.queued || (st.next && st.next.day == null) ? `Queued: starts after the ${behind?.name ?? 'match already booked'}. Your ${st.next.round.toLowerCase()} against ${name(st.next.opponent)} is booked 7 days after that.` : st.next ? `Your ${st.next.round.toLowerCase()}: ${name(st.next.opponent)}, ${dateText(cal, booked ?? st.next.day)}.` : `${st.roundName}: through! The next round is booked 7 days after the result.`);
+    else if (ed.skipped) head.push(`Season ${ed.year}: skipped — it waited in the queue until the season ended.${st.nextStart != null ? ` The next opens ${dateText(cal, st.nextStart)}.` : ''}`);
     else head.push(`Season ${ed.year} edition finished — winner: ${name(ed.champion)}${ed.champion === 'us' ? '!' : '.'}${st.nextStart != null ? ` The next opens ${dateText(cal, st.nextStart)}.` : ''}`);
-    head.push(`8 teams: ${st.cup.blurb}. One tie about every 4 weeks; a draw goes to penalties. Win it: ${st.cup.prize.credits.toLocaleString('en-GB')} Credits + ${prizeWords(st.cup)}.`);
+    head.push(`${st.cup.size} teams: ${st.cup.blurb}. A round every 7 days: a win books the next one 7 days after the result; a draw goes to penalties. Win it: ${st.cup.prize.credits.toLocaleString('en-GB')} Credits + ${prizeWords(st.cup)}.`);
     sections.push({ title: ed ? `Season ${ed.year} · edition ${ed.edition}` : st.cup.name, lines: head });
     if (ed) {
       st.cup.rounds.forEach((rn, r) => {
@@ -278,9 +284,10 @@ export function shieldSheet({ calendar, status, name, onBack = null }) {
         });
       });
     }
-    if (st.history.length) sections.push({ title: 'Past winners', lines: st.history.slice(-5).reverse().map((h) => `Season ${h.year}: ${name(h.champion)}${h.reached && h.reached !== 'won' ? ` · you went out in the ${h.reached.toLowerCase()}` : ''}`) });
-    if (onBack) sections.push({ columns: 1, buttons: [{ id: 'back', label: '‹ League', accent: C.progress, onTap: () => onBack() }] });
-    return { title: st.cup.name, subtitle: `${st.cup.id} · ${st.cup.short} · ${st.wins ? `won ${st.wins}×` : 'not won yet'}`, art: st.cup.art, accent: C.gold, tag: { text: 'CUP', color: C.gold }, sections };
+    if (st.history.length) sections.push({ title: 'Past winners', lines: st.history.slice(-5).reverse().map((h) => (h.reached === 'skipped' ? `Season ${h.year}: skipped (queued all season)` : `Season ${h.year}: ${name(h.champion)}${h.reached && h.reached !== 'won' ? ` · you went out in the ${h.reached.toLowerCase()}` : ''}`)) });
+    if (onBack) sections.push({ columns: 1, buttons: [{ id: 'back', label: backLabel, accent: C.progress, onTap: () => onBack() }] });
+    const tag = st.cup.visibility === 'secret' || st.cup.visibility === 'secretPrestige' ? 'SECRET' : st.cup.visibility === 'prestige' ? 'PRESTIGE' : 'CUP';
+    return { title: st.cup.name, subtitle: `${st.cup.id} · ${st.cup.short} · ${st.wins ? `won ${st.wins}×` : 'not won yet'}`, art: st.cup.art, accent: C.gold, tag: { text: tag, color: C.gold }, sections };
   };
 }
 

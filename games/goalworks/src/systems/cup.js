@@ -1,25 +1,31 @@
-// A simple reusable knockout cup (Milestone 17, bible §22 — C02 County Shield; M18 C03 National Knockout and C04 Crown Cup;
-// data in data/cups.js). Plain functions over the run save (data.cups); M21's full tournament engine extends this. The
-// league (src/systems/league.js) runs it: it calls cupDay each club day for every cup that is open (data/cups.js `opens`),
-// keeps two of your ties out of one week (separate), turns your tie into a fixture offer (the tie takes the week's slot)
-// and hands your result back with recordOurTie.
-//   data.cups = { v: 17, C02: { editions, current, last, nextStart, wins, history } }
-//     an edition = { edition, year, startDay, teams, rounds: [[tie]], round, tieDay, issued, out, done, champion }
+// The tournament engine (Milestone 17 → Milestone 21, bible §3 / §22): one reusable knockout for all 16 tournaments (data
+// in data/cups.js). Plain functions over the run save (data.cups). The league (src/systems/league.js) runs it: it calls
+// cupDay each club day for every cup that is running, picks which cup holds the chain (the rest queue), turns your tie into
+// a fixture offer (the tie takes the week's slot) and hands your result back with recordOurTie.
+//   data.cups = { v: 21, C01: { editions, current, last, nextStart, wins, history } … }
+//     an edition = { edition, year, startDay, teams, rounds: [[tie]], round, tieDay, issued, queued, out, done, champion }
 //     a tie = { a, b, day, score: [a, b] | null, pens: [a, b] | null, winner: id | null }  ('us' is your club)
+// (M21) Bible §3 chaining: your tie for a round is issued when it is this cup's turn (canIssue: no other cup tie is
+// waiting — the cup holding the chain goes first, then the queue in the order editions started); the game commits it at
+// once, so it is played 7 days later (entering → Round 1 in 7 days; a win → the next round 7 days after the result). The
+// other ties of the round are played the same day as yours (recordOurTie). Out of it, the rest of the edition plays a
+// round every 7 days without you. An edition that never got its first tie before its season ended is skipped.
 //   normaliseCups(data)
-//   cupDay(data, cupId, day, { issueTie(clubId, ref, home) }) → events [{ kind: 'start' | 'round' | 'champion' | 'out' }]
-//   recordOurTie(data, ref, score, day) → { won, pens, final, champion, prize, roundName }
-//   status(data, cupId) → what the sheets show (the edition now or the last one, your next tie, wins so far)
-//   simTie(data, cup, tie, rng) / strength(data, id)   the AI-vs-AI sim (tests use them)
+//   cupDay(data, cupId, day, { issueTie(clubId, ref, home), hasTie(ref), startNew, canIssue(cupId) }) → events
+//     [{ kind: 'start' | 'round' | 'champion' | 'skipped', cup, … }]
+//   recordOurTie(data, ref, score, day) → { won, pens, final, champion, prize, roundName, out, events }
+//   status(data, cupId) → what the sheets show (the edition now or the last one, your next tie, queued, wins so far)
+//   simTie(data, cup, tie, rng) / strength(data, id) / pensFor(data, ref)   (the AI-vs-AI sim and your shoot-out)
 import { Rng } from '../../../../core/Rng.js';
 import { CUPS, cupById, US } from '../../data/cups.js';
-import { leagueById } from '../../data/league.js';
+import { leagueById, LEAGUES } from '../../data/league.js';
 import { clubById, ALL_CLUBS } from '../../data/fixtures.js';
 import { bestXI, opponentSquad } from './squad.js';
 import { overall } from './players.js';
 import { shootoutChance } from './gods.js';
 
 const YEAR = 336;
+const GAP = 7; // (bible §3: one match per seven days)
 const yearOf = (day) => Math.floor((Math.max(1, day) - 1) / YEAR) + 1;
 const yearStart = (y) => (y - 1) * YEAR + 1;
 const avg = (a) => a.reduce((s, x) => s + x, 0) / Math.max(1, a.length);
@@ -27,6 +33,7 @@ const avg = (a) => a.reduce((s, x) => s + x, 0) / Math.max(1, a.length);
 export function normaliseCups(data) {
   data.cups ??= { v: 17 };
   for (const id of Object.keys(CUPS)) data.cups[id] ??= { editions: 0, current: null, last: null, nextStart: 0, wins: 0, history: [] };
+  data.cups.v = 21;
   return data.cups;
 }
 
@@ -36,22 +43,35 @@ export function strength(data, id) {
   return avg(bestXI(players).filter(Boolean).map((p) => overall(p)));
 }
 
+// (M21) Who plays a secret cup: clubs drawn from your tier and the tier above (four of yours, three from above; at the top,
+// six of yours and one from below).
+function tierMix(data, rng, n) {
+  const tier = leagueById(data.league?.tier ?? 'regional')?.tier ?? 1;
+  const at = (t) => LEAGUES.find((l) => l.tier === t)?.clubs ?? [];
+  const mine = rng.shuffle(at(tier).slice());
+  const above = rng.shuffle(at(tier + 1).slice());
+  if (above.length) return [...mine.slice(0, n - 3), ...above.slice(0, 3)];
+  return [...mine.slice(0, n - 1), ...rng.shuffle(at(tier - 1).slice()).slice(0, 1)];
+}
+
 function startEdition(data, cup, day) {
   const C = data.cups[cup.id];
   const rng = new Rng(`${data.seed}:cup:${cup.id}:${C.editions + 1}:draw`);
   const byStrength = (ids) => ids.map((id) => [id, strength(data, id)]).sort((a, b) => b[1] - a[1]).map(([id]) => id);
+  const n = (cup.size ?? 8) - 1;
   let others;
   if (cup.teams.strongest) others = byStrength(ALL_CLUBS.map((c) => c.id)).slice(0, cup.teams.strongest); // (M18 C04)
-  else if (cup.teams.pick) others = cup.teams.pick.flatMap((x) => byStrength(leagueById(x.league).clubs).slice(0, x.count)); // (M20 C07)
+  else if (cup.teams.pick) others = cup.teams.pick.flatMap((x) => byStrength(leagueById(x.league).clubs).slice(0, x.count)); // (M20 C07; M21 C01, C08)
+  else if (cup.teams.tierMix) others = tierMix(data, rng, n); // (M21 C09–C14)
   else {
     const inv = cup.teams.invite;
     others = [...leagueById(cup.teams.league).clubs, ...(inv ? byStrength(leagueById(inv.league).clubs).slice(0, inv.count) : [])];
   }
-  const teams = rng.shuffle([US, ...others]);
+  const teams = rng.shuffle([US, ...others.slice(0, n)]);
   const first = [];
   for (let i = 0; i < teams.length; i += 2) first.push({ a: teams[i], b: teams[i + 1], day: null, score: null, pens: null, winner: null });
   C.editions++;
-  C.current = { edition: C.editions, year: yearOf(day), startDay: day, teams, rounds: [first], round: 0, tieDay: day + cup.firstTieDays, issued: -1, out: false, done: false, champion: null };
+  C.current = { edition: C.editions, year: yearOf(day), startDay: day, teams, rounds: [first], round: 0, tieDay: day + GAP, issued: -1, queued: false, out: false, done: false, champion: null };
   return C.current;
 }
 
@@ -73,9 +93,17 @@ export function simTie(data, cup, tie, rng) {
   tie.winner = aWins ? tie.a : tie.b;
   return tie;
 }
+// The round's AI ties (not yet played), on `day`.
+function simRound(data, cup, cur, day) {
+  cur.rounds[cur.round].forEach((t, i) => {
+    if (t.winner || t.a === US || t.b === US) return;
+    t.day = day;
+    simTie(data, cup, t, new Rng(`${data.seed}:cup:${cup.id}:${cur.edition}:${cur.round}:${i}`));
+  });
+}
 
 // The round is over when every tie has a winner: the next round is drawn from the winners in bracket order (1v2, 3v4),
-// or the edition ends.
+// or the edition ends. (M21) The next round is 7 days on (yours is issued at once by the league, if you are still in).
 function advance(data, cup, day, events) {
   const C = data.cups[cup.id];
   const cur = C.current;
@@ -100,7 +128,7 @@ function advance(data, cup, day, events) {
   for (let i = 0; i < ties.length; i += 2) next.push({ a: ties[i].winner, b: ties[i + 1].winner, day: null, score: null, pens: null, winner: null });
   cur.rounds.push(next);
   cur.round++;
-  cur.tieDay = Math.max(cur.tieDay + cup.gapDays, day + 8); // (your tie is fixed 7 days ahead: room to issue it)
+  cur.tieDay = day + GAP;
   events.push({ kind: 'round', cup: cup.id, round: cur.round, name: cup.rounds[cur.round] });
 }
 // How far you got in an edition: the round you went out in, 'won', or null (not in it).
@@ -110,59 +138,52 @@ function reached(cup, ed) {
   return null;
 }
 
-export const ourTieIn = (ed) => (ed ? ed.rounds[ed.round].find((t) => (t.a === US || t.b === US) && !t.winner) ?? null : null);
+export const ourTieIn = (ed) => (ed && !ed.done ? ed.rounds[ed.round].find((t) => (t.a === US || t.b === US) && !t.winner) ?? null : null);
 const oppOf = (t) => (t.a === US ? t.b : t.a);
+const started = (cur) => cur.rounds[0].some((t) => t.winner) || cur.issued >= 0;
+// (M21) Still waiting for your tie in this cup: in it, and that tie not yet issued.
+export const waitingFor = (cur) => !!cur && !cur.done && !cur.out && !!ourTieIn(cur) && cur.issued !== cur.round;
 
-// One club day of a cup (only while you are in its league): open an edition, issue your tie a week ahead, sim the AI ties
-// on their day, move the bracket on.
-export function cupDay(data, cupId, day, { issueTie, hasTie = () => true, startNew = true } = {}) {
+// One club day of a cup: open an edition (once a season), issue your tie when it is this cup's turn, play the AI rounds
+// once you are out, move the bracket on; an edition still waiting for its first tie when its season has ended is skipped.
+export function cupDay(data, cupId, day, { issueTie, hasTie = () => true, startNew = true, canIssue = () => true } = {}) {
   const cup = cupById(cupId);
   const C = normaliseCups(data)[cupId];
   const events = [];
+  if (C.current && !started(C.current) && yearOf(day) > C.current.year) {
+    // (M21) its season ran out while it waited in the queue: skipped until next season
+    const cur = C.current;
+    C.history = [...C.history, { edition: cur.edition, year: cur.year, champion: null, reached: 'skipped' }].slice(-20);
+    C.last = { ...cur, skipped: true };
+    C.current = null;
+    C.nextStart = Math.max(day, yearStart(cur.year + 1)); // (the new season's edition opens today)
+    events.push({ kind: 'skipped', cup: cupId, edition: cur.edition, year: cur.year });
+  }
   if (!C.current && startNew && day >= C.nextStart) {
     startEdition(data, cup, day);
     events.push({ kind: 'start', cup: cupId, edition: C.current.edition });
   }
   const cur = C.current;
   if (!cur || cur.done) return events;
-  const mine = ourTieIn(cur);
-  const ref = (r) => ({ id: cupId, edition: cur.edition, round: r });
-  if (mine && cur.issued === cur.round && !hasTie(ref(cur.round))) cur.issued = -1; // (its offer went missing: issue it again)
-  if (mine && cur.issued !== cur.round && day >= cur.tieDay - 7) {
-    cur.issued = cur.round;
-    issueTie?.(oppOf(mine), { id: cupId, edition: cur.edition, round: cur.round, name: cup.rounds[cur.round] }, cur.round !== 1);
+  const mine = cur.out ? null : ourTieIn(cur);
+  if (mine) {
+    const ref = { id: cupId, edition: cur.edition, round: cur.round, name: cup.rounds[cur.round] };
+    if (cur.issued === cur.round && !hasTie(ref)) cur.issued = -1; // (its offer went missing: issue it again)
+    if (cur.issued !== cur.round) {
+      if (canIssue(cupId)) {
+        cur.issued = cur.round;
+        cur.queued = false;
+        cur.tieDay = day + GAP; // (the game commits it at once: played in 7 days, unless a match already booked comes first)
+        issueTie?.(oppOf(mine), ref, cur.round !== 1);
+      } else cur.queued = true;
+    }
+    return events; // (the round's other ties are played with yours)
   }
   if (day >= cur.tieDay) {
-    cur.rounds[cur.round].forEach((t, i) => {
-      if (t.winner || t.a === US || t.b === US) return;
-      t.day = cur.tieDay;
-      simTie(data, cup, t, new Rng(`${data.seed}:cup:${cupId}:${cur.edition}:${cur.round}:${i}`));
-    });
+    simRound(data, cup, cur, day);
+    advance(data, cup, day, events);
   }
-  advance(data, cup, day, events);
   return events;
-}
-
-// (M18) Two of your cup ties never in one week: going through the cups in order, a cup whose next tie for you is not yet
-// issued and falls within 7 days of another cup's tie for you moves its whole round back a week (its AI ties too).
-// Called by the league before each day's cupDay. → [cup ids moved]
-export function separate(data, cupIds) {
-  const moved = [];
-  const mine = (id) => {
-    const cur = data.cups?.[id]?.current;
-    return cur && !cur.done && ourTieIn(cur) ? cur : null;
-  };
-  for (const id of cupIds) {
-    const cur = mine(id);
-    if (!cur || cur.issued === cur.round) continue;
-    for (let guard = 0; guard < 8; guard++) {
-      const clash = cupIds.some((o) => o !== id && mine(o) && Math.abs(mine(o).tieDay - cur.tieDay) < 7 && (mine(o).issued === mine(o).round || cupIds.indexOf(o) < cupIds.indexOf(id)));
-      if (!clash) break;
-      cur.tieDay += 7;
-      if (!moved.includes(id)) moved.push(id);
-    }
-  }
-  return moved;
 }
 
 // Your tie's shootout after a draw (a coin toss, the same every time for that tie: the result screen shows it before
@@ -172,7 +193,8 @@ export function pensFor(data, ref) {
   const won = rng.next() < shootoutChance(data);
   return { won, pens: won ? [rng.int(4, 5), rng.int(2, 3)] : [rng.int(2, 3), rng.int(4, 5)] };
 }
-// Your tie's result (the 90 minutes; a draw goes to penalties). → { won, pens, final, champion, prize, roundName, out }
+// Your tie's result (the 90 minutes; a draw goes to penalties). (M21) The round's other ties are played today too. → { won,
+// pens, final, champion, prize, roundName, out, events }
 export function recordOurTie(data, ref, score, day) {
   const cup = cupById(ref.id);
   const C = normaliseCups(data)[ref.id];
@@ -191,26 +213,30 @@ export function recordOurTie(data, ref, score, day) {
   const roundName = cup.rounds[cur.round];
   const final = cur.round === cup.rounds.length - 1;
   if (!won) cur.out = true;
+  simRound(data, cup, cur, day);
   const events = [];
   advance(data, cup, day, events);
   const champion = won && final;
   return { won, pens, final, champion, out: !won, roundName, prize: champion ? cup.prize : won ? cup.roundWin : null, cup: cup.id, events };
 }
 
-// What the Shield sheet shows: the edition now (or the last one), your next tie, wins so far.
+// What a cup's sheet shows: the edition now (or the last one), your next tie, queued, wins so far.
 export function status(data, cupId) {
   const cup = cupById(cupId);
   const C = normaliseCups(data)[cupId];
   const ed = C.current ?? C.last;
-  const mine = ourTieIn(C.current);
+  const mine = C.current && !C.current.out ? ourTieIn(C.current) : null;
   return {
     cup,
     edition: ed,
     running: !!C.current,
     roundName: C.current ? cup.rounds[C.current.round] : null,
-    next: mine && !C.current.out ? { opponent: oppOf(mine), day: C.current.tieDay, round: cup.rounds[C.current.round], home: C.current.round !== 1 } : null,
+    next: mine ? { opponent: oppOf(mine), day: C.current.issued === C.current.round ? C.current.tieDay : null, round: cup.rounds[C.current.round], home: C.current.round !== 1 } : null,
+    queued: !!mine && !!C.current.queued,
     out: !!C.current?.out,
     wins: C.wins,
+    editions: C.editions,
+    opened: data.league?.cupsOpen?.[cupId] != null || (!!cup.opens.league && !cup.opens.wins && !cup.opens.seasonBeaten && data.league?.tier === cup.opens.league), // (M21)
     nextStart: C.current ? null : C.nextStart,
     history: C.history,
   };
