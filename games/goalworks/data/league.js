@@ -141,6 +141,7 @@ export const ACHIEVEMENTS = {
   A13: { name: 'Championship Kings', line: 'Clear Championship promotion' }, // (M19) recorded when you accept the Crown Premier offer
   A14: { name: 'Top Flight', line: 'Reach Crown Premier League' }, // (M20) recorded when you enter the Crown Premier
   A15: { name: 'Crown Champions', line: 'Win top-flight title chain' }, // (M20) recorded when you win the Crown Title Match
+  A41: { name: 'Pantheon', line: 'Sign all five Works Gods' }, // (M20b, account) recorded once all five have been signed in any slot or run
 };
 // Stadium stage flags (bible §26; the stages themselves are M24).
 export const STADIUM_FLAGS = { countyStand: { name: 'County Stand', stage: 2 }, nationalStand: { name: 'National Stand', stage: 3 }, championshipArena: { name: 'Championship Arena', stage: 4 }, crownStadium: { name: 'Crown Stadium', stage: 5 } };

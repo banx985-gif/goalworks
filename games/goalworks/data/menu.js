@@ -27,6 +27,7 @@ export const MENU_GROUPS = [
   { title: 'Club', rows: [
     row('build', 'Build / Facilities', 'Build, move, sell and upgrade facilities on your ground', 'ui_03'),
     row('research', 'Research', 'Spend Research Points on better training, scouting and tactics', 'ui_26'),
+    row('rumours', 'Rumours', 'Whispers around the club: strange clues, and who is waiting at the gates', 'ui_28'), // (Milestone 20b)
   ] },
   { title: 'More', rows: [
     row('settings', 'Settings', 'Sound, graphics, text size, the Menu button and hints', 'gw_ui_menu'),

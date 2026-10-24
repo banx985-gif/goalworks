@@ -9,11 +9,14 @@
 //   preparedFamiliarity(data, map) → the familiarity map the match starts with (each pair × (1 + prep %), at most 100)
 //   settleSec(data) → match seconds a Manage change takes to settle (SETTLE.sec, shorter with Live Read)
 //   weaknessClue(data, opponentId) → { by, text } for Match Setup (with Match Notes), else null
+//   (M20b) the Works Gods add to the same query (src/systems/gods.js godBonus: Zip's recovery, Kaching's income; Bolt is
+//   a hired staff member) · upgradeDays(data, days) → a facility upgrade's days with Bolt's upgradeFasterPct (at least 1)
 import { bonus as facilityBonus } from './facilities.js';
 import { nodeById } from '../../data/research.js';
 import { staffBonus, scoutName, inRole } from './staff.js';
 import { SETTLE, WEAKNESS_CLUES } from '../../data/staff.js';
 import { CLUB_TACTICS } from '../../data/tactics.js';
+import { godBonus } from './gods.js';
 
 export function researchBonus(data, key) {
   const done = data?.research?.sys?.done;
@@ -23,7 +26,8 @@ export function researchBonus(data, key) {
   return v;
 }
 
-export const effect = (data, key) => facilityBonus(data, key) + researchBonus(data, key) + staffBonus(data, key);
+export const effect = (data, key) => facilityBonus(data, key) + researchBonus(data, key) + staffBonus(data, key) + godBonus(data, key);
+export const upgradeDays = (data, days) => (days > 0 ? Math.max(1, Math.round(days * Math.max(0, 1 - effect(data, 'upgradeFasterPct') / 100))) : days);
 
 // Scouting (src/systems/scouting.js): the Video Room / research knowledge %, extra report players (Recruitment Office,
 // research, the Scout's Networker), and research's shorter report / closer-look days. (M14) the hired scout: their name

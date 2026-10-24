@@ -12,6 +12,7 @@ import { GODS, GOD_IDS, DIVINE, godById } from '../../data/gods.js';
 import { secretForGod } from '../../data/secrets.js';
 import { CORE } from '../../data/players.js';
 import { roleById } from '../../data/staff.js';
+import { POSITIONS } from '../../data/setup.js';
 import * as G from '../systems/gods.js';
 import { overall } from '../systems/players.js';
 import * as SE from '../systems/secrets.js';
@@ -50,7 +51,7 @@ export function createGodSheets({ sheet, dialog, run, account = () => null, toda
       { title: 'Now', lines: [whereLine(d, id)] },
     ];
     if (p) {
-      sections.push({ title: 'Core stats', bars: CORE.map((k) => ({ label: `${k} · ${CORE_NAMES[k]}`, value: p.stats[k], max: 99, color: GOLD, star: p.cap })) });
+      sections.push({ title: 'Core stats', bars: CORE.map((k) => ({ label: `${k} · ${CORE_NAMES[k]}`, value: p.stats[k], max: 99, color: POSITIONS[p.position]?.colour ?? C.progress, star: p.cap })) }); // (the gold band past 99 shows against his position colour)
       sections.push({ title: 'A god', lines: ['Ageless: never ages, declines or retires. Wages like the Secret tier: ' + `${p.contract.salary.toLocaleString('en-GB')} Credits a week.`] });
     } else if (g.kind === 'staff') sections.push({ title: 'A god', lines: [`Takes your Physio’s seat (your Physio leaves, with their release pay). Wage ${DIVINE.staffWage} Credits a week, no signing fee, and he never leaves on his own.`] });
     else sections.push({ title: 'A god', lines: ['His own seat on the Staff screen. No wage: he says money follows him around anyway.'] });
@@ -75,7 +76,8 @@ export function createGodSheets({ sheet, dialog, run, account = () => null, toda
     sheet.open(() => cardMenu(id));
   }
   function act(id, force) {
-    const r = signGod(run(), id, today(), account(), { force });
+    if (force) SE.forceArrival(run(), id, today()); // (?debug=1: as if he had just arrived)
+    const r = signGod(run(), id, today(), account());
     const g = godById(id);
     ui.msg = r.ok ? `${g.name} has joined the club!` : r.why;
     if (r.ok) onChange(`god:sign:${id}`, r);
@@ -129,8 +131,8 @@ export function createGodSheets({ sheet, dialog, run, account = () => null, toda
     const here = G.godsAtClub(d);
     const found = SE.foundRecipes(d, account());
     const sections = [...msgSection()];
-    if (waiting.length) sections.push({ title: 'Waiting at the club gates', columns: 1, buttons: waiting.map((id) => ({ id: `god:${id}`, label: `${GODS[id].name}, ${GODS[id].title}`, sub: whereLine(d, id), icon: GODS[id].art, accent: GOLD, onTap: () => openCard(id) })) });
-    if (here.length) sections.push({ title: 'At the club', columns: 1, buttons: here.map((id) => ({ id: `god:${id}`, label: `${GODS[id].name} · ${GODS[id].blessing.name}`, sub: GODS[id].blessing.plain, icon: GODS[id].art, accent: GOLD, onTap: () => openCard(id) })) });
+    if (waiting.length) sections.push({ title: 'Waiting at the club gates', columns: 1, buttons: waiting.map((id) => ({ id: `god:${id}`, label: `${GODS[id].name}, ${GODS[id].title}`, sub: `${roleText(GODS[id])} · ${Math.max(0, G.offerFor(d, id).until - today())} days to ${GODS[id].kind === 'player' ? 'sign' : 'appoint'}`, icon: GODS[id].art, accent: GOLD, onTap: () => openCard(id) })) });
+    if (here.length) sections.push({ title: 'At the club', columns: 1, buttons: here.map((id) => ({ id: `god:${id}`, label: `${GODS[id].name} · ${GODS[id].blessing.name}`, sub: `${roleText(GODS[id])} · tap for the blessing`, icon: GODS[id].art, accent: GOLD, onTap: () => openCard(id) })) });
     sections.push({ title: 'Rumours heard', lines: heard.length ? heard.slice(0, 12).map((r) => `${dateText(r.day)} · ${r.text}`) : ['Nothing yet. Strange things happen at clubs that climb high: keep an ear out.'] });
     if (found.length) sections.push({ title: 'Secrets found (the exact recipe)', lines: found.map((f) => `${f.godName} — ${f.conditions.join('; ')}`) });
     if (debug) sections.push({ title: 'Debug: force an arrival', columns: 3, buttons: GOD_IDS.map((id) => ({ id: `debug:god:${id}`, label: GODS[id].name, accent: GOLD, onTap: () => {

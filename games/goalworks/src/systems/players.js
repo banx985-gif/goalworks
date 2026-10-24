@@ -25,6 +25,7 @@ export function overall(p, at = p.position) {
   const d = derived(p);
   const own = Math.round(sumWeights(OVERALL[at], d));
   if (at === p.position) return own;
+  if (p.anyOutfield && at !== 'GK') return Math.round(sumWeights(OVERALL[at], d)); // (M20b) Havoc: any outfield slot, no penalty
   // out of position: rated with the slot's weights, less a penalty (a keeper's gloves for an outfielder cost the most)
   const k = at === 'GK' || p.position === 'GK' ? OUT_OF_POSITION.keeper : NEAR[at]?.includes(p.position) ? OUT_OF_POSITION.near : OUT_OF_POSITION.far;
   const asGk = at === 'GK' ? { ...d, Goalkeeping: Math.round(sumWeights(DERIVED.Goalkeeping, p.stats) * OUTFIELD_KEEPING) } : d;

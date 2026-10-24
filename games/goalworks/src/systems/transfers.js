@@ -36,6 +36,7 @@ import { normaliseScouting, scoutDay } from './scouting.js';
 import { scoutingFac } from './effects.js';
 import { seasonRetire, seasonAge, bandOf } from './careers.js';
 import { BAND } from '../../data/careers.js';
+import { normaliseGods, nextSeasonEnd } from './gods.js'; // (M20b)
 
 const YEAR = 336;
 const WEEK = 7;
@@ -232,7 +233,7 @@ export function canTalk(data, kind, p, owner, day) {
   if (!p) return 'That player is no longer available.';
   const cd = data.transfers.talks[talkKey(kind, p.id)]?.cooldownUntil ?? -1;
   if (cd > day) return `They will not talk again for ${cd - day} day${cd - day === 1 ? '' : 's'}.`;
-  if (kind === 'renew') return owner !== 'us' ? 'Not your player.' : p.loan ? `He is on loan from ${ownerName(p.loan.from)}.` : p.retiring ? 'He retires at the end of the season.' : null;
+  if (kind === 'renew') return owner !== 'us' ? 'Not your player.' : p.god ? 'A god needs no contract: he stays until you release him.' : p.loan ? `He is on loan from ${ownerName(p.loan.from)}.` : p.retiring ? 'He retires at the end of the season.' : null;
   if (p.retiring && kind === 'pre') return 'He retires at the end of the season.';
   if (owner === 'us') return 'He already plays for you.';
   if (p.preContract) return 'He has already agreed to join another club.';
@@ -406,11 +407,14 @@ function ownPlayer(data, id) {
   const p = data.squad.players.find((x) => x.id === id);
   if (!p) return { why: 'Not in your squad.' };
   if (p.founder) return { p, why: 'The Founder stays with the club.' };
+  if (p.god) return { p, why: 'A god can’t be sold or loaned. Release him from his card: he comes back after the season’s end.' }; // (M20b)
   if (p.loan) return { p, why: `He is on loan from ${ownerName(p.loan.from)}.` };
   return { p, why: null };
 }
 export const releasePayout = (p) => Math.round(p.contract.salary * CONTRACT_TERMS.payoutWeeksPerYear * Math.max(0, p.contract.years));
 export function release(data, id, day) {
+  const g = data.squad.players.find((x) => x.id === id && x.god);
+  if (g) return releaseGodPlayer(data, g, day); // (M20b)
   const { p, why } = ownPlayer(data, id);
   if (why) return { ok: false, why };
   const pay = releasePayout(p);
@@ -422,6 +426,17 @@ export function release(data, id, day) {
   purgeTactics(data, id);
   toFree(data, p, 'us', day);
   log(data, day, `${p.name} released (payout ${fmt(pay)} Credits).`);
+  return { ok: true, autosave: true };
+}
+// (M20b) A god released: no payout, never to the free agents or another club — he leaves the game and comes back to the gates
+// after the next season's end (src/systems/gods.js).
+function releaseGodPlayer(data, p, day) {
+  const short = rosterProblem(data.squad.players.filter((x) => x !== p));
+  if (short) return { ok: false, why: short };
+  take(data, 'us', p);
+  purgeTactics(data, p.id);
+  normaliseGods(data).returnAt[p.god] = nextSeasonEnd(day);
+  log(data, day, `${p.name} has gone… for now (back after the season’s end).`);
   return { ok: true, autosave: true };
 }
 // (M17) A player a club above the Regional League lets go doesn't join the Regional free agents: he finds a club beyond the
@@ -540,7 +555,7 @@ export function exerciseOption(data, id, day) {
   p.loan = null;
   return { ok: true, autosave: true };
 }
-export const expiring = (data) => data.squad.players.filter((p) => !p.loan && (p.contract?.years ?? 0) <= 1);
+export const expiring = (data) => data.squad.players.filter((p) => !p.loan && !p.god && (p.contract?.years ?? 0) <= 1);
 
 // Always a playable squad: if departures the club could not stop (contracts ending, loans going home) leave it short, the
 // board signs free agents on short deals to the minimum (no fee, no bonus — wages only).
@@ -647,7 +662,7 @@ function weekly(data, day, rng) {
   } else earn(data, net);
   // an AI club bids for one of your players now and then (the better he is, the likelier)
   if (rng.next() < AI.bidChancePerWeek) {
-    const cands = data.squad.players.filter((p) => !p.founder && !p.loan && !openBids(data).some((b) => b.playerId === p.id));
+    const cands = data.squad.players.filter((p) => !p.founder && !p.god && !p.loan && !openBids(data).some((b) => b.playerId === p.id));
     if (cands.length) {
       const sorted = cands.slice().sort((a, b) => overall(b) - overall(a));
       const p = sorted[Math.min(sorted.length - 1, Math.floor(rng.next() ** 2 * sorted.length))];
@@ -734,6 +749,7 @@ function seasonEnd(data, day, rng) {
   // your contracts count down; those that end leave (the Founder re-signs: he stays with the club)
   for (const p of data.squad.players.slice()) {
     if (p.loan) continue;
+    if (p.god) continue; // (M20b) a god's contract never runs out
     p.contract.years -= 1;
     if (p.contract.years > 0) continue;
     if (p.founder) {
@@ -761,7 +777,7 @@ function seasonEnd(data, day, rng) {
   for (const p of T.market) if ((p.contract.years -= 1) <= 0) p.contract.years = rng.int(1, 3);
   // everyone a season older (the watch list waits for the academy, M15); (M16) then growth and decline, and the oldest free
   // agents retire
-  for (const p of [...data.squad.players, ...Object.values(T.clubs).flatMap((c) => c.players), ...T.free, ...T.market]) p.age += 1;
+  for (const p of [...data.squad.players, ...Object.values(T.clubs).flatMap((c) => c.players), ...T.free, ...T.market]) if (!p.god) p.age += 1; // (M20b) a god is ageless
   seasonAge(data, day);
 }
 

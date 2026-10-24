@@ -18,6 +18,7 @@ import { StaffSystem } from '../../../../core/StaffSystem.js';
 import { STAFF, STAFF_ROLES, STAFF_TIERS, STAFF_RULES, GATE_TEXT, staffById, roleById } from '../../data/staff.js';
 import { RANK_ORDER } from '../../data/facilities.js';
 import { rank as clubRank, normaliseLeague } from './league.js';
+import { offerFor, normaliseGods, nextSeasonEnd } from './gods.js';
 
 const WEEK = 7;
 const YEAR = 336;
@@ -73,6 +74,8 @@ function note(data, text) {
 export function eligibility(data, def) {
   const tier = STAFF_TIERS[def.tier];
   if (tier.gate === 'hidden') return { ok: false, hidden: true, why: `Locked: ${tier.unlock}` };
+  // (M20b) a god: only while he waits at the gates (his arrival window)
+  if (tier.gate === 'divine') return offerFor(data, def.god ?? def.id) ? { ok: true } : { ok: false, hidden: true, why: `Locked: ${tier.unlock}` };
   if (tier.gate === 'county' && normaliseLeague(data).promotion.county !== 'accepted') return { ok: false, why: GATE_TEXT.county };
   if (tier.gate === 'rankB' && RANK_ORDER.indexOf(clubRank(data).id) < RANK_ORDER.indexOf('B')) return { ok: false, why: GATE_TEXT.rankB };
   return { ok: true };
@@ -129,6 +132,7 @@ export function release(data, id, day, { keepTask = false } = {}) {
   const cost = releaseCost(data, id);
   pay(data, Math.min(cost, Math.max(0, credits(data)))); // (never below zero: what can't be paid is written off)
   removeHire(data, id);
+  if (STAFF_TIERS[s.tier]?.gate === 'divine') normaliseGods(data).returnAt[id] = nextSeasonEnd(day); // (M20b) a god: back after the next season's end
   if (s.role === 'SC' && !keepTask && data.transfers?.scouting?.task) data.transfers.scouting.task = null;
   note(data, `${s.name} left the club (release pay ${cost.toLocaleString('en-GB')} Credits).`);
   return { ok: true, cost };
@@ -165,6 +169,7 @@ export function staffDay(data, day) {
   }
   if (day > 0 && day % YEAR === 0) {
     for (const raw of st.hired.slice()) {
+      if (STAFF_TIERS[raw.tier]?.gate === 'divine') continue; // (M20b) a god's contract never runs out
       raw.counters = { ...raw.counters, years: (raw.counters?.years ?? 1) - 1 };
       if (raw.counters.years > 0) continue;
       removeHire(data, raw.id);

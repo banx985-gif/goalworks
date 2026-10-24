@@ -26,8 +26,11 @@ export const STAFF_TIERS = {
   Elite: { gate: 'rankB', wage: 220, fee: 5000, years: 3, colour: '#7D3C98' },
   Legendary: { gate: 'hidden', unlock: 'secret unlock (M28)', wage: 400, fee: 12000, years: 3, colour: '#D4A017' },
   Secret: { gate: 'hidden', unlock: 'New Game+ secret (M29)', wage: 500, fee: 20000, years: 3, colour: '#C0392B' },
+  // (M20b) the Works Gods (data/gods.js): above Secret. Only a god's arrival opens him (his secret, data/secrets.js); no
+  // signing fee, the Secret wage, and his contract never runs out (released, he comes back after the next season's end).
+  Divine: { gate: 'divine', unlock: 'his own secret', wage: 500, fee: 0, years: 1, colour: '#E8B923' },
 };
-export const TIER_ORDER = ['Standard', 'Rare', 'Elite', 'Legendary', 'Secret'];
+export const TIER_ORDER = ['Standard', 'Rare', 'Elite', 'Legendary', 'Secret', 'Divine'];
 export const GATE_TEXT = { county: 'Opens once the County offer is accepted', rankB: 'Opens at Club Rank B' };
 
 // Release: the club pays this many weeks of their wage. Extending a contract: this share of the signing fee, for the
@@ -53,6 +56,9 @@ export const STAFF = [
   S('PH03', 'Mara Cross', 'Elite', 'Prevention', '+10% injury resistance', 'Rank B', [{ key: 'injuryResistPct', value: 10 }], '10% fewer injuries (stored until injuries arrive in M25).'),
   S('PH04', 'Dr. Selene Ward', 'Legendary', 'Return Strong', 'recovered players return with +5 morale', 'Secret', [{ key: 'returnMorale', value: 5 }], 'Players back from injury return with +5 morale.'),
   S('PH05', 'Dr. Zero Hale', 'Secret', 'Second Wind', 'one serious injury/season downgrades one severity tier', 'NG+ secret', [{ key: 'secondWind', value: 1 }], 'Once a season a serious injury drops one severity tier.'),
+
+  // (M20b) Bolt, God of Tinkering: the Divine Physio (his blessing: data/gods.js GOD1)
+  { ...S('GOD1', 'Bolt', 'Divine', 'Patch-up', 'injuries heal 50% faster, 30% fewer; upgrades 25% faster; +10% recovery, −10% fatigue', 'His secret', [{ key: 'upgradeFasterPct', value: 25 }, { key: 'injuryRecoveryPct', value: 50 }, { key: 'injuryResistPct', value: 30 }, { key: 'recoveryPct', value: 10 }, { key: 'fatigueGainPct', value: -10 }], 'Injured players recover 50% faster and get 30% fewer injuries (injuries arrive in M25). Facility upgrades finish 25% faster. Fatigue recovers 10% faster and builds up 10% slower.'), role: 'PH', art: 'staff_god_bolt', god: 'GOD1' },
 
   S('YC01', 'Ben Moss', 'Standard', 'Patient', '+5% academy XP', 'Start', [{ key: 'academyXpPct', value: 5 }], 'Academy players get 5% more XP.'),
   S('YC02', 'Zoe Grant', 'Rare', 'Position Teacher', 'position learning +10%', 'County', [{ key: 'positionLearnPct', value: 10 }], 'Players retraining to a new position learn it 10% faster.'),
@@ -86,6 +92,8 @@ export const STAFF_EFFECTS = {
   injuryResistPct: { waits: 'M25', what: 'injuries' },
   returnMorale: { waits: 'M25', what: 'injuries' },
   secondWind: { waits: 'M25', what: 'injuries' },
+  upgradeFasterPct: { live: true, system: 'facility upgrades' }, // (M20b Bolt)
+  injuryRecoveryPct: { waits: 'M25', what: 'injuries' }, // (M20b Bolt)
   academyXpPct: { live: true, system: 'academy' }, // (Milestone 15)
   positionLearnPct: { live: true, system: 'position learning' },
   youthRevealPct: { live: true, system: 'academy' },

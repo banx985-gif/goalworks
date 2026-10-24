@@ -196,6 +196,12 @@ import * as CA from './systems/careers.js';
 import { createHallOfFameSheets } from './screens/hallOfFameSheets.js';
 import { POSITIONS as POS_NAMES } from '../data/setup.js';
 import { createStaffSheets } from './screens/staffSheets.js';
+// Milestone 20b: the Works Gods — five Divine characters, each arriving through his own secret (data/gods.js, data/secrets.js)
+import * as GD from './systems/gods.js';
+import * as SE from './systems/secrets.js';
+import { signGod, releaseGod } from './systems/godsClub.js';
+import { createGodSheets } from './screens/godSheets.js';
+import { GODS, DIVINE } from '../data/gods.js';
 import { STAFF, staffById, roleById, STAFF_TIERS } from '../data/staff.js';
 import { preparedFamiliarity, settleSec, weaknessClue, tacticalPrep } from './systems/effects.js';
 const COL = THEME.color;
@@ -402,6 +408,10 @@ function openRun(n, data) {
   if (!data.careers) setTimeout(() => autosave.request('careers:start'), 0);
   CA.normaliseCareers(data, data.calendar?.clock?.totalDays ?? 0);
   syncHallOfFame(data);
+  // (an M20 save: no gods at the club, no secret found yet — nothing invented; the measures read the save as it is)
+  if (!data.gods || !data.secrets) setTimeout(() => autosave.request('gods:start'), 0);
+  GD.normaliseGods(data);
+  SE.normaliseSecrets(data);
   // (M17) a save that accepted a promotion offer while the next league was "coming soon" moves up now (M17 County, M18
   // National): a News line and a banner
   const movedTo = LG.catchUp(data, data.calendar?.clock?.totalDays ?? 0);
@@ -448,6 +458,7 @@ bus.on('clock:day', () => {
   for (const e of staffDay(open.data, c.clock.totalDays)) staffLeft(e); // (M14) staff wages each week; contracts at the season's end
   TR.transfersDay(open.data, c.clock.totalDays); // (M11) scouting, bids, loans, wages, the AI clubs' moves, the season's end
   for (const e of CA.careersDay(open.data, c.clock.totalDays)) careerEvent(e); // (M16) retirements announced / done, the Hall of Fame
+  godsDay(c.clock.totalDays); // (M20b) rumours, a god's arrival, a window that closes, a god back after the season's end
   if (open.layout.sync()) debug.log(`the ground grows: ${open.layout.stage.name} ${open.layout.stage.cols}×${open.layout.stage.rows}`); // (M12) by the Club Rank
   // (M11) contracts ending: one warning a season, from Month 9
   const T = open.data.transfers;
@@ -492,6 +503,44 @@ function careerEvent(e) {
     syncHallOfFame(open.data);
   }
   debug.log(`career: ${e.kind} ${e.name}`);
+}
+// Milestone 20b: the secrets' day — a clue (a banner; Manager Office → Rumours), a god at the gates (a one-tap pop-up that
+// waits its turn), a window that closed. The account record (gods signed, secrets found, Crown titles) saves at once.
+function godsDay(day) {
+  const r = SE.secretsDay(open.data, day, account);
+  if (r.accountChanged) saveAccountNow('gods');
+  for (const e of r.events) {
+    const g = GODS[e.god];
+    if (e.kind === 'clue') researchBanner.show({ id: `rumour:${e.id}:${e.stage}`, title: 'A rumour…', line: e.text, gives: 'Manager Office → Rumours', icon: 'ui_28', color: COL.purple });
+    else if (e.kind === 'arrival') godUi.queueArrival(e.god, e.back);
+    else if (e.kind === 'gone') researchBanner.show({ id: `godGone:${e.god}:${day}`, title: `${g.name} has gone`, line: 'Nobody signed him in time', gives: 'Back at the gates after the season’s end', icon: g.art, color: COL.bad });
+    debug.log(`gods: ${e.kind} ${e.god ?? e.id}`);
+  }
+  pumpArrivals();
+}
+// An arrival shows when the club is free (no sheet, no dialog); the rest wait their turn.
+function pumpArrivals() {
+  if (open && router.currentName === 'club' && !sheet.active && !dialog.active) godUi.pump();
+}
+function saveAccountNow(why) {
+  if (!campaigns) return;
+  campaigns.slots.saveAccount(account).catch((err) => debug.log(`account save failed (${why}): ${err?.message ?? err}`));
+}
+// The Staff sheet's one Divine seat: Kaching, Honorary Chairman — shown only while he is here or waiting at the gates.
+function chairmanSeat() {
+  const d = open?.data;
+  if (!d) return [];
+  const here = d.gods?.chairman === 'GOD4';
+  const waiting = GD.offerFor(d, 'GOD4');
+  if (!here && !waiting) return [];
+  const g = GODS.GOD4;
+  return [{ title: 'Honorary Chairman', lines: [here ? `${g.name}, ${g.title}: ${g.blessing.plain}` : `${g.name} is waiting at the club gates. This seat is his alone.`], columns: 1, buttons: [{ id: 'god:GOD4', label: here ? `${g.name} · Honorary Chairman` : `Appoint ${g.name}`, sub: here ? 'Divine · no wage' : `The window closes in ${Math.max(0, waiting.until - (open.calendar.today ?? 0))} days`, icon: g.art, accent: DIVINE.colour, onTap: () => godUi.openCard('GOD4') }] }];
+}
+// A god's own section on his player card (Squad): the blessing in plain words, his Divine card (release there).
+function godPlayerSection(p) {
+  if (!p.god || !open?.data.squad.players.includes(p)) return [];
+  const g = GODS[p.god];
+  return [{ title: `Divine · ${g.blessing.name}`, lines: [g.blessing.plain, 'Ageless: never ages, declines or retires.'], columns: 1, buttons: [{ id: 'godCard', label: `${g.name}’s Divine card`, sub: 'The blessing, and Release', icon: g.art, accent: DIVINE.colour, onTap: () => godUi.openCard(p.god) }] }];
 }
 // Milestone 14: a staff contract ran out.
 function staffLeft(e) {
@@ -889,6 +938,13 @@ function kickOff(mode = 'watch') {
   if (!open.data.match || open.data.match.fixtureId !== f.id) {
     const sides = fixtureSides(open.data.club, f.opponent);
     const xi = fixtureXIs(open.data, f);
+    // (M20b) Havoc's chaos roll for this match (the same every time for this fixture): the whole XI ±, and a News line
+    if (xi.home.some((p) => p.god === 'GOD5')) {
+      const roll = GD.chaosRoll(open.data, f.id);
+      GD.applyChaos(xi.home, roll);
+      LG.news(open.data, open.calendar.today, `Havoc’s chaos roll: ${roll.good ? '+8%' : '−4%'} today. ${roll.line}`);
+      researchBanner.show({ id: `havoc:${f.id}`, title: roll.good ? 'Havoc: +8% today!' : 'Havoc: −4% today…', line: roll.line, gives: 'Havoc’s chaos roll for this match', icon: GODS.GOD5.art, color: roll.good ? COL.good : COL.bad });
+    }
     const setup = createMatchSetup({ seed: `${open.data.seed}:${f.id}`, home: { ...sides.home, players: xi.home }, away: { ...sides.away, players: xi.away } });
     // (M9) both sides' formations, instructions, our roles and familiarity
     const ours = teamSide(open.data);
@@ -943,6 +999,7 @@ function matchFinished(world) {
   const xiIds = world.setup.home.players.map((p) => p.id).filter(Boolean);
   if (open.data.squad) applyMatch(open.data, { xiIds, score: r.score, scorers: r.scorers });
   if (open.data.squad) CA.recordMatch(open.data, { xiIds, score: r.score, scorers: r.scorers }); // (M16) career stats, club records
+  if (fx && open.data.squad) SE.afterMatch(open.data, { fixture: fx, score: r.score, scorers: r.scorers, cup: league?.cup ?? null, xiIds }, open.calendar.today); // (M20b) the secrets' tallies
   if (open.data.transfers) TR.afterMatch(open.data, xiIds); // (M11) a promised role not met: morale
   // (M9) familiarity: the formation / style the match started in
   if (world.setup.formation) familiarityMatch(open.data, pairKey(world.setup.formation[0], world.setup.tactics?.[0]?.build ?? 'balanced'));
@@ -960,7 +1017,7 @@ function matchFinished(world) {
   if (ct) {
     const cup = cupById(ct.cup);
     const id = `cuptie:${ct.cup}:${open.calendar.today}`;
-    if (ct.champion) researchBanner.show({ id, title: `${cup.name} winners!`, line: `+${cup.prize.credits.toLocaleString('en-GB')} Credits · reputation +${cup.prize.history + cup.prize.momentum}`, gives: 'Sponsors have noticed the club', icon: cup.art, color: C_GOLD });
+    if (ct.champion) researchBanner.show({ id, title: `${cup.name} winners!`, line: `+${Math.round(cup.prize.credits * GD.incomeMult(open.data)).toLocaleString('en-GB')} Credits · reputation +${cup.prize.history + cup.prize.momentum}`, gives: 'Sponsors have noticed the club', icon: cup.art, color: C_GOLD });
     else if (ct.won) researchBanner.show({ id, title: `Through to the ${cup.rounds[cup.rounds.indexOf(ct.roundName) + 1].toLowerCase()}!`, line: `${cup.name}${ct.pens ? ` · won ${ct.pens[0]}–${ct.pens[1]} on penalties` : ''}`, gives: `+${cup.roundWin.credits} Credits · the next tie in about 4 weeks`, icon: cup.art, color: COL.good });
     else researchBanner.show({ id, title: `Out of the ${cup.name}`, line: `${ct.roundName}${ct.pens ? ` · lost ${ct.pens[0]}–${ct.pens[1]} on penalties` : ''}`, gives: 'It opens again next season', icon: cup.art, color: COL.bad });
   }
@@ -1055,7 +1112,7 @@ function playPlaceholder() {
   open.setupShown = false;
   sheet.close();
 }
-const squadScreen = createSquadScreen({ layout, assets, sheet, club: () => open, onBack: () => router.go('club'), onTraining: () => openTraining('squad'), onTactics: () => openTactics('squad'), onLeague: () => openLeague(), onTransfers: () => transfersUi.openTransfers('market'), onContract: (id) => transfersUi.openOwn(id), detailExtra: (p) => playerItemsSection(p) });
+const squadScreen = createSquadScreen({ layout, assets, sheet, club: () => open, onBack: () => router.go('club'), onTraining: () => openTraining('squad'), onTactics: () => openTactics('squad'), onLeague: () => openLeague(), onTransfers: () => transfersUi.openTransfers('market'), onContract: (id) => transfersUi.openOwn(id), detailExtra: (p) => [...godPlayerSection(p), ...playerItemsSection(p)] });
 // Milestone 11: the Transfers sheets (every finished deal saves at once, bible §36).
 const transfersUi = createTransferSheets({
   sheet,
@@ -1137,7 +1194,10 @@ function facilitySections(defId) {
   const coachHire = hireIf('HC', 'No Head Coach yet: training runs without one', 'Hire a Head Coach');
   const scoutHire = hireIf('SC', 'No scout yet: nobody can go out to find players', 'Hire a scout');
   const youthHire = hireIf('YC', 'No Youth Coach yet: potential is hard to read', 'Hire a Youth Coach');
-  return { F01: [training, ...coachHire], F11: [training], F03: [office, staff, tactics, transfers, research], F04: [scout, ...scoutHire], F06: [kit], F08: [tactics], F09: [academy, ...youthHire], F14: [academy, ...youthHire], F26: [academy, ...youthHire], F13: [research], F24: [research], F25: [transfers] }[defId] ?? [];
+  // (M20b) the Rumours list (clues, gods at the gates, the secrets found)
+  const waitingGods = open ? Object.keys(GODS).filter((id) => GD.offerFor(open.data, id)).length : 0;
+  const rumours = { title: 'Rumours', lines: [waitingGods ? `Someone is waiting at the club gates (${waitingGods})!` : 'Whispers around the club: strange clues, and who might turn up.'], buttons: [{ id: 'rumours', label: 'Rumours', icon: 'ui_28', accent: waitingGods ? DIVINE.colour : COL.purple, onTap: () => godUi.openRumours() }] };
+  return { F01: [training, ...coachHire], F11: [training], F03: [office, staff, tactics, transfers, research, rumours], F04: [scout, ...scoutHire], F06: [kit], F08: [tactics], F09: [academy, ...youthHire], F14: [academy, ...youthHire], F26: [academy, ...youthHire], F13: [research], F24: [research], F25: [transfers] }[defId] ?? [];
 }
 // (M15) Hiring for one role: the first candidate who can be hired now (their card: Hire), else the Staff sheet.
 function openStaffRole(role) {
@@ -1167,6 +1227,7 @@ const MENU_OPEN = {
   },
   research: () => researchUi.openResearch(),
   staff: () => staffUi.openStaff(), // (M14)
+  rumours: () => godUi.openRumours(), // (M20b)
   academy: () => academyUi.openAcademy(), // (M15)
   hallOfFame: () => hofUi.openHallOfFame(), // (M16)
   shield: () => openShield(false, 'C02'), // (M17)
@@ -1210,6 +1271,11 @@ function menuState(id) {
     const n = account.hallOfFame?.length ?? 0;
     const leaving = open?.data.squad.players.filter((p) => p.retiring).length ?? 0;
     return { badge: leaving || null, sub: leaving ? `${leaving} player${leaving === 1 ? ' retires' : 's retire'} this season · ${n} legend${n === 1 ? '' : 's'}` : n ? `${n} legend${n === 1 ? '' : 's'} · club records` : 'Club legends and records' };
+  }
+  if (id === 'rumours' && open) {
+    const n = Object.keys(GODS).filter((g) => GD.offerFor(open.data, g)).length;
+    const heard = open.data.secrets?.rumours?.length ?? 0;
+    return { badge: n || null, sub: n ? `${n === 1 ? 'Someone is' : `${n} figures are`} waiting at the club gates!` : heard ? `${heard} rumour${heard === 1 ? '' : 's'} heard` : 'Nothing yet: strange things happen at clubs that climb high' };
   }
   if (id === 'clubStore') return openClubStore && open?.items ? { badge: open.items.inventory.length || null } : { hidden: true };
   return {};
@@ -1290,6 +1356,28 @@ const staffUi = createStaffSheets({
     const f = clubScreen.world?.byId(`staff:${id}`);
     return f ? clubScreen.world.stateOf(f) : null;
   },
+  extraSections: () => chairmanSeat(), // (M20b) Kaching's seat
+  openGod: (id) => godUi.openCard(id), // (M20b) Bolt's card is his Divine card
+});
+// Milestone 20b: the Works Gods' sheets — a god's card, the arrival pop-up (one tap, one at a time) and the Rumours list.
+const godUi = createGodSheets({
+  sheet,
+  dialog,
+  run: () => open?.data ?? null,
+  account: () => account,
+  today: () => open?.calendar.today ?? 0,
+  dateText: (day) => {
+    const dd = open?.calendar.clock.dateOf(day);
+    return dd ? `Year ${dd.year} · Month ${dd.month} · Day ${dd.day}` : '';
+  },
+  signGod,
+  releaseGod,
+  onChange: (why, r) => {
+    debug.log(`${why}`);
+    if (r?.accountChanged) saveAccountNow(why);
+    autosave.request(why);
+  },
+  debug: debug.enabled,
 });
 // Milestone 15: the Academy sheets (every signing / promotion / loan / release saves at once).
 const academyUi = createAcademySheets({
@@ -1310,7 +1398,7 @@ const academyUi = createAcademySheets({
   onYouthCoach: () => openStaffRole('YC'),
 });
 // Milestone 16: the Hall of Fame sheets (the account's legends; this club's records and retirements).
-const hofUi = createHallOfFameSheets({ sheet, assets, entries: () => account.hallOfFame ?? [], run: () => open?.data ?? null });
+const hofUi = createHallOfFameSheets({ sheet, assets, entries: () => account.hallOfFame ?? [], run: () => open?.data ?? null, secrets: () => SE.foundRecipes(open?.data ?? null, account) }); // (M20b) the secrets found
 // Player Detail's Items section: what they love, what they've had, Give an item.
 function playerItemsSection(p) {
   const I = open?.items;
@@ -1415,7 +1503,7 @@ function addFeaturedStar(fid) {
 }
 // ?debug=1: a test hook for automated checks.
 if (debug.enabled) {
-  window.__gw = { renderer, layout, input, loop, router, assets, sheet, dialog, systemBack, textPrompt, splashScreen, menuScreen, slotsScreen, setupScreen, clubScreen, squadScreen, trainingScreen, openTraining, tacticsScreen, openTactics, openMatchTactics, playSlot, startClub, deleteSlot, openShop, setRank, facilityBonus, researchUi, researchBanner, get research() { return open?.research ?? null; }, newGame, openLeague, openCountyOffer, openPromotionOffer, openCrownChampions, addFeaturedStar, overall, openShield, commitCupTie, LG, CUP, acceptChallenge, issueChallenge, transfers: transfersUi, TR, openMatchSetup, playPlaceholder, kickOff, startTestMatch, matchScreen, restoreMatchWorld, get match() { return match; }, toggleSpeedFlag, autosave, saveRun, canvasLost, canvasLossCount, itemsUi, staffUi, normaliseStaff, academyUi, AC, openStaffRole, hofUi, CA, syncHallOfFame, facilityLevel: (id) => (open ? facilityLevel(open.data, id) : 0), get items() { return open?.items ?? null; }, settings, governor, lowFx, haptics, hintLine, openNavMenu, MENU_OPEN, menuState, openSettings, get account() { return account; }, taps: [], get campaigns() { return campaigns; }, get open() { return open; } };
+  window.__gw = { godUi, GD, SE, signGod, releaseGod, renderer, layout, input, loop, router, assets, sheet, dialog, systemBack, textPrompt, splashScreen, menuScreen, slotsScreen, setupScreen, clubScreen, squadScreen, trainingScreen, openTraining, tacticsScreen, openTactics, openMatchTactics, playSlot, startClub, deleteSlot, openShop, setRank, facilityBonus, researchUi, researchBanner, get research() { return open?.research ?? null; }, newGame, openLeague, openCountyOffer, openPromotionOffer, openCrownChampions, addFeaturedStar, overall, openShield, commitCupTie, LG, CUP, acceptChallenge, issueChallenge, transfers: transfersUi, TR, openMatchSetup, playPlaceholder, kickOff, startTestMatch, matchScreen, restoreMatchWorld, get match() { return match; }, toggleSpeedFlag, autosave, saveRun, canvasLost, canvasLossCount, itemsUi, staffUi, normaliseStaff, academyUi, AC, openStaffRole, hofUi, CA, syncHallOfFame, facilityLevel: (id) => (open ? facilityLevel(open.data, id) : 0), get items() { return open?.items ?? null; }, settings, governor, lowFx, haptics, hintLine, openNavMenu, MENU_OPEN, menuState, openSettings, get account() { return account; }, taps: [], get campaigns() { return campaigns; }, get open() { return open; } };
 }
 
 router.go('boot');

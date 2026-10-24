@@ -16,7 +16,7 @@
 //   control.last — { kind, ok, step } the latest action, for the screen   control.serialize() → { team, inputs }
 //   control.detach() — Play is left: the controlled player goes back to the AI
 import { PITCH, MATCH_TIME } from '../../data/match.js';
-import { speedOf, pressureOn, steerVel, pass, shoot, tackle } from './matchAI.js';
+import { speedOf, accelOf, pressureOn, steerVel, pass, shoot, tackle } from './matchAI.js';
 
 export const BTN = { pass: 1, action: 2, sprint: 4, switch: 8 }; // action = Shoot with the ball, Tackle without
 const Q = 16; // the stick is logged in 1/16ths
@@ -134,11 +134,11 @@ export function createControl(world, { team = 0, log = [] } = {}) {
       const m = Math.hypot(mx, my);
       if (m < C.dead) {
         if (!withBall) return false; // stick at rest: the AI keeps them in the game
-        steerVel(p, 0, 0, T.accel, dt); // the carrier stands on the ball
+        steerVel(p, 0, 0, accelOf(p, T), dt); // the carrier stands on the ball
         return true;
       }
       const v = speedOf(p, T) * Math.min(1, m) * (withBall ? T.dribble.speedFactor : 1) * (ctl.sprinting ? C.sprint : 1) * (p.cool > 0.4 ? 0.5 : 1);
-      steerVel(p, (mx / m) * v, (my / m) * v, T.accel, dt);
+      steerVel(p, (mx / m) * v, (my / m) * v, accelOf(p, T), dt);
       return true;
     },
 

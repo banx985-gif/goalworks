@@ -17,6 +17,7 @@ import { leagueById } from '../../data/league.js';
 import { clubById, ALL_CLUBS } from '../../data/fixtures.js';
 import { bestXI, opponentSquad } from './squad.js';
 import { overall } from './players.js';
+import { shootoutChance } from './gods.js';
 
 const YEAR = 336;
 const yearOf = (day) => Math.floor((Math.max(1, day) - 1) / YEAR) + 1;
@@ -165,10 +166,10 @@ export function separate(data, cupIds) {
 }
 
 // Your tie's shootout after a draw (a coin toss, the same every time for that tie: the result screen shows it before
-// Continue records it). → { won, pens: [yours, theirs] }
+// Continue records it). (M20b) With Jinx in goal you win about 75% (the same one draw, a different line). → { won, pens: [yours, theirs] }
 export function pensFor(data, ref) {
   const rng = new Rng(`${data.seed}:cup:${ref.id}:${ref.edition}:${ref.round}:pens`);
-  const won = rng.next() < 0.5;
+  const won = rng.next() < shootoutChance(data);
   return { won, pens: won ? [rng.int(4, 5), rng.int(2, 3)] : [rng.int(2, 3), rng.int(4, 5)] };
 }
 // Your tie's result (the 90 minutes; a draw goes to penalties). → { won, pens, final, champion, prize, roundName, out }

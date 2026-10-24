@@ -18,6 +18,7 @@
 import { FacilitySystem } from '../../../../core/FacilitySystem.js';
 import { FACILITIES, facilityById, STAGES, RANK_ORDER, START_LAYOUT, gateOf, EFFECT_KEYS, LEVELS } from '../../data/facilities.js';
 import { normaliseLeague, rank as clubRank } from './league.js';
+import { upgradeDays } from './effects.js'; // (M20b) Bolt: upgrades 25% faster
 
 const DEFS = Object.fromEntries(FACILITIES.map((f) => [f.id, { id: f.id, name: f.name, cost: f.cost, w: f.w, h: f.h, effects: f.effects }]));
 // (M12c) one copy's multiplier for one effect at a level (as core/FacilitySystem works it out)
@@ -229,7 +230,7 @@ export function createLayout(data, { bus = null } = {}) {
       }
       if (level >= LEVELS.max) return info;
       const to = level + 1;
-      info.next = { level: to, cost: Math.round(def.cost * LEVELS.costShare[to - 1]), days: LEVELS.days[to - 1], rank: LEVELS.rank[to - 1], mult: LEVELS.mult[to - 1] };
+      info.next = { level: to, cost: Math.round(def.cost * LEVELS.costShare[to - 1]), days: upgradeDays(data, LEVELS.days[to - 1]), rank: LEVELS.rank[to - 1], mult: LEVELS.mult[to - 1] };
       const rk = clubRank(data).id;
       if (pending) info.block = `Upgrading to level ${pending.to}: ready on day ${pending.doneDay}`;
       else if (info.next.rank && RANK_ORDER.indexOf(rk) < RANK_ORDER.indexOf(info.next.rank)) info.block = `Level ${to} needs Club Rank ${info.next.rank}`;

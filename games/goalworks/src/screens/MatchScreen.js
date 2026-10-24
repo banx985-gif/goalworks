@@ -367,6 +367,20 @@ export function createMatchScreen({ renderer, layout, assets, bus = null, input 
       ctx.stroke();
       ctx.restore();
     }
+    if (p.god) {
+      // (M20b) a Works God: a small gold glow at his feet
+      ctx.save();
+      ctx.shadowColor = '#E8B923';
+      ctx.shadowBlur = Math.max(12, 1.4 * k);
+      ctx.fillStyle = 'rgba(255,206,48,0.7)';
+      ctx.beginPath();
+      ctx.ellipse(x, y, 1.8 * k, 1.8 * k * 0.55, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = '#E8B923';
+      ctx.lineWidth = Math.max(2, 0.18 * k);
+      ctx.stroke();
+      ctx.restore();
+    }
     // a soft shadow at the feet (the ball carrier's ringed in white)
     ctx.fillStyle = 'rgba(20,40,10,0.32)';
     ctx.beginPath();
@@ -630,6 +644,8 @@ export function createMatchScreen({ renderer, layout, assets, bus = null, input 
         crowd.cheer(e.team);
         goalPop();
         onProgress(world, 'match:goal');
+      } else if (e.type === 'post') {
+        banner = { title: 'OFF THE POST!', sub: `${e.keeper}’s lucky bounce`, t: 0, life: 1.8, color: '#E8B923' }; // (M20b) Jinx
       } else if (e.type === 'half') {
         banner = { title: 'Half time', sub: `${world.score[0]} – ${world.score[1]}`, t: 0, life: 2.4 };
         onProgress(world, 'match:half');

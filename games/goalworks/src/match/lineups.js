@@ -35,7 +35,7 @@ function bodyFor(hex, not = null) {
 function makeTeam(rng, side, used) {
   // Milestone 7: a real XI (src/systems/squad.js xiForMatch — 11 in slot order, keeper first) plays as it is; otherwise
   // test players with plain generated names and flat stats (Milestone 3)
-  const players = side.players?.length === 11 ? side.players.map((pl, i) => ({ shirt: pl.shirt ?? i + 1, name: pl.name, role: FORMATION_442[i].role, stats: { ...pl.stats }, ...(pl.id ? { id: pl.id } : {}), ...(pl.position ? { position: pl.position } : {}) })) : FORMATION_442.map((slot, i) => {
+  const players = side.players?.length === 11 ? side.players.map((pl, i) => ({ shirt: pl.shirt ?? i + 1, name: pl.name, role: FORMATION_442[i].role, stats: { ...pl.stats }, ...(pl.id ? { id: pl.id } : {}), ...(pl.position ? { position: pl.position } : {}), ...(pl.god ? { god: pl.god } : {}) })) : FORMATION_442.map((slot, i) => {
     let name;
     do name = `${rng.pick(FIRST_NAMES)} ${rng.pick(SURNAMES)}`;
     while (used.has(name));

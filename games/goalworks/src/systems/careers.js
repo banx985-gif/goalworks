@@ -140,7 +140,7 @@ export function declineMults(data, p, ours) {
 // One season's decline (his age now, after the birthday). The ceiling falls with the overall. → { phy, others, drop }
 export function decline(data, p, rng, ours = false) {
   const from = declineFrom(p);
-  if (p.age < from) return { phy: 0, others: 0, drop: 0 };
+  if (p.god || p.age < from) return { phy: 0, others: 0, drop: 0 }; // (M20b) a god never declines
   const k = p.age - from;
   const m = declineMults(data, p, ours);
   const before = overall(p);
@@ -167,6 +167,7 @@ export function decline(data, p, rng, ours = false) {
 // --- retirement -------------------------------------------------------------------------------------------------------------
 // The chance he retires at this season's end (his age during the season). opts: { ours, seasons (at your club), free }.
 export function retireChance(p, { ours = false, seasons = 0, free = false } = {}) {
+  if (p.god) return 0; // (M20b) a god never retires
   const [a, b] = windowOf(p);
   if (p.age < a) return 0;
   if (p.age >= b) return 1;

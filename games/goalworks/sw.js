@@ -10,7 +10,7 @@
 // This game imports the shared series engine from ../../core/, which sits
 // outside this folder. Requests from the game page still pass through this
 // worker, so the engine files are cached too.
-const VERSION = '20261024-230806';
+const VERSION = '20261025-001927';
 const CACHE = 'goalworks-' + VERSION;
 
 // The page itself + manifest + icons, so the app opens offline straight away.

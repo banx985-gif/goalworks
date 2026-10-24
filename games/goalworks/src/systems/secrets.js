@@ -151,7 +151,7 @@ export function secretsDay(data, day, account = null) {
     }
     const pr = progress(data, secret, account);
     const stage = SECRET_RULES.clueAt.filter((x) => pr.frac >= x - 1e-9).length;
-    if (stage > st.clue && !pr.met) {
+    if (stage > st.clue && (!pr.met || secret.trigger === 'defeat')) { // (Havoc: his clues while he waits for a defeat)
       for (let k = st.clue; k < stage; k++) rumour(S, day, secret.id, k + 1, secret.clues[k]);
       st.clue = stage;
       events.push({ kind: 'clue', id: secret.id, stage, text: secret.clues[stage - 1] });

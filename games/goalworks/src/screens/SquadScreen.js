@@ -23,11 +23,15 @@ import { normaliseTraining } from '../systems/training.js';
 import { drawSilhouette } from '../ui/clubArt.js';
 import { silhouetteKey } from '../ui/kitArt.js';
 import { CAREER_TEXT } from '../../data/careers.js';
+import { DIVINE } from '../../data/gods.js';
 
 const C = THEME.color;
 const S = THEME.size;
 const PAD = 24;
 const ROW_H = 150;
+// (M20b) a Works God: his art, a gold frame and glow, "Ageless", Havoc's "ANY" chip (any outfield position)
+const GOLD = DIVINE.colour;
+const chipText = (p) => (p.anyOutfield ? 'ANY' : p.position);
 const GAP = 14;
 
 export function createSquadScreen({ layout, assets, sheet, club, onBack, onTraining = () => {}, onTactics = () => {}, onLeague = () => {}, onTransfers = () => {}, onContract = null, detailExtra = () => [] }) {
@@ -64,11 +68,12 @@ export function createSquadScreen({ layout, assets, sheet, club, onBack, onTrain
     ctx.clip();
     const f = p.founder ? founderById(p.featuredId) : null;
     if (f && p.portrait) assets.drawCrop(ctx, p.portrait, f.face, r);
+    else if (p.god && p.portrait) assets.draw(ctx, p.portrait, r.x + 2, r.y + 2, r.w - 4, r.h - 4);
     else drawSilhouette(ctx, { x: r.x + 6, y: r.y + 8, w: r.w - 12, h: r.h - 8 }, colours().primary, colours().secondary);
     ctx.restore();
     ctx.save();
-    ctx.strokeStyle = p.founder ? C.purple : C.line;
-    ctx.lineWidth = p.founder ? 5 : 3;
+    ctx.strokeStyle = p.god ? GOLD : p.founder ? C.purple : C.line;
+    ctx.lineWidth = p.god || p.founder ? 5 : 3;
     ctx.beginPath();
     ctx.roundRect(r.x, r.y, r.w, r.h, 18);
     ctx.stroke();
@@ -77,6 +82,18 @@ export function createSquadScreen({ layout, assets, sheet, club, onBack, onTrain
 
   function row(ctx, p, r) {
     card(ctx, r, p.founder ? 'selected' : 'normal', { radius: 22 });
+    if (p.god) {
+      // the small gold glow that marks a god in the list
+      ctx.save();
+      ctx.shadowColor = GOLD;
+      ctx.shadowBlur = 22;
+      ctx.strokeStyle = GOLD;
+      ctx.lineWidth = 5;
+      ctx.beginPath();
+      ctx.roundRect(r.x + 2, r.y + 2, r.w - 4, r.h - 4, 21);
+      ctx.stroke();
+      ctx.restore();
+    }
     if (isPressed(ctx, r)) {
       ctx.fillStyle = 'rgba(40, 30, 20, 0.14)';
       ctx.beginPath();
@@ -96,11 +113,11 @@ export function createSquadScreen({ layout, assets, sheet, club, onBack, onTrain
     ctx.roundRect(tx, r.y + 78, 76, 44, 22);
     ctx.fill();
     ctx.restore();
-    text(ctx, p.position, tx + 38, r.y + 101, { size: S.small, bold: true, color: '#FFFFFF', align: 'center', baseline: 'middle' });
+    text(ctx, chipText(p), tx + 38, r.y + 101, { size: S.small, bold: true, color: '#FFFFFF', align: 'center', baseline: 'middle', maxWidth: 70 });
     const role = p.founder ? `Founder · ${p.contract.role}` : p.loan ? `On loan · ${p.contract.role}` : p.contract.role;
     const tired = p.fatigue > FATIGUE.riskFrom ? ' · tired' : '';
     const last = p.retiring ? ' · last season' : ''; // (M16) he retires at the season's end
-    text(ctx, `Age ${p.age} · ${role}${last}${tired}`, tx + 92, r.y + 101, { size: S.small, color: tired || last ? C.bad : C.textMuted, baseline: 'middle', maxWidth: tw - 92 });
+    text(ctx, `${p.god ? 'Divine · Ageless' : `Age ${p.age}`} · ${role}${last}${tired}`, tx + 92, r.y + 101, { size: S.small, color: tired || last ? C.bad : C.textMuted, baseline: 'middle', maxWidth: tw - 92 });
     // the overall
     const o = { x: r.x + r.w - ovrW - 18, y: r.y + 20, w: ovrW, h: r.h - 40 };
     ctx.save();
@@ -114,7 +131,7 @@ export function createSquadScreen({ layout, assets, sheet, club, onBack, onTrain
     ctx.stroke();
     ctx.restore();
     text(ctx, String(overall(p)), o.x + o.w / 2, o.y + o.h / 2 - 10, { size: S.title, bold: true, align: 'center', baseline: 'middle', maxWidth: o.w - 12 });
-    text(ctx, p.star ? 'STAR' : 'OVR', o.x + o.w / 2, o.y + o.h - 20, { size: S.small, bold: true, color: p.star ? C.text : C.textMuted, align: 'center', baseline: 'middle', maxWidth: o.w - 8 });
+    text(ctx, p.god ? 'DIVINE' : p.star ? 'STAR' : 'OVR', o.x + o.w / 2, o.y + o.h - 20, { size: S.small, bold: true, color: p.star ? C.text : C.textMuted, align: 'center', baseline: 'middle', maxWidth: o.w - 8 });
   }
 
   // One pass over the list (content coordinates): draws with ctx, returns the player under tap, records rects by id.
@@ -150,14 +167,14 @@ export function createSquadScreen({ layout, assets, sheet, club, onBack, onTrain
     const cols = colours();
     const pos = POSITIONS[p.position];
     const d = derived(p);
-    const art = p.founder && p.portrait ? p.portrait : silhouetteKey(assets, cols.primary, cols.secondary);
+    const art = (p.founder || p.god) && p.portrait ? p.portrait : silhouetteKey(assets, cols.primary, cols.secondary);
     const c = p.contract;
     return {
       title: p.name,
-      subtitle: `${pos.name} · Age ${p.age} · ${p.star ? 'Star · ' : ''}${p.tier} · Level ${p.level} · Overall ${overall(p)}`,
+      subtitle: `${p.anyOutfield ? 'Wildcard (any outfield position)' : pos.name} · ${p.god ? 'Ageless' : `Age ${p.age}`} · ${p.star && !p.god ? 'Star · ' : ''}${p.tier} · Level ${p.level} · Overall ${overall(p)}`,
       art,
-      accent: pos.colour,
-      tag: p.retiring ? { text: CAREER_TEXT.lastSeason, color: C.bad } : p.founder ? { text: 'FOUNDER', color: C.purple } : p.star ? { text: 'STAR', color: C.gold } : p.watch ? { text: 'WATCH LIST' } : { text: c.role.toUpperCase() },
+      accent: p.god ? GOLD : pos.colour,
+      tag: p.god ? { text: 'DIVINE', color: GOLD } : p.retiring ? { text: CAREER_TEXT.lastSeason, color: C.bad } : p.founder ? { text: 'FOUNDER', color: C.purple } : p.star ? { text: 'STAR', color: C.gold } : p.watch ? { text: 'WATCH LIST' } : { text: c.role.toUpperCase() },
       sections: [
         // (M20) full at 99; a Star's gold band shows how far past 99 (to his cap, 140) each number goes
         ...(p.star ? [{ title: 'Star player', lines: [`Stats can grow past 99, up to ${statCap(p)} (a normal player stops at 99).`] }] : []),

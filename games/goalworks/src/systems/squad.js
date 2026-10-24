@@ -63,7 +63,7 @@ export const xiForMatch = (players, { formation = '442', lineup = null } = {}) =
     const k = conditionFactor(p);
     const stats = matchStats(p);
     for (const key of Object.keys(stats)) stats[key] = Math.round(stats[key] * k);
-    return { id: p.id, name: p.name, shirt: p.shirt, position: p.position, stats };
+    return { id: p.id, name: p.name, shirt: p.shirt, position: p.position, stats, ...(p.god ? { god: p.god } : {}) }; // (M20b) a god's blessing plays in the match
   });
 
 // (Milestone 11: exported — what a player's wages are for a role, and a fresh contract — for transfers and renewals)

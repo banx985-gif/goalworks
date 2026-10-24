@@ -28,6 +28,7 @@ import { REGIONAL_CLUBS, clubById } from '../../data/fixtures.js';
 import { ISSUE, RANKS, REPUTATION, CREDITS, LEAGUES, leagueById, COMING, ACHIEVEMENTS, STADIUM_FLAGS, AFTER_TITLE } from '../../data/league.js';
 import { cupById, CUPS } from '../../data/cups.js';
 import * as CUP from './cup.js';
+import { incomeMult } from './gods.js';
 
 const round1 = (v) => Math.round(v * 10) / 10;
 const blankClub = () => ({ w: 0, d: 0, l: 0, meetings: 0, cooldownUntil: 0 });
@@ -330,6 +331,7 @@ export function previewReward(data, clubId, score, promo = false) {
     history += b.history;
     momentum += b.momentum;
   }
+  credits = Math.round(credits * incomeMult(data)); // (M20b) Kaching's Golden touch: +20% match income
   return { res, credits, history, momentum, rep: round1(history + momentum) };
 }
 
@@ -355,7 +357,7 @@ export function recordResult(data, fixture, score, day) {
     cup = CUP.recordOurTie(data, fixture.cup, score, day);
     const pz = cup?.prize;
     if (pz) {
-      L.credits += pz.credits ?? 0;
+      L.credits += Math.round((pz.credits ?? 0) * incomeMult(data)); // (M20b) Kaching: +20% prize money
       L.rep.history = round1(L.rep.history + (pz.history ?? 0));
       L.rep.momentum = round1(L.rep.momentum + (pz.momentum ?? 0));
       for (const f of pz.flags ?? []) (data.unlocks ??= {})[f] ??= day;

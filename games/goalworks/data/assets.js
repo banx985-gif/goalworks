@@ -4,6 +4,7 @@ import { FOUNDERS } from './setup.js';
 import { ALL_CLUBS } from './fixtures.js';
 import { CUPS } from './cups.js';
 import { FACILITIES } from './facilities.js';
+import { GODS } from './gods.js';
 
 const art = (folder, key) => [key, `assets/images/${folder}/${key}.png`];
 
@@ -34,6 +35,8 @@ export const ASSETS = {
   ...Object.fromEntries(['trophy_07'].map((k) => art('trophies', k))),
   // Milestone 17: the cups' pictures (C02 County Shield).
   ...Object.fromEntries(Object.values(CUPS).map((c) => art('tournaments', c.art))),
+  // Milestone 20b: the Works Gods (stand-ins from the base pictures; Cowork swaps in the GOALWORKS outfits under the same names).
+  ...Object.fromEntries(Object.values(GODS).map((g) => art(g.kind === 'player' ? 'players' : 'staff', g.art))),
   // Milestone 0 loader test (?screen=test): the placeholder PWA icon as a real image, and one deliberately missing file.
   m0Real: 'assets/branding/pwa/icon-192.png',
   m0Missing: 'assets/m0-missing-test.png',

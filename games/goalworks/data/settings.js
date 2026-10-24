@@ -31,7 +31,7 @@ export const SETTINGS_TEXT = {
   legalBody: 'GOALWORKS keeps your clubs on this device. It has no account and collects no personal data of its own. Every club and player is fictional.',
   credits: 'Credits',
   creditsLine: 'The people behind GOALWORKS',
-  creditsBody: 'GOALWORKS — a Canvas Management Series game by Aaron (Banx Games). Art by Aaron; code by Claude Code. Thanks for playing!',
+  creditsBody: 'GOALWORKS — a Canvas Management Series game by Aaron (Banx Games). Art by Aaron; code by Claude Code. The Works Gods — Bolt, Jinx, Zip, Kaching and Havoc — a Banx Games series cast. Thanks for playing!',
   display: 'Display test',
   displayLine: 'The screen-shape and tap test (for checking a new phone)',
 };

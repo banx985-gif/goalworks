@@ -28,14 +28,7 @@ export const GODS = {
       name: 'Patch-up',
       plain: 'Injured players recover 50% faster and get 30% fewer injuries (injuries arrive in M25). Facility upgrades finish 25% faster. As your Physio, fatigue recovers 10% faster and builds up 10% slower.',
     },
-    // what he adds to the shared effect query (as a hired staff member: data/staff.js GOD1)
-    effects: [
-      { key: 'upgradeFasterPct', value: 25 },
-      { key: 'injuryRecoveryPct', value: 50 },
-      { key: 'injuryResistPct', value: 30 },
-      { key: 'recoveryPct', value: 10 },
-      { key: 'fatigueGainPct', value: -10 },
-    ],
+    // (his effects are on his staff entry, data/staff.js GOD1: the shared effect query reads them as a hired staff member)
   },
   GOD2: {
     id: 'GOD2',
@@ -64,9 +57,11 @@ export const GODS = {
     art: 'player_god_zip',
     blessing: {
       name: 'Lightning feet',
-      plain: 'The fastest player on the pitch: he hits top speed at once. The whole squad gets back 15% more energy between matches.',
-      speedPct: 5, // above the fastest pace the engine allows anyone (STAR.engine.max)
-      accelMult: 20, // "ignores the acceleration ramp" (bible AB39): at full speed in a twentieth of the usual time
+      plain: 'The fastest player on the pitch, and he hits top speed in a flash. The whole squad gets back 15% more energy between matches.',
+      // (M20b tuning, 100 matches PRE03 v PRE06, points share: no god 50%; +5% / ×20 as first built 82% — game-breaking;
+      // +2% / ×4 64%. docs/DECISIONS.md)
+      speedPct: 2, // above the fastest pace the engine allows anyone (STAR.engine.max): always the fastest on the pitch
+      accelMult: 4, // the acceleration ramp mostly gone (bible AB39): at full speed in a quarter of the usual time
       recoveryPct: 15,
     },
   },

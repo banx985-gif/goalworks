@@ -4,7 +4,9 @@
 //     club records, and the club's other retired players. The picture is the legend shirt display (trophy_18); every legend wears the plaque badge (trophy_17).
 //   Legend card — portrait (a Founder's art) or the code-drawn silhouette in his club's colours, the plaque, why he is in,
 //     years at the club, career totals, his best overall and his stats when he retired, staff-conversion eligibility.
-//   createHallOfFameSheets({ sheet, assets, entries, run }) → { openHallOfFame(), openEntry(uid), hofMenu() }
+//   (M20b) Secrets found — each secret found (this run, or any run in the account) with its exact conditions, so a later
+//     run knows the recipe.
+//   createHallOfFameSheets({ sheet, assets, entries, run, secrets }) → { openHallOfFame(), openEntry(uid), hofMenu() }
 import { THEME } from '../../../../core/Theme.js';
 import { POSITIONS } from '../../data/setup.js';
 import { CORE, CORE_NAMES } from '../../data/players.js';
@@ -15,7 +17,7 @@ const C = THEME.color;
 const PLAQUE = 'trophy_17';
 const SHIRTS = 'trophy_18';
 
-export function createHallOfFameSheets({ sheet, assets, entries = () => [], run = () => null }) {
+export function createHallOfFameSheets({ sheet, assets, entries = () => [], run = () => null, secrets = () => [] }) {
   const face = (e) => (e.founder && e.portrait ? e.portrait : silhouetteKey(assets, e.colours?.primary ?? 'green', e.colours?.secondary ?? 'white'));
   const years = (e) => (e.joinedYear === e.retiredYear ? `Year ${e.retiredYear}` : `Years ${e.joinedYear}–${e.retiredYear}`);
   const totals = (e) => `${e.apps} apps · ${e.goals} goals · ${e.assists} assists${e.position === 'GK' || e.position === 'DF' ? ` · ${e.cleanSheets} clean sheets` : ''}`;
@@ -41,6 +43,8 @@ export function createHallOfFameSheets({ sheet, assets, entries = () => [], run 
       const retired = (d.careers?.retired ?? []).filter((e) => !e.hof);
       if (retired.length) sections.push({ title: 'Retired from the club', lines: retired.slice(-6).reverse().map((e) => `${e.name} (${e.position}) · ${years(e)} · ${totals(e)}${e.staffEligible ? ' · could join the staff one day' : ''}`) });
     }
+    const found = secrets() ?? [];
+    if (found.length) sections.push({ title: `Secrets found · ${found.length} of 5 Works Gods`, lines: found.map((x) => `${x.godName} (${x.name}): ${x.conditions.join('; ')}`) });
     return { title: CAREER_TEXT.hofTitle, subtitle: CAREER_TEXT.hofSubtitle, art: SHIRTS, accent: C.gold, sections };
   }
   function openHallOfFame() {

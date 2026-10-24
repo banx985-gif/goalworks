@@ -33,6 +33,9 @@ import { Rng } from '../../../../core/Rng.js';
 import { PITCH, MATCH_TIME, FORMATION_442, TUNING, TACTICS, TACTIC_FX, FX_BASE, TACTIC_ALIASES, ASSIST } from '../../data/match.js';
 import { formationById, FORMATIONS, ROLES, rolesForSlot, FAMILIARITY, pairKey } from '../../data/tactics.js';
 import { SETTLE } from '../../data/staff.js';
+import { GODS } from '../../data/gods.js';
+
+const GOD_BLESSING = GODS.GOD2.blessing; // (M20b) Jinx's lucky post
 import { createBall, stopBall, stepBall, crossing } from './ballPhysics.js';
 import { think, moveOwner, movePlayers, keeperStep, tryControl } from './matchAI.js';
 import { createControl } from './manualControl.js';
@@ -145,6 +148,7 @@ export function createMatchWorld(setup, { play = null, start = play ? 'play' : '
         name: pl.name,
         shirt: pl.shirt,
         stats: pl.stats,
+        god: pl.god ?? null, // (M20b) a Works God (Jinx: the lucky post; Zip: lightning feet)
         x: 0,
         y: 0,
         vx: 0,
@@ -403,6 +407,7 @@ export function createMatchWorld(setup, { play = null, start = play ? 'play' : '
       // the team attacking this end
       const attackers = world.goalOf(0).y === endY ? 0 : 1;
       if (Math.abs(o.x - W / 2) < PITCH.goalW / 2 && o.z < PITCH.goalH) {
+        if (luckyPost(1 - attackers, o, endY)) return; // (M20b) Jinx in goal: now and then it hits the post instead
         goal(attackers, o);
         return;
       }
@@ -419,6 +424,23 @@ export function createMatchWorld(setup, { play = null, start = play ? 'play' : '
     }
     const x = o.side === 'left' ? 0.3 : W - 0.3;
     setRestart('throw', 1 - last, x, Math.max(1, Math.min(H - 1, o.y)));
+  }
+
+  // (M20b) Jinx, Goddess of Luck: about 1 in 10 shots that would beat her hit the post and bounce back into play. The dice
+  // are only rolled when she is in the defending side's goal, so every other match is exactly as before.
+  function luckyPost(defenders, o, endY) {
+    const jinx = players.find((p) => p.team === defenders && p.god === 'GOD2' && p.position === 'GK');
+    if (!jinx || world.rng.next() >= GOD_BLESSING.post) return false;
+    const b = world.ball;
+    b.x = Math.max(W / 2 - PITCH.goalW / 2 + 0.3, Math.min(W / 2 + PITCH.goalW / 2 - 0.3, o.x));
+    b.y = endY === 0 ? 0.4 : H - 0.4;
+    b.z = Math.min(o.z, 1);
+    b.vx *= 0.5;
+    b.vy = -b.vy * 0.45;
+    b.vz = 0;
+    world.event({ type: 'post', team: 1 - defenders, by: world.shot?.by?.name ?? null, keeper: jinx.name });
+    if (world.shot) world.shot.resolved = true;
+    return true;
   }
 
   function goal(team, o) {

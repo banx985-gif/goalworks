@@ -18,6 +18,8 @@
 // All guarded the same way: a 4-4-2 on the defaults with its default roles is still the Milestone 3 match.
 import { PITCH, MATCH_TIME } from '../../data/match.js';
 import { FAMILIARITY } from '../../data/tactics.js';
+import { GODS } from '../../data/gods.js';
+import { STAR } from '../../data/players.js';
 import { predictBall, rollDistance, ballSpeed } from './ballPhysics.js';
 
 const W = PITCH.w;
@@ -29,7 +31,11 @@ const DECIDE_STEPS = (T) => Math.max(1, Math.round(T.decideEvery / DT));
 const OWNER_STEPS = (T, f) => Math.max(1, Math.round((f.decide === 1 ? T.ownerDecideEvery : T.ownerDecideEvery * f.decide) / DT));
 const ROLE_A = { DF: [38, 97], MF: [20, 90], FW: [6, 72] }; // how far up / back each line may slide (team frame)
 
-export const speedOf = (p, T) => T.speed.base + (T.speed.pace * p.stats.pace) / 100;
+// (M20b) Zip, God of Speed: faster than the fastest pace the engine lets anyone have (STAR.engine.max), and at top speed at
+// once (his acceleration × accelMult: the ramp all but gone — bible AB39). Everyone else exactly as before.
+const ZIP = GODS.GOD3.blessing;
+export const speedOf = (p, T) => (p.god === 'GOD3' ? (T.speed.base + (T.speed.pace * STAR.engine.max) / 100) * (1 + ZIP.speedPct / 100) : T.speed.base + (T.speed.pace * p.stats.pace) / 100);
+export const accelOf = (p, T) => (p.god === 'GOD3' ? T.accel * ZIP.accelMult : T.accel);
 
 // Opponents close to p: 0 (free) … ~2+ (swarmed).
 export function pressureOn(world, p) {
@@ -278,7 +284,7 @@ export function movePlayers(world, dt) {
   for (const p of world.players) {
     if (p === world.owner) continue;
     if (p.manual && world.control?.drive(world, p, dt, false)) continue; // the stick moves them
-    steer(p, p.tx, p.ty, speedOf(p, T) * (p.cool > 0.4 && p.mode === 'press' ? 0.5 : 1), T.accel, dt);
+    steer(p, p.tx, p.ty, speedOf(p, T) * (p.cool > 0.4 && p.mode === 'press' ? 0.5 : 1), accelOf(p, T), dt);
   }
   separate(world);
 }
@@ -347,7 +353,7 @@ export function moveOwner(world, dt, hold) {
     p.y = clamp(p.y, 0.6, H - 0.6);
   } else {
     if (p.dribble == null) p.dribble = dribbleTarget(world, p);
-    steer(p, p.dribble.x, p.dribble.y, speedOf(p, T) * T.dribble.speedFactor, T.accel, dt);
+    steer(p, p.dribble.x, p.dribble.y, speedOf(p, T) * T.dribble.speedFactor, accelOf(p, T), dt);
     p.x = clamp(p.x, 0.6, W - 0.6);
     p.y = clamp(p.y, 0.6, H - 0.6);
   }

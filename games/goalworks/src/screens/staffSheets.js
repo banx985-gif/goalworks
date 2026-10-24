@@ -6,7 +6,9 @@
 //   Staff card — portrait, role, tier, trait, the effect in plain words (and whether it works now or is stored for a later
 //     system), wage, contract length, signing fee. Hired: where they work now, seasons left, Extend / Release (asks
 //     first). A candidate: Hire, or Replace <name> when the role is taken (asks first, naming both and the cost).
-//   createStaffSheets({ sheet, dialog, run, today, month, onChange, debug }) → { openStaff(), openCard(id), cardMenu(id) }
+//   createStaffSheets({ sheet, dialog, run, today, month, onChange, debug, extraSections, openGod }) → { openStaff(), openCard(id), cardMenu(id) }
+//     (M20b) extraSections() → more sections after the roles (Kaching's Honorary Chairman seat); openGod(godId) → a Divine
+//     staff member's card is his god card (Bolt)
 //     run() → the run save   today() → the club day   month() → the calendar month   onChange(why) → save now
 import { THEME } from '../../../../core/Theme.js';
 import { STAFF, STAFF_ROLES, STAFF_TIERS, STAFF_EFFECTS, STAFF_RULES, staffById, roleById } from '../../data/staff.js';
@@ -16,7 +18,8 @@ const C = THEME.color;
 const fmt = (n) => Math.round(n).toLocaleString('en-GB');
 const seasons = (n) => `${n} season${n === 1 ? '' : 's'}`;
 
-export function createStaffSheets({ sheet, dialog, run, today = () => 0, month = () => 1, onChange = () => {}, debug = false, whereNow = () => null }) {
+export function createStaffSheets({ sheet, dialog, run, today = () => 0, month = () => 1, onChange = () => {}, debug = false, whereNow = () => null, extraSections = () => [], openGod = null }) {
+  const divine = (def) => def?.tier === 'Divine' && def.god && openGod;
   const ui = { msg: null };
   const credits = () => run()?.league?.credits ?? 0;
   const msgSection = () => (ui.msg ? [{ title: 'Latest', lines: [ui.msg] }] : []);
@@ -66,7 +69,7 @@ export function createStaffSheets({ sheet, dialog, run, today = () => 0, month =
       subtitle: `${ST.hired(d).length} of 5 roles filled · wages ${fmt(ST.wageBill(d))} Cr a week · ${fmt(credits())} Credits`,
       art: 'ui_02',
       accent: C.purple,
-      sections: [...msgSection(), ...roles, ...preview],
+      sections: [...msgSection(), ...roles, ...extraSections(), ...preview],
     };
   }
   function openStaff() {
@@ -122,6 +125,7 @@ export function createStaffSheets({ sheet, dialog, run, today = () => 0, month =
     };
   }
   function openCard(id) {
+    if (divine(staffById(id))) return openGod(staffById(id).god); // (M20b)
     ui.msg = null;
     sheet.open(() => cardMenu(id));
   }
