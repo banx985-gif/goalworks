@@ -9,10 +9,10 @@
 //   toClubLevel(p, clubId) → a generated player raised to his club's strength (M17: County potential rises too)
 //   ensureSquad(data) → true when it had to generate one (a Milestone 0–6 save: once, from its stored Founder)
 import { Rng } from '../../../../core/Rng.js';
-import { SQUAD, GEN, CONTRACT, ROLES, POSITION_ORDER, CLUB_AREAS, FEATURED_NAMES } from '../../data/players.js';
+import { SQUAD, GEN, CONTRACT, ROLES, POSITION_ORDER, CLUB_AREAS, FEATURED_NAMES, STAR } from '../../data/players.js';
 import { formationById } from '../../data/tactics.js';
-import { clubById, REGIONAL_CLUBS } from '../../data/fixtures.js';
-import { founderPlayer, generatePlayer, overall, matchStats } from './players.js';
+import { clubById, REGIONAL_CLUBS, PREMIER_CLUBS } from '../../data/fixtures.js';
+import { founderPlayer, generatePlayer, overall, matchStats, statCap, makeStar } from './players.js';
 import { conditionFactor, normaliseSquad } from './training.js';
 
 // Milestone 9: any formation (data/tactics.js). Each slot is rated at its natural position (slot.pos: wide midfield and
@@ -131,7 +131,32 @@ export function opponentSquad({ seed, clubId }) {
   const { players } = generateSide(rng, { area: CLUB_AREAS[clubId] ?? 'fen' });
   for (const p of players) toClubLevel(p, clubId);
   assignRoles(rng, players, []);
+  addClubStars(players, clubId, rng); // (M20) a Crown Premier club's 2–3 Stars
   return { players, watch: [], nextId: players.length + 1 };
+}
+// (M20) The overall a Crown Premier club's Star aims at: PRE01's around 105 … PRE06's around 125 (± a little).
+export function starTarget(clubId, rng) {
+  const i = PREMIER_CLUBS.findIndex((c) => c.id === clubId);
+  const [lo, hi] = STAR.premier.overall;
+  return Math.round(Math.min(hi, Math.max(lo, lo + ((hi - lo) * Math.max(0, i)) / 5 + rng.int(-3, 3))));
+}
+// (M20) Make a Premier club's best players of different positions its Stars (aged 23–30), up to its count.
+export function addClubStars(players, clubId, rng) {
+  const i = PREMIER_CLUBS.findIndex((c) => c.id === clubId);
+  if (i < 0) return [];
+  const want = STAR.premier.count[i] - players.filter((p) => p.star).length;
+  const made = [];
+  const used = new Set(players.filter((p) => p.star).map((p) => p.position));
+  const ORDER = { FW: 0, WG: 1, MF: 2, DF: 3 }; // (Stars up front first: the forward, a winger, a playmaker)
+  for (const p of players.filter((x) => !x.star && x.position !== 'GK').sort((a, b) => ORDER[a.position] - ORDER[b.position] || overall(b) - overall(a))) {
+    if (made.length >= want) break;
+    if (used.has(p.position)) continue;
+    used.add(p.position);
+    if (p.age < 23 || p.age > 30) p.age = rng.int(23, 29);
+    makeStar(p, starTarget(clubId, rng));
+    made.push(p);
+  }
+  return made;
 }
 // A generated player brought up to his club's level: × its strength on every core stat. (M17) Above the Regional League
 // (County on) his hidden potential rises with him (the same gap above his overall, at most LIFT_CAP — never below his
@@ -145,7 +170,7 @@ export function toClubLevel(p, clubId) {
   const before = lift ? overall(p) : 0;
   for (const key of Object.keys(p.stats)) p.stats[key] = Math.max(10, Math.round(p.stats[key] * k));
   if (lift) {
-    for (const key of Object.keys(p.stats)) p.stats[key] = Math.min(99, p.stats[key]);
+    for (const key of Object.keys(p.stats)) p.stats[key] = Math.min(statCap(p), p.stats[key]); // (M20: 99 — a Star is made after)
     const ovr = overall(p);
     const up = ovr - before;
     const high = Math.max(ovr, Math.min(LIFT_CAP, p.potential.high + up)); // (a rare star already past the cap keeps his level)

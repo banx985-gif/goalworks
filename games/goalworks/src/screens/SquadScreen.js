@@ -17,7 +17,7 @@ import { drawButton, hitRect, isPressed } from '../../../../core/ui/Button.js';
 import { card, text } from '../../../../core/ui/Kit.js';
 import { POSITIONS, founderById, colourById } from '../../data/setup.js';
 import { CORE, CORE_NAMES, DERIVED_KEYS, POSITION_ORDER } from '../../data/players.js';
-import { derived, overall } from '../systems/players.js';
+import { derived, overall, statCap } from '../systems/players.js';
 import { focusById, FATIGUE, FORM } from '../../data/training.js';
 import { normaliseTraining } from '../systems/training.js';
 import { drawSilhouette } from '../ui/clubArt.js';
@@ -104,16 +104,17 @@ export function createSquadScreen({ layout, assets, sheet, club, onBack, onTrain
     // the overall
     const o = { x: r.x + r.w - ovrW - 18, y: r.y + 20, w: ovrW, h: r.h - 40 };
     ctx.save();
-    ctx.fillStyle = p.tier === 'Rare' ? C.panelGold : C.panelAlt;
-    ctx.strokeStyle = p.tier === 'Rare' ? C.gold : C.line;
-    ctx.lineWidth = 3;
+    // (M20) a Star: a gold box and "STAR" under his overall (which can be three digits — kept inside the box)
+    ctx.fillStyle = p.star ? C.gold : p.tier === 'Rare' ? C.panelGold : C.panelAlt;
+    ctx.strokeStyle = p.star ? C.outline : p.tier === 'Rare' ? C.gold : C.line;
+    ctx.lineWidth = p.star ? 4 : 3;
     ctx.beginPath();
     ctx.roundRect(o.x, o.y, o.w, o.h, 18);
     ctx.fill();
     ctx.stroke();
     ctx.restore();
-    text(ctx, String(overall(p)), o.x + o.w / 2, o.y + o.h / 2 - 10, { size: S.title, bold: true, align: 'center', baseline: 'middle' });
-    text(ctx, 'OVR', o.x + o.w / 2, o.y + o.h - 20, { size: S.small, bold: true, color: C.textMuted, align: 'center', baseline: 'middle' });
+    text(ctx, String(overall(p)), o.x + o.w / 2, o.y + o.h / 2 - 10, { size: S.title, bold: true, align: 'center', baseline: 'middle', maxWidth: o.w - 12 });
+    text(ctx, p.star ? 'STAR' : 'OVR', o.x + o.w / 2, o.y + o.h - 20, { size: S.small, bold: true, color: p.star ? C.text : C.textMuted, align: 'center', baseline: 'middle', maxWidth: o.w - 8 });
   }
 
   // One pass over the list (content coordinates): draws with ctx, returns the player under tap, records rects by id.
@@ -153,13 +154,15 @@ export function createSquadScreen({ layout, assets, sheet, club, onBack, onTrain
     const c = p.contract;
     return {
       title: p.name,
-      subtitle: `${pos.name} · Age ${p.age} · ${p.tier} · Level ${p.level} · Overall ${overall(p)}`,
+      subtitle: `${pos.name} · Age ${p.age} · ${p.star ? 'Star · ' : ''}${p.tier} · Level ${p.level} · Overall ${overall(p)}`,
       art,
       accent: pos.colour,
-      tag: p.retiring ? { text: CAREER_TEXT.lastSeason, color: C.bad } : p.founder ? { text: 'FOUNDER', color: C.purple } : p.watch ? { text: 'WATCH LIST' } : { text: c.role.toUpperCase() },
+      tag: p.retiring ? { text: CAREER_TEXT.lastSeason, color: C.bad } : p.founder ? { text: 'FOUNDER', color: C.purple } : p.star ? { text: 'STAR', color: C.gold } : p.watch ? { text: 'WATCH LIST' } : { text: c.role.toUpperCase() },
       sections: [
-        { title: 'Core stats', bars: CORE.map((k) => ({ label: `${k} · ${CORE_NAMES[k]}`, value: p.stats[k], max: 100, color: pos.colour })) },
-        { title: 'Ratings', bars: DERIVED_KEYS.map((k) => ({ label: k, value: d[k], max: 100, color: C.progress })) },
+        // (M20) full at 99; a Star's gold band shows how far past 99 (to his cap, 140) each number goes
+        ...(p.star ? [{ title: 'Star player', lines: [`Stats can grow past 99, up to ${statCap(p)} (a normal player stops at 99).`] }] : []),
+        { title: 'Core stats', bars: CORE.map((k) => ({ label: `${k} · ${CORE_NAMES[k]}`, value: p.stats[k], max: 99, color: pos.colour, ...(p.star ? { star: statCap(p) } : {}) })) },
+        { title: 'Ratings', bars: DERIVED_KEYS.map((k) => ({ label: k, value: d[k], max: 99, color: C.progress, ...(p.star ? { star: statCap(p) } : {}) })) },
         { title: 'Trait', lines: [p.trait, ...(p.founder ? [`Founder Perk: ${founderById(p.featuredId).perk.name} — ${founderById(p.featuredId).perk.text}`] : [])] },
         ...careerSection(p), // (M16) at the club: appearances, goals, assists, clean sheets; retiring
         ...detailExtra(p), // (M12c) Items: "Loves: …", items received, Give an item

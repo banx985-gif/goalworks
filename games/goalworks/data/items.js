@@ -41,7 +41,7 @@ export const ITEM_RULES = {
   loveMult: 1.5, // rounded up
   dislikeMult: 0.5,
   loveMorale: 4, // a loved item lifts morale this much
-  tierCap: { Standard: 80, Rare: 90 }, // an item never takes a stat past this (by the player's tier)
+  tierCap: { Standard: 80, Rare: 90, Elite: 99 }, // an item never takes a stat past this (by the player's tier); (M20) a Star: his own cap (140)
   dislikeChance: 0.35, // a generated player: chance of one group they're not keen on
 };
 

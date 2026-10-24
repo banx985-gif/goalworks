@@ -114,4 +114,13 @@ export const CLUB_TACTICS = {
   CHP04: { formation: '4141', build: 'possession', width: 'wide' },
   CHP05: { formation: '343', build: 'counter', line: 'high' },
   CHP06: { formation: '4411', build: 'balanced', mentality: 'attacking' },
+  // (M20) the Crown Premier clubs; the rivals as the bible plays them: PRE01 RV05 fast transitions, PRE02 RV07 direct and
+  // intense, PRE03 RV06 elite possession. (At the top of the scale a 4-3-3 counter / slow possession side hardly scores
+  // — every number near 99 — so the Premier sides play front-foot shapes; DECISIONS, M20.)
+  PRE01: { formation: '442', build: 'direct', tempo: 'fast', mentality: 'attacking' },
+  PRE02: { formation: '442', build: 'direct', press: 'high', tempo: 'fast' },
+  PRE03: { formation: '4231', build: 'possession', mentality: 'attacking', press: 'high' },
+  PRE04: { formation: '433', build: 'balanced', mentality: 'attacking' },
+  PRE05: { formation: '442', build: 'direct', mentality: 'attacking', press: 'high' },
+  PRE06: { formation: '433', build: 'possession', mentality: 'attacking' },
 };

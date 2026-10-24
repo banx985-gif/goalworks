@@ -25,7 +25,7 @@
 //   previewReward(data, clubId, score, promotion) → what a result would give (the result screen, before Continue)
 import { Rng } from '../../../../core/Rng.js';
 import { REGIONAL_CLUBS, clubById } from '../../data/fixtures.js';
-import { ISSUE, RANKS, REPUTATION, CREDITS, LEAGUES, leagueById, COMING, ACHIEVEMENTS, STADIUM_FLAGS } from '../../data/league.js';
+import { ISSUE, RANKS, REPUTATION, CREDITS, LEAGUES, leagueById, COMING, ACHIEVEMENTS, STADIUM_FLAGS, AFTER_TITLE } from '../../data/league.js';
 import { cupById, CUPS } from '../../data/cups.js';
 import * as CUP from './cup.js';
 
@@ -61,6 +61,18 @@ export function news(data, day, text) {
 }
 // (M18) A line in the club's history (promotions, cups won — the Hall of Fame sheet shows it).
 const YEAR = 336;
+const yearOfDay = (day) => Math.floor((Math.max(1, day) - 1) / YEAR) + 1;
+// (M20) The clubs of your league beaten this season (C07's door): data.league.season = { year, league, beaten }.
+export function seasonBeaten(data, day) {
+  const S = normaliseLeague(data).season;
+  return S && S.year === yearOfDay(day) && S.league === data.league.tier ? S.beaten : [];
+}
+function noteSeasonWin(data, clubId, day) {
+  const L = normaliseLeague(data);
+  const year = yearOfDay(day);
+  if (!L.season || L.season.year !== year || L.season.league !== L.tier) L.season = { year, league: L.tier, beaten: [] };
+  if (leagueById(L.tier).clubs.includes(clubId) && !L.season.beaten.includes(clubId)) L.season.beaten.push(clubId);
+}
 export function addHistory(data, day, text) {
   data.clubHistory = [...(data.clubHistory ?? []), { day, year: Math.floor((Math.max(1, day) - 1) / YEAR) + 1, text }].slice(-60);
 }
@@ -72,7 +84,8 @@ export function activeCups(data) {
   const L = normaliseLeague(data);
   const out = [];
   for (const cup of Object.values(CUPS)) {
-    const open = cup.opens.league ? cup.opens.league === L.tier : !!L.cupsOpen?.[cup.id];
+    // (a Rank cup, or (M20) a cup unlocked by a season's results: open for good once unlocked)
+    const open = cup.opens.rank || cup.opens.seasonBeaten ? L.cupsOpen?.[cup.id] != null : cup.opens.league === L.tier; // (any day it opened, 0 included)
     if (open) out.push({ id: cup.id, startNew: true });
     else if (data.cups?.[cup.id]?.current) out.push({ id: cup.id, startNew: false });
   }
@@ -121,13 +134,18 @@ export function promotion(data, id = leagueOf(data).id) {
   const r = record(data, id);
   const rankOk = rankAtLeast(data, rule.rank);
   const finalCup = rule.final?.cup ?? null;
+  // (M20) the title chain counts a club only once it has been beaten `timesEach` times (all six, twice each)
+  const times = rule.timesEach ?? 1;
+  const distinct = Object.values(r.clubs).filter((c) => c.w >= times).length;
   return {
     league: id,
-    distinct: r.distinct,
+    distinct,
     wins: r.wins,
-    need: { distinct: rule.distinct, wins: rule.wins, ...(rule.rank ? { rank: rule.rank } : {}) },
+    need: { distinct: rule.distinct, wins: rule.wins, ...(rule.rank ? { rank: rule.rank } : {}), ...(times > 1 ? { timesEach: times } : {}) },
     rankOk,
-    met: r.distinct >= rule.distinct && r.wins >= rule.wins && rankOk,
+    met: distinct >= rule.distinct && r.wins >= rule.wins && rankOk,
+    title: !!rule.final?.title, // (M20) the Crown Title Match
+    crownTitle: L.crownTitle ?? null,
     cup: finalCup,
     cupWon: cupWon(data, finalCup),
     playoff: !!rule.final?.playoff,
@@ -152,10 +170,11 @@ export function promotionOpponent(data) {
   if (lg.promotion.final === 'match') return unlockedClubs(data).slice(-1)[0] ?? clubs[0];
   if (lg.promotion.final.rival) return clubById(lg.promotion.final.rival);
   if (lg.promotion.final.fallback) return clubById(lg.promotion.final.fallback); // (M19: the one-off Promotion Final)
+  if (lg.promotion.final.title) return clubs.slice().sort((a, b) => CUP.strength(data, b.id) - CUP.strength(data, a.id))[0]; // (M20: the strongest squad now)
   return clubs.slice().sort((a, b) => b.strength - a.strength)[0];
 }
 // How the promotion step was won: 'match' | 'playoff' | 'decider' (the cup is 'cup', set where it happens).
-const stepVia = (lg) => (lg.promotion.final === 'match' ? 'match' : lg.promotion.final.rival ? 'decider' : lg.promotion.final.promotionFinal ? 'final' : 'playoff');
+const stepVia = (lg) => (lg.promotion.final === 'match' ? 'match' : lg.promotion.final.rival ? 'decider' : lg.promotion.final.promotionFinal ? 'final' : lg.promotion.final.title ? 'title' : 'playoff');
 // (M19) Still in an edition of that cup: it has a tie for you to play.
 const aliveIn = (data, cupId) => {
   const cur = data.cups?.[cupId]?.current;
@@ -223,10 +242,14 @@ export function leagueDay(data, day) {
   // opens the first day the club reaches its rank, in any league; two of your ties never fall in one week.
   const events = [];
   for (const cup of Object.values(CUPS)) {
-    if (!cup.opens.rank || L.cupsOpen?.[cup.id] || !rankAtLeast(data, cup.opens.rank)) continue;
+    if (L.cupsOpen?.[cup.id] != null) continue; // (opened already, on whatever day)
+    const byRank = cup.opens.rank && rankAtLeast(data, cup.opens.rank);
+    // (M20) C07: in its league, at least `seasonBeaten` different clubs of it beaten this season
+    const bySeason = cup.opens.seasonBeaten && L.tier === cup.opens.league && seasonBeaten(data, day).length >= cup.opens.seasonBeaten;
+    if (!byRank && !bySeason) continue;
     L.cupsOpen = { ...(L.cupsOpen ?? {}), [cup.id]: day };
     const C = CUP.normaliseCups(data)[cup.id];
-    C.nextStart = Math.max(C.nextStart ?? 0, day);
+    if (!C.current) C.nextStart = day; // (nothing can run before it unlocks: its first edition opens today)
     events.push({ kind: 'opened', cup: cup.id });
   }
   const cups = activeCups(data);
@@ -341,9 +364,23 @@ export function recordResult(data, fixture, score, day) {
   }
   const lg = leagueOf(data);
   const P = progressOf(data, lg.id);
+  if (reward.res === 'win') noteSeasonWin(data, club.id, day); // (M20) C07's door: different league clubs beaten this season
   let unlockedNow = false;
   let offerNow = null;
-  if (promo) {
+  let crownTitle = false;
+  if (promo && lg.promotion.final.title) {
+    // (M20) the Crown Title Match: won → the Crown title (no offer — there is no league above); lost / drawn → 28 days' wait
+    P.matches++;
+    if (reward.res === 'win') {
+      P.won = true;
+      P.via = 'title';
+      L.crownTitle = { day, year: yearOfDay(day), opponent: club.id };
+      achieve(data, lg.achievement, day);
+      addHistory(data, day, `CROWN CHAMPIONS — won the Crown Title Match against the ${club.name}`);
+      news(data, day, `Crown Champions! ${AFTER_TITLE}`);
+      crownTitle = true;
+    } else P.retryAt = day + lg.promotion.retryCooldown;
+  } else if (promo) {
     P.matches++;
     if (reward.res === 'win') {
       P.won = true;
@@ -366,7 +403,7 @@ export function recordResult(data, fixture, score, day) {
     if (ch === 'unlocked') unlockedNow = true;
     if (ch === 'offered') offerNow = lg.id;
   }
-  return { ...reward, club: club.id, rankBefore: before.id, rankAfter: rank(data).id, total: reputation(data).total, promotionUnlocked: unlockedNow, promotionWon: (promo && reward.res === 'win') || (promotionFinal && !!cup?.champion), promotionFinal, offerNow, league: lg.id, cup };
+  return { ...reward, club: club.id, rankBefore: before.id, rankAfter: rank(data).id, total: reputation(data).total, promotionUnlocked: unlockedNow, promotionWon: (promo && reward.res === 'win') || (promotionFinal && !!cup?.champion), promotionFinal, offerNow, crownTitle, league: lg.id, cup };
 }
 
 // (M17) Moving up: your league becomes the next one. Its clubs' records start (the old league's stay in the history), the
@@ -379,6 +416,7 @@ function enterLeague(data, id, day, line) {
   for (const c of lg.clubs) L.clubs[c] ??= blankClub();
   L.offers = L.offers.filter((o) => o.state === 'accepted' || o.cup || lg.clubs.includes(o.clubId)); // (a cup tie still stands)
   if (lg.stadiumFlag) (data.unlocks ??= {})[lg.stadiumFlag] ??= day;
+  if (lg.entered) achieve(data, lg.entered, day); // (M20) A14 Top Flight
   for (const cup of Object.values(CUPS).filter((c) => c.opens.league === id)) {
     const C = CUP.normaliseCups(data)[cup.id];
     C.nextStart = Math.max(C.nextStart ?? 0, day); // (its first edition opens now)

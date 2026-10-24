@@ -19,12 +19,13 @@
 // Season numbers: season s runs from day 336·s to 336·(s+1) − 1 (Year s + 1); its end is day 336·(s+1).
 import { Rng } from '../../../../core/Rng.js';
 import { GROWTH, BAND, DECLINE, RETIRE, REGEN, HALL_OF_FAME, STAFF_ELIGIBLE, RECORD_KEYS } from '../../data/careers.js';
-import { GEN, FEATURED_NAMES } from '../../data/players.js';
+import { GEN, FEATURED_NAMES, STAR, CLUB_AREAS } from '../../data/players.js';
 import { YOUTH_SCALE } from '../../data/academy.js';
 import { POOL } from '../../data/transfers.js';
-import { clubById } from '../../data/fixtures.js';
-import { overall, generatePlayer } from './players.js';
-import { salaryFor, contractFor } from './squad.js';
+import { clubById, PREMIER_CLUBS } from '../../data/fixtures.js';
+import { LEAGUES } from '../../data/league.js';
+import { overall, generatePlayer, statCap, makeStar } from './players.js';
+import { salaryFor, contractFor, starTarget } from './squad.js';
 import { normalisePlayer, capOf } from './training.js';
 import { effect } from './effects.js';
 import { inRole } from './staff.js';
@@ -101,7 +102,7 @@ export function bandOf(data, owner) {
 export function grow(p, rng, ceiling = 99) {
   const pts = roll(rng, growthOf(p.age));
   if (!pts) return 0;
-  const cap = Math.min(capOf(p), ceiling);
+  const cap = p.star ? capOf(p) : Math.min(capOf(p), ceiling); // (M20) a Star grows toward his own ceiling, past the band
   const start = overall(p);
   const w = GEN.base[p.position];
   const keys = Object.keys(w);
@@ -109,6 +110,7 @@ export function grow(p, rng, ceiling = 99) {
   for (let guard = 0; guard < 80 && overall(p) < Math.min(cap, start + pts); guard++) {
     let r = rng.next() * total;
     const k = keys.find((x) => (r -= w[x]) < 0) ?? keys[0];
+    if (p.stats[k] >= statCap(p)) continue; // (M20) no stat past its cap: 99, a Star 140
     p.stats[k]++;
     if (overall(p) > cap) {
       p.stats[k]--;
@@ -267,6 +269,36 @@ export function seasonAge(data, day) {
     if (p.career) p.career.fatSum = p.career.fatDays = 0;
   }
   for (const key of ['free', 'market']) for (const p of T[key].filter((x) => x.age >= POOL.freeAgentLeaveAge)) retire(data, { p, owner: key, parent: key }, day, season, rng);
+  premierStars(data, day); // (M20)
+}
+
+// (M20) A Crown Premier club keeps its Stars: one with fewer than STAR.premier.keep at the season's end signs a Star from
+// abroad (generated, ages 23–27, at its usual Star level), letting its weakest normal player go if its squad is full.
+function premierStars(data, day) {
+  const T = data.transfers;
+  const rng = new Rng(`${data.seed}:careers:stars:${day}`);
+  PREMIER_CLUBS.forEach((c, i) => {
+    const club = T.clubs[c.id];
+    if (!club) return;
+    let have = club.players.filter((p) => p.star).length;
+    while (have < Math.min(STAR.premier.keep, STAR.premier.count[i])) {
+      const ORDER = ['FW', 'WG', 'MF', 'DF'];
+      const pos = ORDER.find((x) => !club.players.some((p) => p.star && p.position === x)) ?? 'FW';
+      const p = generatePlayer(rng, { id: `g${T.nextId++}`, position: pos, tier: 'Rare', ageRange: STAR.premier.signAges, area: CLUB_AREAS[c.id] ?? 'fen', usedNames: usedNames(data) });
+      makeStar(p, starTarget(c.id, rng));
+      p.contract = contractFor(rng, p, 'Star');
+      p.origin = 'club';
+      p.shirt = null;
+      normalisePlayer(p);
+      if (club.players.length >= POOL.clubSquad[1]) {
+        const out = club.players.filter((x) => !x.star && x.position === pos).sort((a, b) => overall(a) - overall(b))[0] ?? club.players.filter((x) => !x.star).sort((a, b) => overall(a) - overall(b))[0];
+        if (out) club.players.splice(club.players.indexOf(out), 1); // (he leaves the game: a club beyond the leagues)
+      }
+      club.players.push(p);
+      data.careers.counts.starsSigned = (data.careers.counts.starsSigned ?? 0) + 1;
+      have++;
+    }
+  });
 }
 
 function retire(data, { p, owner, parent }, day, season, rng) {
@@ -308,26 +340,44 @@ function makeRegen(data, rng, from, parent, season, day) {
   const T = data.transfers;
   const K = data.careers;
   const pot = regenPotential(rng, from);
-  // yours → the next academy trials (with a Youth Corner and room in the queue)
-  if (parent === 'us' && data.facilities?.placement?.some((x) => x.def === 'F09' || x.def === 'F14' || x.def === 'F26') && K.academyRegens.length < REGEN.pendingMax) {
-    K.academyRegens.push({ position: from.position, potential: pot, of: from.name, year: season + 1 });
-    K.counts.regens++;
-    return;
-  }
+  // (M20) a Star's regen may be a Star too (STAR.regenChance), when his regen's club is in a Star league (Championship /
+  // Premier: the club he goes to, or yours when he is yours). Only a Star's retirement rolls this, so nobody else's dice move.
   const club = T.clubs[parent];
   const toClub = club && club.players.length < POOL.clubSquad[1];
+  const regenLeague = parent === 'us' ? data.league?.tier : toClub ? LEAGUES.find((l) => l.clubs.includes(parent))?.id : null;
+  // (no runaway: a club that already has its full count of Stars gets a normal regen)
+  const premierIdx = PREMIER_CLUBS.findIndex((c) => c.id === parent);
+  const room = premierIdx < 0 || (club?.players.filter((p) => p.star).length ?? 0) < STAR.premier.count[premierIdx];
+  const star = !!from.star && rng.next() < STAR.regenChance && STAR.regenLeagues.includes(regenLeague) && room;
+  // yours → the next academy trials (with a Youth Corner and room in the queue)
+  if (parent === 'us' && data.facilities?.placement?.some((x) => x.def === 'F09' || x.def === 'F14' || x.def === 'F26') && K.academyRegens.length < REGEN.pendingMax) {
+    K.academyRegens.push({ position: from.position, potential: pot, of: from.name, year: season + 1, ...(star ? { star: true } : {}) });
+    K.counts.regens++;
+    if (star) K.counts.starRegens = (K.counts.starRegens ?? 0) + 1;
+    return;
+  }
   const ceiling = bandOf(data, toClub ? parent : parent === 'market' ? 'market' : 'free') + BAND.room;
   const age = toClub ? rng.int(...REGEN.clubAges) : REGEN.poolAge;
   const tier = pot >= REGEN.rareFrom ? 'Rare' : 'Standard';
   const area = parent === 'us' ? data.club?.area ?? 'fen' : rng.pick(POOL.areas);
   const p = generatePlayer(rng, { id: `g${T.nextId++}`, position: from.position, tier, ageRange: [age, age], area, usedNames: usedNames(data) });
   const k = (YOUTH_SCALE[age] ?? 1) * (toClub ? clubById(parent)?.strength ?? 1 : 1);
-  for (const s of Object.keys(p.stats)) p.stats[s] = Math.max(8, Math.round(p.stats[s] * k));
+  // (M20) never past the cap: 99 (a Premier club's strength would take a normal youngster over it)
+  for (const s of Object.keys(p.stats)) p.stats[s] = Math.min(statCap(p), Math.max(8, Math.round(p.stats[s] * k)));
+  // (M20) a Star regen at an AI club: a young version of his club's Star level (× the youth scale) who grows into it — not
+  // × the club's strength, which took a 17-year-old Star straight to 140 overall
+  let starAim = null;
+  if (star && parent !== 'us') {
+    starAim = PREMIER_CLUBS.some((c) => c.id === parent) ? starTarget(parent, rng) : STAR.premier.overall[0];
+    makeStar(p, Math.round(starAim * (YOUTH_SCALE[age] ?? 1)));
+  }
   const ovr = overall(p);
-  // (M18) a club regen may reach his club's ceiling even above the Regional caps (the National bands sit at 82–90)
-  const cap = toClub ? Math.max(REGEN.cap[tier], ceiling) : REGEN.cap[tier];
-  const exact = Math.min(cap, Math.max(Math.min(pot, ceiling), ovr + REGEN.room));
-  p.potential = { low: Math.max(ovr, exact - REGEN.spread), high: exact + REGEN.spread, exact };
+  // (M18) a club regen may reach his club's ceiling even above the Regional caps (the National bands sit at 82–90); (M20) a
+  // Star regen grows into his club's Star level, up to 140
+  const cap = p.star ? STAR.cap : toClub ? Math.max(REGEN.cap[tier] ?? 99, ceiling) : REGEN.cap[tier];
+  const exact = p.star ? Math.min(STAR.cap, Math.max(starAim ?? pot, ovr + REGEN.room)) : Math.min(cap, Math.max(Math.min(pot, ceiling), ovr + REGEN.room));
+  p.potential = { low: Math.max(ovr, exact - REGEN.spread), high: Math.min(statCap(p) + REGEN.spread, exact + REGEN.spread), exact };
+  if (p.star) K.counts.starRegens = (K.counts.starRegens ?? 0) + 1;
   p.peak = ovr;
   p.regen = { of: from.name, year: season + 1 };
   p.origin = 'regen';

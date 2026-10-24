@@ -146,7 +146,8 @@ export function leagueSheet({ calendar, league, debugFlags = null, message = () 
       title: 'Clubs',
       lines: L.clubs().map((c) => {
         const r = rec.clubs[c.id];
-        return `${c.name} ${strengthHint(c)} · W${r.w} D${r.d} L${r.l} · ${L.clubState(c.id)}`;
+        const twice = lg.promotion.timesEach ? ` · beaten ${Math.min(r.w, lg.promotion.timesEach)}/${lg.promotion.timesEach}` : ''; // (M20) times beaten, out of 2
+        return `${c.name} ${strengthHint(c)} · W${r.w} D${r.d} L${r.l}${twice} · ${L.clubState(c.id)}`;
       }),
     });
     for (const p of L.past?.() ?? []) sections.push({ title: `${p.league.short} record (kept)`, lines: [`${p.record.wins} wins · ${p.record.distinct} of ${p.league.clubs.length} clubs beaten · promoted`] });
@@ -158,7 +159,8 @@ export function leagueSheet({ calendar, league, debugFlags = null, message = () 
         buttons: Object.entries(SPEED_FLAGS).map(([id, def]) => ({ id: `flag_${id}`, label: `${def.label}: ${flags[id] ? 'ON' : 'off'}`, selected: !!flags[id], onTap: () => debugFlags(id) })),
       });
     }
-    return { title: lg.name, subtitle: `Challenges from the six ${lg.short} clubs · Rank ${rk.id}`, art: 'facility_f03', accent: C.good, tag: { text: `RANK ${rk.id}`, color: C.good }, sections };
+    if (pr.crownTitle) sections.unshift({ title: 'Crown Champions', lines: [`Won the Crown Title Match ${dateText(cal, pr.crownTitle.day)}.`, 'Prestige tournaments, Secret players and New Game+ are coming later.'] }); // (M20)
+    return { title: lg.name, subtitle: `Challenges from the six ${lg.short} clubs · Rank ${rk.id}`, art: 'facility_f03', accent: C.good, tag: { text: pr.crownTitle ? 'CHAMPIONS' : `RANK ${rk.id}`, color: pr.crownTitle ? C.gold : C.good }, sections };
   };
 }
 
@@ -173,6 +175,18 @@ function recordLines(lg, rec, pr, rk, L, cup) {
     ];
   }
   // (M19) Championship: 14 wins + all six beaten + Rank B, then the C05 Promotion Final (or the one-off fallback)
+  // (M20) the Crown Premier title chain: 18 wins + every club beaten twice + Rank A, then the Crown Title Match
+  if (lg.promotion.final.title) {
+    const t = pr.need.timesEach ?? 2;
+    const short = lg.clubs.filter((id) => rec.clubs[id].w < t).map((id) => `${L.club(id).name} ${rec.clubs[id].w}/${t}`);
+    const opp = L.promotionOpponent()?.name ?? 'the strongest club';
+    return [
+      `${tick(rec.wins >= pr.need.wins)} ${pr.need.wins} ${lg.short} wins (${rec.wins} so far, cup ties included)`,
+      `${tick(pr.distinct >= pr.need.distinct)} Beat all ${pr.need.distinct} ${lg.short} clubs ${t === 2 ? 'twice' : `${t} times`} (${pr.distinct} of ${n}${short.length ? `; still to go: ${short.join(', ')}` : ''})`,
+      `${tick(pr.rankOk)} Club Rank ${pr.need.rank} or better (now ${rk.id})`,
+      pr.crownTitle ? '✓ Crown Title Match won: Crown Champions!' : pr.unlocked ? `✗ Win the Crown Title Match against ${opp} (it is waiting for you)` : `✗ Then win the Crown Title Match against the strongest ${lg.short} club`,
+    ];
+  }
   if (lg.promotion.final.promotionFinal) {
     const fin = lg.promotion.final;
     const cupName = cupById(fin.cup).name;

@@ -80,8 +80,21 @@ export const CHAMPIONSHIP_CLUBS = [
   { id: 'CHP05', name: 'South Londoners', crest: 'club_chp05_crest', colours: { primary: 'navy', secondary: 'red' }, ground: 'Crystal Hill', strength: 1.79, rep: 5600, cooldown: 18, reward: 12, rivalry: null },
   { id: 'CHP06', name: 'Nottsfolk', crest: 'club_chp06_crest', colours: { primary: 'black', secondary: 'white' }, ground: 'Forest Gate', strength: 1.82, rep: 6500, cooldown: 18, reward: 12, rivalry: null },
 ];
+// Milestone 20: the Crown Premier League clubs (bible §8, L5), the same fields. Their normal players sit at 96 → 99 (strength
+// 1.92 → 2.7; stats stop at 99), plus 2–3 generated Stars each (data/players.js STAR.premier: overall 105 → 125, the
+// stronger clubs the stronger Stars). Reward tiers 13–15. Rivals (bible §23, data only — rivalries are M22): PRE01 Mersey
+// Scousers RV05 (fast transitions), PRE02 Tyne Geordies RV07 (direct and intense), PRE03 Manchester Mancs RV06 (elite
+// possession).
+export const PREMIER_CLUBS = [
+  { id: 'PRE01', name: 'Mersey Scousers', crest: 'club_pre01_crest', colours: { primary: 'red', secondary: 'white' }, ground: 'Docklands Park', strength: 1.92, rep: 0, cooldown: 14, reward: 13, rivalry: 'RV05' },
+  { id: 'PRE02', name: 'Tyne Geordies', crest: 'club_pre02_crest', colours: { primary: 'black', secondary: 'white' }, ground: 'Bridge End', strength: 2, rep: 0, cooldown: 14, reward: 13, rivalry: 'RV07' },
+  { id: 'PRE03', name: 'Manchester Mancs', crest: 'club_pre03_crest', colours: { primary: 'sky', secondary: 'gold' }, ground: 'Hive Road', strength: 2.1, rep: 8000, cooldown: 16, reward: 14, rivalry: 'RV06' },
+  { id: 'PRE04', name: 'Birmingham Brummies', crest: 'club_pre04_crest', colours: { primary: 'royal', secondary: 'white' }, ground: 'Bull Ring Park', strength: 2.25, rep: 9000, cooldown: 16, reward: 14, rivalry: null },
+  { id: 'PRE05', name: 'East London Cockneys', crest: 'club_pre05_crest', colours: { primary: 'white', secondary: 'red' }, ground: 'Pearly Lane', strength: 2.45, rep: 10000, cooldown: 18, reward: 15, rivalry: null },
+  { id: 'PRE06', name: 'North Londoners', crest: 'club_pre06_crest', colours: { primary: 'red', secondary: 'gold' }, ground: 'Cannon Hill', strength: 2.7, rep: 11000, cooldown: 18, reward: 15, rivalry: null },
+];
 // Every club the game knows (each league's clubs, data/league.js LEAGUES); a fixture's opponent is looked up here.
-export const ALL_CLUBS = [...REGIONAL_CLUBS, ...COUNTY_CLUBS, ...NATIONAL_CLUBS, ...CHAMPIONSHIP_CLUBS];
+export const ALL_CLUBS = [...REGIONAL_CLUBS, ...COUNTY_CLUBS, ...NATIONAL_CLUBS, ...CHAMPIONSHIP_CLUBS, ...PREMIER_CLUBS];
 export const clubById = (id) => ALL_CLUBS.find((c) => c.id === id) ?? null;
 
 // The account-wide speed unlocks (bible §3 / §36 account save). Nothing sets them yet.

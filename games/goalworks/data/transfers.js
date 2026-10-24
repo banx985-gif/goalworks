@@ -7,7 +7,7 @@
 // potentialFactor. Every factor is worked out here and stored on the player (p.valuation) so nothing is hidden from the save.
 export const VALUE = {
   // baseTierValue: the tier's price at overall 50, ± perOvr for each overall point (never below minShare of it)
-  base: { Standard: 1200, Rare: 3000 },
+  base: { Standard: 1200, Rare: 3000, Elite: 6000, Legendary: 12000, Secret: 20000 }, // (M20: the Stars' tiers too)
   perOvr: 0.07,
   minShare: 0.3,
   // ageCurve: [up to age, factor]
@@ -23,7 +23,7 @@ export const VALUE = {
   // formFactor: 1 + perPoint × form (form −10 … +10)
   formPerPoint: 0.015,
   // reputationFactor: the club that owns him (free agents and the wider market have none of their own)
-  reputation: { free: 0.8, market: 1, club: { 1: 0.95, 2: 1, 3: 1.08, 4: 1.12, 5: 1.16, 6: 1.2, 7: 1.25, 8: 1.3, 9: 1.35, 10: 1.4, 11: 1.45, 12: 1.5 }, rank: { E: 1, D: 1.05, C: 1.1, B: 1.18, A: 1.26, S: 1.35 } },
+  reputation: { free: 0.8, market: 1, club: { 1: 0.95, 2: 1, 3: 1.08, 4: 1.12, 5: 1.16, 6: 1.2, 7: 1.25, 8: 1.3, 9: 1.35, 10: 1.4, 11: 1.45, 12: 1.5, 13: 1.6, 14: 1.7, 15: 1.8 }, rank: { E: 1, D: 1.05, C: 1.1, B: 1.18, A: 1.26, S: 1.35 } },
   // contractFactor: by years left (0 = a free agent)
   contract: { 0: 0.5, 1: 0.65, 2: 0.85, 3: 1, 4: 1.08, 5: 1.15 },
   // potentialFactor: 1 + perPoint × (potential midpoint − overall), at most max

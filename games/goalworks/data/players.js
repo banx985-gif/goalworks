@@ -58,6 +58,41 @@ export const FOUNDER_PLAYERS = {
   FW01: { name: 'Leo Mercer', position: 'FW', tier: 'Standard', level: 1, stats: { ATK: 52, TEC: 56, PAS: 44, DEF: 28, PHY: 57 }, trait: 'Poacher', age: 21 },
 };
 
+// Stars (Milestone 20, Aaron 24 Oct): normal players stop at 99 a stat; a Star (p.star = true, p.cap = 140) can go to 140.
+// Stars are the Legendary / Secret Featured Players (FEATURED_STARS), the Crown Premier clubs' generated stars (2–3 a club)
+// and now and then a Star's regen at a Championship / Premier club. Nothing else makes one.
+//   cap / normalCap         the stat caps
+//   engine                  the match engine reads a match number above `over` as over + (v − over) × share, never more
+//                           than `max` — a Star is clearly better but can't win a match alone (the M20 swing limit: a
+//                           Premier side with its Stars beats CHP06 ~58% of the time, ~72% of the points; see DECISIONS)
+//   premier                 each Crown Premier club's stars: count by club (PRE01 → PRE06) and overall range, weaker club →
+//                           weaker stars; `keep`: a club with fewer stars at the season's end signs one (ages 23–27)
+//   regenChance             a retiring Star's regen is a Star too, if his regen's club is Championship / Premier
+//   potentialRoom           a star's ceiling: his overall + this (at most cap)
+export const STAR = {
+  cap: 140,
+  normalCap: 99,
+  engine: { over: 99, share: 1, max: 130 },
+  premier: { count: [2, 2, 2, 3, 3, 3], overall: [105, 125], keep: 2, signAges: [23, 27] },
+  regenChance: 0.25,
+  regenLeagues: ['championship', 'premier'],
+  potentialRoom: 4,
+};
+// The Legendary and Secret Featured Players (bible §9 rows exactly). They are Stars. How you get one is a secret (SEC-PLY,
+// M28) or NG+; until then only ?debug=1 can bring one in (featuredStar in src/systems/players.js).
+export const FEATURED_STARS = {
+  GK09: { name: 'Marco Crown', position: 'GK', tier: 'Legendary', level: 21, stats: { ATK: 52, TEC: 88, PAS: 82, DEF: 108, PHY: 96 }, trait: 'Penalty King' },
+  GK10: { name: 'Zero Vale', position: 'GK', tier: 'Secret', level: 25, stats: { ATK: 60, TEC: 98, PAS: 92, DEF: 122, PHY: 108 }, trait: 'Last Stand' },
+  DF09: { name: 'Rex Barr', position: 'DF', tier: 'Legendary', level: 21, stats: { ATK: 81, TEC: 88, PAS: 79, DEF: 115, PHY: 104 }, trait: 'Iron Captain' },
+  DF10: { name: 'Atlas Venn', position: 'DF', tier: 'Secret', level: 25, stats: { ATK: 92, TEC: 96, PAS: 89, DEF: 128, PHY: 116 }, trait: 'No Way Through' },
+  MF09: { name: 'Silas Quill', position: 'MF', tier: 'Legendary', level: 21, stats: { ATK: 82, TEC: 108, PAS: 118, DEF: 77, PHY: 99 }, trait: 'Thread the Needle' },
+  MF10: { name: 'Nova Rune', position: 'MF', tier: 'Secret', level: 25, stats: { ATK: 92, TEC: 122, PAS: 132, DEF: 86, PHY: 110 }, trait: 'Time Bender' },
+  WG09: { name: 'Sora Jet', position: 'WG', tier: 'Legendary', level: 21, stats: { ATK: 116, TEC: 106, PAS: 98, DEF: 59, PHY: 102 }, trait: 'Ghost Step' },
+  WG10: { name: 'Vega Rush', position: 'WG', tier: 'Secret', level: 25, stats: { ATK: 130, TEC: 118, PAS: 110, DEF: 65, PHY: 114 }, trait: 'Blink Run' },
+  FW09: { name: 'Rex Vantage', position: 'FW', tier: 'Legendary', level: 21, stats: { ATK: 104, TEC: 108, PAS: 90, DEF: 55, PHY: 104 }, trait: 'Ice Cold' },
+  FW10: { name: 'Orion Zero', position: 'FW', tier: 'Secret', level: 25, stats: { ATK: 118, TEC: 120, PAS: 101, DEF: 61, PHY: 116 }, trait: 'Impossible Finish' },
+};
+
 // The 50 Featured Players' names (art list Batch 1): a generated player never takes one, nor one of their surnames.
 export const FEATURED_NAMES = [
   'Eli Mercer', 'Noah Pike', 'Theo Ward', 'Jai Foster', 'Luca Webb', 'Finn Cross', 'Rafi Stone', 'Cass Vale', 'Marco Crown', 'Zero Vale',
@@ -115,7 +150,8 @@ export const SQUAD = {
 // Contracts (bible §11): salary a week, 1–5 years, a squad role. No negotiation yet.
 export const ROLES = ['Prospect', 'Rotation', 'Starter', 'Star'];
 export const CONTRACT = {
-  salary: { Standard: { base: 180, perOvr: 10 }, Rare: { base: 380, perOvr: 16 } }, // base + perOvr × (overall − 40), to the nearest 10
+  // base + perOvr × (overall − 40), to the nearest 10; (M20) Elite / Legendary / Secret for the Stars and the top players
+  salary: { Standard: { base: 180, perOvr: 10 }, Rare: { base: 380, perOvr: 16 }, Elite: { base: 700, perOvr: 22 }, Legendary: { base: 1200, perOvr: 30 }, Secret: { base: 1800, perOvr: 38 } },
   roleBonus: { Prospect: 0.7, Rotation: 1, Starter: 1.15, Star: 1.4 },
   years: { Prospect: [3, 5], Rotation: [1, 3], Starter: [2, 4], Star: [3, 5] },
   prospectAge: 21, // a squad player this young who is not in the best XI is a Prospect
@@ -145,4 +181,4 @@ export const SHARED_NAMES = {
   last: ['Ashdown', 'Barlow', 'Carver', 'Denton', 'Eastwood', 'Fletcher', 'Goodwin', 'Hargrove', 'Ingram', 'Jarvis', 'Kemp', 'Lister', 'Mottram', 'Newbold', 'Oakes', 'Parr', 'Radley', 'Sadler', 'Thorne', 'Upton', 'Varley', 'Yates', 'Bramall', 'Cropper', 'Dunmore', 'Fowler', 'Gill', 'Hurst', 'Pendle', 'Wragg'],
 };
 // Opponents' areas (their names come from their own area's pool).
-export const CLUB_AREAS = { REG01: 'fen', REG02: 'border', REG03: 'moor', REG04: 'valley', REG05: 'coast', REG06: 'mid', CNT01: 'coast', CNT02: 'cape', CNT03: 'valley', CNT04: 'fen', CNT05: 'estuary', CNT06: 'lakes', NAT01: 'mills', NAT02: 'dales', NAT03: 'estuary', NAT04: 'coast', NAT05: 'iron', NAT06: 'mid', CHP01: 'estuary', CHP02: 'dales', CHP03: 'iron', CHP04: 'mid', CHP05: 'coast', CHP06: 'fen' };
+export const CLUB_AREAS = { REG01: 'fen', REG02: 'border', REG03: 'moor', REG04: 'valley', REG05: 'coast', REG06: 'mid', CNT01: 'coast', CNT02: 'cape', CNT03: 'valley', CNT04: 'fen', CNT05: 'estuary', CNT06: 'lakes', NAT01: 'mills', NAT02: 'dales', NAT03: 'estuary', NAT04: 'coast', NAT05: 'iron', NAT06: 'mid', CHP01: 'estuary', CHP02: 'dales', CHP03: 'iron', CHP04: 'mid', CHP05: 'coast', CHP06: 'fen', PRE01: 'coast', PRE02: 'border', PRE03: 'mills', PRE04: 'iron', PRE05: 'estuary', PRE06: 'mid' };

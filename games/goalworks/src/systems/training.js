@@ -26,7 +26,7 @@ import { Rng } from '../../../../core/Rng.js';
 import { CORE, NEAR } from '../../data/players.js';
 import { founderById } from '../../data/setup.js';
 import { FOCUSES, focusById, DEFAULT_FOCUS, INTENSITY, DEFAULT_INTENSITY, XP, FATIGUE, FORM, MORALE, MATCH_CONDITION, PERKS, POSITION_LEARNING, GROUPS } from '../../data/training.js';
-import { overall } from './players.js';
+import { overall, statCap } from './players.js';
 import { effect as bonus } from './effects.js';
 import { staffBonus } from './staff.js';
 
@@ -35,6 +35,7 @@ const round1 = (v) => Math.round(v * 10) / 10;
 
 export function normalisePlayer(p) {
   p.xp ??= Object.fromEntries(CORE.map((k) => [k, 0]));
+  p.cap ??= statCap(p); // (M20) 99, or 140 for a Star — an older save's players are all 99 (nobody becomes a Star)
   p.fatigue ??= FATIGUE.start;
   p.form ??= 0;
   p.morale ??= MORALE.neutral;
@@ -134,8 +135,8 @@ export function gainXp(p, stat, xp) {
   for (let guard = 0; guard < 20; guard++) {
     const cost = pointCost(p);
     if (p.xp[stat] < cost) break;
-    if (overall(p) >= capOf(p)) {
-      p.xp[stat] = cost; // at the ceiling: XP stops piling up
+    if (overall(p) >= capOf(p) || p.stats[stat] >= statCap(p)) {
+      p.xp[stat] = cost; // at the ceiling (or (M20) the stat at its cap: 99, a Star 140): XP stops piling up
       break;
     }
     p.stats[stat]++;

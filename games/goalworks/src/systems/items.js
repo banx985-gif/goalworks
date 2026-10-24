@@ -13,6 +13,7 @@ import { ITEM_TYPES, ITEM_RARITIES, ITEM_RULES, ITEM_GROUPS, ITEM_SOURCES, ITEM_
 import { clubById } from '../../data/fixtures.js';
 import { bonus as facilityBonus } from './facilities.js';
 import { normaliseLeague } from './league.js';
+import { statCap } from './players.js';
 
 export function normaliseItems(data) {
   if (!data.items || data.items.v !== 12) data.items = { v: 12, sys: null, rng: null, week: {}, log: [] };
@@ -22,6 +23,8 @@ export function normaliseItems(data) {
 }
 
 const typeById = (id) => ITEM_TYPES.find((x) => x.id === id) ?? null;
+// (M20) How far an item can take a stat: a Star to his cap (140); everyone else to his tier's cap, at most 99.
+const itemCap = (p) => (p.star ? statCap(p) : Math.min(statCap(p), ITEM_RULES.tierCap[p.tier] ?? ITEM_RULES.tierCap.Standard));
 export const itemName = (it) => `${ITEM_RARITIES[it.rarity]?.name ?? ''} ${typeById(it.type)?.name ?? it.type}`.trim();
 
 export function createItems(data, { bus = null } = {}) {
@@ -38,8 +41,10 @@ export function createItems(data, { bus = null } = {}) {
     bus,
     person,
     statOf: (p, stat) => p.stats[stat] ?? 0,
-    statCap: (p) => ITEM_RULES.tierCap[p.tier] ?? ITEM_RULES.tierCap.Standard,
-    raise: (p, stat, n) => (p.stats[stat] = Math.min(ITEM_RULES.tierCap[p.tier] ?? ITEM_RULES.tierCap.Standard, (p.stats[stat] ?? 0) + n)),
+    // (M20) a Star's items go to his own cap (140); everyone else's to the tier cap, never past 99. An item never lowers a stat
+    // already above the cap (a County / National player can sit above the Standard 80).
+    statCap: (p) => itemCap(p),
+    raise: (p, stat, n) => (p.stats[stat] = Math.max(p.stats[stat] ?? 0, Math.min(itemCap(p), (p.stats[stat] ?? 0) + n))),
     morale: (p, n) => (p.morale = Math.min(100, Math.round(((p.morale ?? 50) + n) * 10) / 10)),
   });
   sys.load(D.sys);

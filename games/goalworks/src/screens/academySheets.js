@@ -122,7 +122,7 @@ export function createAcademySheets({ sheet, dialog, assets, run, today = () => 
       sections: [
         ...msgSection(),
         { title: 'Potential', lines: [`${r.low}–${r.high} · ${r.label}`, `Read to about ±${Math.ceil(r.width / 2)}: the exact number stays hidden.`, ...(p.youth.fromWatch ? ['On your youth watch list since the club began.'] : []), ...(p.youth.regenOf ? [`A new face in the mould of ${p.youth.regenOf}, who retired from your club.`] : [])] }, // (M16) a regen
-        { title: 'Core stats', bars: CORE.map((k) => ({ label: `${k} · ${CORE_NAMES[k]}`, value: p.stats[k], max: 100, color: POSITIONS[p.position].colour })) },
+        { title: 'Core stats', bars: CORE.map((k) => ({ label: `${k} · ${CORE_NAMES[k]}`, value: p.stats[k], max: 99, color: POSITIONS[p.position].colour, star: 140 })) },
         { title: 'Trait', lines: [p.trait] },
         { columns: 1, buttons: [
           { id: 'sign', label: `Sign ${p.name}`, sub: why ?? `Joins the academy today · ${INTAKE.signMax - d.academy.intake.signed.length} signing${INTAKE.signMax - d.academy.intake.signed.length === 1 ? '' : 's'} left from these trials`, accent: C.good, disabled: !!why, onTap: () => act(AC.sign(run(), id, today()), 'academy:sign', () => openAcademy()) },
@@ -157,7 +157,7 @@ export function createAcademySheets({ sheet, dialog, assets, run, today = () => 
         ...msgSection(),
         { title: 'Potential', lines: [`${r.low}–${r.high} · ${r.label}`, ...(p.youth.breakthrough > 0 ? [ACADEMY_TEXT.breakthrough(p.name)] : []), `Signed from the Year ${p.youth.intakeYear} trials${p.youth.fromWatch ? ' (the watch list)' : ''}.`] },
         { title: 'Training', lines: [`Academy session ${focusById(d.academy.focus).name}${p.focus ? ` + ${focusById(p.focus).name}` : ''} · ${train} · ×${AC.xpMultOf(d, p).toFixed(2)} academy XP`, ...(retrainLine ? [retrainLine] : []), m ? `Mentor: ${m.name} (${m.position}, OVR ${overall(m)})` : 'No mentor.', ...(p.age >= AGES.maxAge ? [`He is ${p.age}: he leaves the academy at the season’s end unless promoted.`] : [])] },
-        { title: 'Core stats', bars: CORE.map((k) => ({ label: `${k} · ${CORE_NAMES[k]}`, value: p.stats[k], max: 100, color: POSITIONS[p.position].colour })) },
+        { title: 'Core stats', bars: CORE.map((k) => ({ label: `${k} · ${CORE_NAMES[k]}`, value: p.stats[k], max: 99, color: POSITIONS[p.position].colour, star: 140 })) },
         { title: 'Trait', lines: [p.trait] },
         {
           title: 'Actions',

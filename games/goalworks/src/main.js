@@ -155,7 +155,7 @@ import { createTestScreen } from './screens/TestScreen.js';
 import { leagueSheet, promotionOfferSheet, shieldSheet, matchSetupSheet } from './screens/fixtureSheets.js';
 import * as LG from './systems/league.js';
 import * as CUP from './systems/cup.js';
-import { leagueById, COMING, LEAGUES } from '../data/league.js';
+import { leagueById, COMING, LEAGUES, AFTER_TITLE } from '../data/league.js';
 import { cupById } from '../data/cups.js';
 import * as TR from './systems/transfers.js';
 import { createTransferSheets } from './screens/transferSheets.js';
@@ -164,13 +164,14 @@ import { createCalendar } from './systems/calendar.js';
 import { createMatchScreen } from './screens/MatchScreen.js';
 import { createSquadScreen } from './screens/SquadScreen.js';
 import { createTrainingScreen } from './screens/TrainingScreen.js';
-import { trainDay, applyMatch, normaliseTraining } from './systems/training.js';
+import { trainDay, applyMatch, normaliseTraining, normalisePlayer } from './systems/training.js';
+import { featuredStar, overall } from './systems/players.js';
 import { normaliseTactics, familiarityDay, familiarityMatch, teamSide, opponentSide, setRole as setClubRole } from './systems/tactics.js';
 import { pairKey, FORMATIONS, formationById, rolesForSlot, ROLES } from '../data/tactics.js';
 import { TACTICS } from '../data/match.js';
 import { POSITIONS } from '../data/setup.js';
 import { createTacticsScreen } from './screens/TacticsScreen.js';
-import { ensureSquad, xiForMatch, opponentSquad } from './systems/squad.js';
+import { ensureSquad, xiForMatch, opponentSquad, salaryFor } from './systems/squad.js';
 import { createMatchSetup } from './match/lineups.js';
 import { createMatchWorld, restoreMatchWorld, matchResult, MODES } from './match/matchWorld.js';
 import { createMatchDirector } from './match/matchDirector.js';
@@ -729,6 +730,25 @@ function openPromotionOffer(leagueId = open ? LG.leagueOf(open.data).id : 'regio
   sheet.open(promotionOfferSheet({ clubName: () => open?.data.club.name ?? '', league: lg, nextName: nextLeagueName(to), nextBuilt: !!leagueById(to), via: () => (open ? LG.promotion(open.data, leagueId).via : null), onAnswer: (yes) => answerOffer(yes, leagueId) }));
 }
 const openCountyOffer = () => openPromotionOffer('regional'); // (the M10 name, kept for the debug hook)
+// (M20) The title chain won: the big "Crown Champions" sheet (the premier crown trophy), then the game goes on.
+function openCrownChampions() {
+  if (!open) return;
+  const d = open.data;
+  const t = d.league.crownTitle;
+  if (!t) return;
+  researchBanner.show({ id: `crown:${t.day}`, title: 'CROWN CHAMPIONS!', line: `${d.club.name} win the Crown Premier title`, gives: 'In the club history and the Hall of Fame', icon: 'trophy_07', color: C_GOLD });
+  sheet.open(() => ({
+    title: 'Crown Champions',
+    subtitle: `${d.club.name} · Crown Premier League · Year ${t.year}`,
+    art: 'trophy_07',
+    accent: C_GOLD,
+    tag: { text: 'CHAMPIONS', color: C_GOLD },
+    sections: [
+      { title: 'The top of the ladder', lines: [`From a muddy local pitch to the Crown title: ${d.club.name} beat the ${clubById(t.opponent)?.name ?? 'champions'} in the Crown Title Match.`, 'Recorded in the club history (Hall of Fame) · A15 Crown Champions.'] },
+      { title: 'Not the end', lines: [AFTER_TITLE, 'Keep playing: the cups, your squad and the Hall of Fame go on.'], columns: 1, buttons: [{ id: 'crown:ok', label: 'Carry on', accent: COL.good, onTap: () => sheet.close() }] },
+    ],
+  }));
+}
 // (M17) The County Shield bracket (from the League sheet, the Club Menu and the Manager Office).
 // (M18) Any cup's bracket: the County Shield, the National Knockout, the Crown Cup (default: your league's cup).
 function openShield(fromLeague = false, cupId = null) {
@@ -945,7 +965,8 @@ function matchFinished(world) {
     else researchBanner.show({ id, title: `Out of the ${cup.name}`, line: `${ct.roundName}${ct.pens ? ` · lost ${ct.pens[0]}–${ct.pens[1]} on penalties` : ''}`, gives: 'It opens again next season', icon: cup.art, color: COL.bad });
   }
   commitCupTie(); // (M17) the next Shield tie may be waiting for this slot
-  if (league?.offerNow) setTimeout(() => openPromotionOffer(league.offerNow), 0);
+  if (league?.crownTitle) setTimeout(() => openCrownChampions(), 0); // (M20) the title chain won
+  else if (league?.offerNow) setTimeout(() => openPromotionOffer(league.offerNow), 0);
   else if (league?.promotionUnlocked) debug.log(`${league.league === 'regional' ? 'Promotion Match' : 'Promotion Playoff'} unlocked`);
 }
 async function leaveMatch() {
@@ -1022,7 +1043,7 @@ const matchScreen = createMatchScreen({
     }
     const pf = LG.isPromotionFinal(open.data, fx); // (M19) the Trophy's final as the Promotion Final
     if (pf && cupLine) cupLine = /winners/.test(cupLine) ? `PROMOTION FINAL WON · ${cupLine} · the ${nextLeagueName(lg.promotion.to)} offer is waiting` : `Promotion Final lost · ${cupLine} · it comes again after a wait`;
-    return [`${pf ? 'PROMOTION FINAL · ' : ''}${fx.cup ? `${cupById(fx.cup.id).name} ${fx.cup.name.toLowerCase()} · ` : fx.promotion ? `${promoName} · ` : ''}+${p.credits} Credits (placeholder) · reputation ${rep >= 0 ? '+' : ''}${Math.round(rep)} · +${rp} RP`, cupLine, fx.promotion && p.res === 'win' ? `Promotion earned: the ${nextLeagueName(lg.promotion.to)} offer is waiting.` : null].filter(Boolean);
+    return [`${pf ? 'PROMOTION FINAL · ' : ''}${fx.cup ? `${cupById(fx.cup.id).name} ${fx.cup.name.toLowerCase()} · ` : fx.promotion ? `${promoName} · ` : ''}+${p.credits} Credits (placeholder) · reputation ${rep >= 0 ? '+' : ''}${Math.round(rep)} · +${rp} RP`, cupLine, fx.promotion && p.res === 'win' ? (lg.promotion.final.title ? 'CROWN CHAMPIONS! The Crown Premier title is yours.' : `Promotion earned: the ${nextLeagueName(lg.promotion.to)} offer is waiting.`) : null].filter(Boolean);
   },
   held: () => sheet.active, // (the match waits while a sheet is open over it)
   leftHanded: () => settings.get('leftHanded') === true, // (M12b)
@@ -1103,7 +1124,7 @@ function facilitySections(defId) {
   const office = { title: 'What it’s for', lines: ['Where you run the club: find a match, set tactics, do transfers and contracts.'], columns: 2, buttons: [{ id: 'league', label: 'Find a match', accent: COL.good, onTap: () => openLeague() }, { id: 'contracts', label: 'Contracts', accent: COL.gold, onTap: () => transfersUi.openTransfers('mine') }] };
   const lgNow = open ? LG.leagueOf(open.data) : leagueById('regional');
   const cupsNow = open ? LG.activeCups(open.data).map((c) => cupById(c.id)) : [];
-  const league = { title: lgNow.name, lines: [`Challenges, your Club Rank and the road to the ${nextLeagueName(lgNow.promotion.to)}.`], columns: cupsNow.length ? 2 : 1, buttons: [{ id: 'league', label: 'League', accent: COL.good, onTap: () => openLeague() }, ...cupsNow.map((c) => ({ id: c.id === 'C02' ? 'shield' : `cup:${c.id}`, label: c.name, icon: c.art, accent: COL.gold, onTap: () => openShield(false, c.id) }))] };
+  const league = { title: lgNow.name, lines: [lgNow.promotion.to ? `Challenges, your Club Rank and the road to the ${nextLeagueName(lgNow.promotion.to)}.` : 'Challenges, your Club Rank and the road to the Crown title.'], columns: cupsNow.length ? 2 : 1, buttons: [{ id: 'league', label: 'League', accent: COL.good, onTap: () => openLeague() }, ...cupsNow.map((c) => ({ id: c.id === 'C02' ? 'shield' : `cup:${c.id}`, label: c.name, icon: c.art, accent: COL.gold, onTap: () => openShield(false, c.id) }))] };
   const tactics = { title: 'Tactics', lines: ['Formation, team instructions, roles and familiarity.'], buttons: [{ id: 'tactics', label: 'Tactics', accent: COL.purple, onTap: () => openTactics('club') }] };
   const transfers = { title: 'Transfers', lines: ['Market, free agents, loans and your contracts.'], buttons: [{ id: 'transfers', label: 'Transfers', accent: COL.gold, onTap: () => transfersUi.openTransfers('market') }] };
   const research = { title: 'Research', lines: ['Research Points, the research slot and the 36 nodes in six branches.'], buttons: [{ id: 'research', label: 'Research', accent: COL.progress, onTap: () => researchUi.openResearch() }] };
@@ -1152,6 +1173,8 @@ const MENU_OPEN = {
   knockout: () => openShield(false, 'C03'), // (M18)
   crownCup: () => openShield(false, 'C04'), // (M18)
   trophy: () => openShield(false, 'C05'), // (M19)
+  premierCup: () => openShield(false, 'C06'), // (M20)
+  masters: () => openShield(false, 'C07'), // (M20)
   settings: () => openSettings(),
   mainMenu: () => leaveClub(),
 };
@@ -1165,7 +1188,7 @@ function menuState(id) {
   }
   // (M17) the County Shield row; (M18) the National Knockout and Crown Cup rows — each shown while its cup runs or once it
   // has run at least once
-  const CUP_ROWS = { shield: 'C02', knockout: 'C03', crownCup: 'C04', trophy: 'C05' };
+  const CUP_ROWS = { shield: 'C02', knockout: 'C03', crownCup: 'C04', trophy: 'C05', premierCup: 'C06', masters: 'C07' };
   if (CUP_ROWS[id]) {
     const cid = CUP_ROWS[id];
     if (!open || !(LG.activeCups(open.data).some((c) => c.id === cid) || open.data.cups?.[cid]?.editions)) return { hidden: true };
@@ -1378,9 +1401,21 @@ function acceptChallenge(clubId) {
   const o = issueChallenge(clubId);
   return o ? LG.accept(open.data, o.id, open.calendar) : { ok: false };
 }
+// ?debug=1 (tests): (M20) a Legendary / Secret Featured Player joins the squad as a Star (bible §9 stats exactly). How you
+// earn one is a secret (M28); debug may force one.
+function addFeaturedStar(fid) {
+  if (!open) return null;
+  const d = open.data;
+  const p = featuredStar(fid, `fs${d.squad.nextId++}`);
+  p.contract = { salary: salaryFor(p, 'Star'), years: 3, role: 'Star' };
+  p.shirt = null;
+  normalisePlayer(p);
+  d.squad.players.push(p);
+  return p;
+}
 // ?debug=1: a test hook for automated checks.
 if (debug.enabled) {
-  window.__gw = { renderer, layout, input, loop, router, assets, sheet, dialog, systemBack, textPrompt, splashScreen, menuScreen, slotsScreen, setupScreen, clubScreen, squadScreen, trainingScreen, openTraining, tacticsScreen, openTactics, openMatchTactics, playSlot, startClub, deleteSlot, openShop, setRank, facilityBonus, researchUi, researchBanner, get research() { return open?.research ?? null; }, newGame, openLeague, openCountyOffer, openPromotionOffer, openShield, commitCupTie, LG, CUP, acceptChallenge, issueChallenge, transfers: transfersUi, TR, openMatchSetup, playPlaceholder, kickOff, startTestMatch, matchScreen, restoreMatchWorld, get match() { return match; }, toggleSpeedFlag, autosave, saveRun, canvasLost, canvasLossCount, itemsUi, staffUi, normaliseStaff, academyUi, AC, openStaffRole, hofUi, CA, syncHallOfFame, facilityLevel: (id) => (open ? facilityLevel(open.data, id) : 0), get items() { return open?.items ?? null; }, settings, governor, lowFx, haptics, hintLine, openNavMenu, MENU_OPEN, menuState, openSettings, get account() { return account; }, taps: [], get campaigns() { return campaigns; }, get open() { return open; } };
+  window.__gw = { renderer, layout, input, loop, router, assets, sheet, dialog, systemBack, textPrompt, splashScreen, menuScreen, slotsScreen, setupScreen, clubScreen, squadScreen, trainingScreen, openTraining, tacticsScreen, openTactics, openMatchTactics, playSlot, startClub, deleteSlot, openShop, setRank, facilityBonus, researchUi, researchBanner, get research() { return open?.research ?? null; }, newGame, openLeague, openCountyOffer, openPromotionOffer, openCrownChampions, addFeaturedStar, overall, openShield, commitCupTie, LG, CUP, acceptChallenge, issueChallenge, transfers: transfersUi, TR, openMatchSetup, playPlaceholder, kickOff, startTestMatch, matchScreen, restoreMatchWorld, get match() { return match; }, toggleSpeedFlag, autosave, saveRun, canvasLost, canvasLossCount, itemsUi, staffUi, normaliseStaff, academyUi, AC, openStaffRole, hofUi, CA, syncHallOfFame, facilityLevel: (id) => (open ? facilityLevel(open.data, id) : 0), get items() { return open?.items ?? null; }, settings, governor, lowFx, haptics, hintLine, openNavMenu, MENU_OPEN, menuState, openSettings, get account() { return account; }, taps: [], get campaigns() { return campaigns; }, get open() { return open; } };
 }
 
 router.go('boot');

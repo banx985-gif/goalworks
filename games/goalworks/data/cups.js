@@ -72,6 +72,42 @@ export const CUPS = {
     short: 'Championship cup',
     blurb: 'you, the six Championship clubs and one invited National club',
   },
+  // (M20) bible §22: opens when you enter the Crown Premier; "elite prize"
+  C06: {
+    id: 'C06',
+    name: 'Premier Cup',
+    art: 'tournament_c06',
+    opens: { league: 'premier' },
+    league: 'premier',
+    teams: { league: 'premier', invite: { league: 'championship', count: 1 } },
+    rounds: ['Quarter-final', 'Semi-final', 'Final'],
+    firstTieDays: 14,
+    gapDays: 28,
+    sim: { scale: 5, drawChance: 0.22 },
+    prize: { credits: 12000, history: 700, momentum: 120, flags: [] },
+    roundWin: { credits: 1800 },
+    short: 'Premier cup',
+    blurb: 'you, the six Crown Premier clubs and one invited Championship club',
+  },
+  // (M20) bible §22: "top tier, finish top 3 equivalent" — read as: in the Crown Premier, at least 4 different Premier clubs
+  // beaten in one season (`opens.seasonBeaten`); from then on, once a season. You + the five strongest Premier squads + the
+  // two strongest Championship squads (`teams.pick`). "Global reputation": the biggest reputation prize.
+  C07: {
+    id: 'C07',
+    name: 'Continental Masters',
+    art: 'tournament_c07',
+    opens: { league: 'premier', seasonBeaten: 4 },
+    league: null,
+    teams: { pick: [{ league: 'premier', count: 5 }, { league: 'championship', count: 2 }] },
+    rounds: ['Quarter-final', 'Semi-final', 'Final'],
+    firstTieDays: 21,
+    gapDays: 28,
+    sim: { scale: 5, drawChance: 0.22 },
+    prize: { credits: 15000, history: 1500, momentum: 200, flags: [] },
+    roundWin: { credits: 2200 },
+    short: 'Top-tier invitational',
+    blurb: 'you, the five strongest Crown Premier clubs and the two strongest Championship clubs',
+  },
   // (M18) bible §22: any tier, opens at Rank C; "large prize + club history". The first tie comes three weeks in, so it
   // seldom meets a league cup's quarter-final in the same week (and if it does, it moves back a week).
   C04: {

@@ -14,7 +14,7 @@
 // Milestone 14: the scout is the hired Scout (fac.scoutName; no scout → no reports), Hidden Gem (fac.rareFind %) may swap a
 // missed Rare player into a report, Local Eye (narrow) narrows local players' potential ranges.
 import { SCOUTING } from '../../data/transfers.js';
-import { overall } from './players.js';
+import { overall, statCap } from './players.js';
 
 export function normaliseScouting(T) {
   T.scouting ??= { task: null, reports: [], knowledge: {}, nextId: 1 };
@@ -91,19 +91,20 @@ function hash01(id, key) {
   return (h % 1000) / 999;
 }
 const width = (full, min, k) => Math.round(min + (full - min) * (1 - Math.max(0, Math.min(1, k))));
-function around(v, w, u) {
+// (M20) the range tops out at the player's cap: 99, or 140 for a Star (whose true value can be above 99)
+function around(v, w, u, cap = 99) {
   const low = Math.max(1, Math.round(v - u * w));
-  return { low, high: Math.min(99, Math.max(low, low + w)) };
+  return { low, high: Math.min(cap, Math.max(low, low + w)) };
 }
-export const statRange = (p, k, stat) => around(p.stats[stat], width(SCOUTING.range.stat, SCOUTING.range.statMin, k), hash01(p.id, stat));
-export const overallRange = (p, k) => around(overall(p), width(SCOUTING.range.overall, SCOUTING.range.overallMin, k), hash01(p.id, 'ovr'));
+export const statRange = (p, k, stat) => around(p.stats[stat], width(SCOUTING.range.stat, SCOUTING.range.statMin, k), hash01(p.id, stat), statCap(p));
+export const overallRange = (p, k) => around(overall(p), width(SCOUTING.range.overall, SCOUTING.range.overallMin, k), hash01(p.id, 'ovr'), statCap(p));
 
 // narrow (M14, 0 … 1): the scout's Local Eye takes this share off a local player's extra width
 export function potentialView(p, k, narrow = 0) {
   const extra = Math.round(SCOUTING.range.potential * (1 - Math.max(0, Math.min(1, k))) * (1 - Math.max(0, Math.min(1, narrow))));
   const u = hash01(p.id, 'pot');
   const low = Math.max(1, p.potential.low - Math.round(extra * u));
-  const high = Math.min(99, p.potential.high + (extra - Math.round(extra * u)));
+  const high = Math.min(statCap(p), p.potential.high + (extra - Math.round(extra * u)));
   const room = (low + high) / 2 - overall(p);
   const label = SCOUTING.potentialLabels.find(([upTo]) => room <= upTo)[1];
   return { low, high, label };

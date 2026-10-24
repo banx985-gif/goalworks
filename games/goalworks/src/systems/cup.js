@@ -41,6 +41,7 @@ function startEdition(data, cup, day) {
   const byStrength = (ids) => ids.map((id) => [id, strength(data, id)]).sort((a, b) => b[1] - a[1]).map(([id]) => id);
   let others;
   if (cup.teams.strongest) others = byStrength(ALL_CLUBS.map((c) => c.id)).slice(0, cup.teams.strongest); // (M18 C04)
+  else if (cup.teams.pick) others = cup.teams.pick.flatMap((x) => byStrength(leagueById(x.league).clubs).slice(0, x.count)); // (M20 C07)
   else {
     const inv = cup.teams.invite;
     others = [...leagueById(cup.teams.league).clubs, ...(inv ? byStrength(leagueById(inv.league).clubs).slice(0, inv.count) : [])];

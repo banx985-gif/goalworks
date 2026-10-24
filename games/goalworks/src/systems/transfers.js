@@ -660,8 +660,9 @@ function weekly(data, day, rng) {
     const roll = rng.next();
     if (roll >= AI.clubMoveChancePerWeek && club.players.length >= POOL.clubSquad[0]) continue;
     const movable = club.players.filter((p) => !p.loan && !p.preContract);
-    const old = movable.filter((p) => p.age >= AI.releaseAge).sort((a, b) => b.age - a.age)[0];
-    const weakest = movable.slice().sort((a, b) => overall(a) - overall(b))[0];
+    // (M20) a club keeps its Stars until they retire (they age, retire and regen like everyone else)
+    const old = movable.filter((p) => p.age >= AI.releaseAge && !p.star).sort((a, b) => b.age - a.age)[0];
+    const weakest = movable.filter((p) => !p.star).sort((a, b) => overall(a) - overall(b))[0];
     const out = club.players.length >= POOL.clubSquad[1] - 1 || (old && rng.next() < 0.6) ? old ?? weakest : null;
     if (out && club.players.length > POOL.clubSquad[0] && !clubProblem(club.players.filter((x) => x !== out))) {
       take(data, cid, out);
@@ -751,7 +752,7 @@ function seasonEnd(data, day, rng) {
       if (p.loan) continue;
       p.contract.years -= 1;
       if (p.contract.years > 0) continue;
-      if (club.players.length > POOL.clubSquad[0] && !clubProblem(club.players.filter((x) => x !== p)) && rng.next() < 0.5) {
+      if (!p.star && club.players.length > POOL.clubSquad[0] && !clubProblem(club.players.filter((x) => x !== p)) && rng.next() < 0.5) { // (M20: a Star is always renewed)
         take(data, cid, p);
         toFree(data, p, cid, day);
       } else p.contract = contractFor(rng, p, p.contract.role ?? 'Rotation');

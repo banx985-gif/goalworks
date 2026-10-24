@@ -7,7 +7,9 @@
 //   derived(p) → { Pace, Finishing, … }        overall(p, at = p.position) → the positional overall (at another position:
 //   matchStats(p) → the engine's six numbers    the out-of-position rating the best XI uses)
 //   founderPlayer(founderId, id) · generatePlayer(rng, { id, position, tier?, ageRange, area, usedNames })
-import { DERIVED, OVERALL, MATCH, OUTFIELD_KEEPING, OUT_OF_POSITION, NEAR, FOUNDER_PLAYERS, FEATURED_NAMES, GEN, TRAITS, AREA_NAMES, SHARED_NAMES, AREA_SHARE } from '../../data/players.js';
+//   (M20) statCap(p) → 99, or 140 for a Star · makeStar(p, overall) · featuredStar(featuredId, id) (bible §9 Legendary /
+//   Secret rows) · matchStats: a number above 99 counts in full, never past STAR.engine.max (130)
+import { DERIVED, OVERALL, MATCH, OUTFIELD_KEEPING, OUT_OF_POSITION, NEAR, FOUNDER_PLAYERS, FEATURED_NAMES, GEN, TRAITS, AREA_NAMES, SHARED_NAMES, AREA_SHARE, STAR, FEATURED_STARS } from '../../data/players.js';
 import { founderById } from '../../data/setup.js';
 
 const sumWeights = (w, v) => Object.entries(w).reduce((s, [k, x]) => s + x * v[k], 0);
@@ -29,11 +31,53 @@ export function overall(p, at = p.position) {
   return Math.round(sumWeights(OVERALL[at], asGk) * k);
 }
 
+// The engine's numbers. (M20) Above STAR.engine.over a number counts at STAR.engine.share and never past STAR.engine.max —
+// Stars are clearly better, never unbeatable (normal players never get there, so their matches are exactly as before).
+const E = STAR.engine;
+const engineValue = (v) => (v > E.over ? Math.min(E.max, E.over + (v - E.over) * E.share) : v);
 export function matchStats(p) {
   const d = derived(p);
   const out = {};
-  for (const [key, w] of Object.entries(MATCH)) out[key] = Math.round(sumWeights(w, d));
+  for (const [key, w] of Object.entries(MATCH)) out[key] = Math.round(engineValue(sumWeights(w, d)));
   return out;
+}
+
+// --- Stars (Milestone 20) ------------------------------------------------------------------------------------------------
+// A player's stat cap: 140 for a Star, 99 for everyone else (an older save's players have no cap stored: 99).
+export const statCap = (p) => (p?.star ? p.cap ?? STAR.cap : STAR.normalCap);
+// Raise a generated player to a Star of about `target` overall: every stat × the same factor (never past 140), his ceiling a
+// little above him. Marks him star: true, cap 140, tier Elite (his level kept).
+export function makeStar(p, target) {
+  p.star = true;
+  p.cap = STAR.cap;
+  p.tier = 'Elite';
+  // his position's shape (bible §9 rows), a little of his own on top: a defender's DEF far above his ATK, not 125 everywhere
+  const shape = GEN.base[p.position];
+  const own = Object.values(p.stats).reduce((a, b) => a + b, 0) / Object.keys(p.stats).length || 1;
+  const base = Object.fromEntries(Object.keys(shape).map((k) => [k, shape[k] * (0.9 + 0.1 * Math.min(1.2, (p.stats[k] ?? own) / own))]));
+  let lo = 1;
+  let hi = 4;
+  for (let i = 0; i < 30; i++) {
+    const k = (lo + hi) / 2;
+    for (const s of Object.keys(base)) p.stats[s] = Math.min(STAR.cap, Math.max(10, Math.round(base[s] * k)));
+    if (overall(p) < target) lo = k;
+    else hi = k;
+  }
+  for (const s of Object.keys(base)) p.stats[s] = Math.min(STAR.cap, Math.max(10, Math.round(base[s] * hi)));
+  const ovr = overall(p);
+  p.potential = { low: ovr, high: Math.min(STAR.cap, ovr + STAR.potentialRoom), exact: Math.min(STAR.cap, ovr + STAR.potentialRoom) };
+  p.peak = Math.max(p.peak ?? 0, ovr);
+  return p;
+}
+// A Legendary / Secret Featured Player (bible §9 row exactly) as a Star. (Only ?debug=1 brings one in before M28.)
+export function featuredStar(featuredId, id, age = 27) {
+  const row = FEATURED_STARS[featuredId];
+  if (!row) throw new Error(`Unknown featured star ${featuredId}`);
+  const p = { id, name: row.name, position: row.position, age, tier: row.tier, level: row.level, trait: row.trait, stats: { ...row.stats }, form: 0, morale: 50, portrait: null, founder: false, featuredId, star: true, cap: STAR.cap };
+  const ovr = overall(p);
+  p.potential = { low: ovr, high: Math.min(STAR.cap, ovr + STAR.potentialRoom), exact: Math.min(STAR.cap, ovr + STAR.potentialRoom) };
+  p.peak = ovr;
+  return p;
 }
 
 export function founderPlayer(founderId, id = 'p1') {

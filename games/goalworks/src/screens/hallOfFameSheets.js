@@ -61,7 +61,7 @@ export function createHallOfFameSheets({ sheet, assets, entries = () => [], run 
       sections: [
         { title: 'Why he is here', lines: e.reasons },
         { title: 'At the club', lines: [`${years(e)} · retired at ${e.age}${e.founder ? ' · the club’s Founder' : ''}`, totals(e), `Best overall ${e.peak} · ${e.tier} · ${e.trait}`] },
-        { title: 'When he retired', bars: CORE.map((k) => ({ label: `${k} · ${CORE_NAMES[k]}`, value: e.stats?.[k] ?? 0, max: 100, color: pos?.colour ?? C.gold })) },
+        { title: 'When he retired', bars: CORE.map((k) => ({ label: `${k} · ${CORE_NAMES[k]}`, value: e.stats?.[k] ?? 0, max: 99, color: pos?.colour ?? C.gold, star: 140 })) },
         ...(e.staffEligible ? [{ title: 'After football', lines: ['Eligible to join a club’s support staff one day (later).'] }] : []),
         { columns: 1, buttons: [{ id: 'back', label: '‹ Hall of Fame', accent: C.progress, onTap: () => openHallOfFame() }] },
       ],

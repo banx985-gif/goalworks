@@ -30,6 +30,8 @@ export const ASSETS = {
   // Milestone 16: the Hall of Fame — its Menu icon, the plaque and the legend shirt display (Batch 6).
   ...Object.fromEntries(['ui_29'].map((k) => [k, `assets/images/ui/${k}.png`])),
   ...Object.fromEntries(['trophy_17', 'trophy_18'].map((k) => art('trophies', k))),
+  // Milestone 20: the premier crown trophy (the Crown Champions sheet).
+  ...Object.fromEntries(['trophy_07'].map((k) => art('trophies', k))),
   // Milestone 17: the cups' pictures (C02 County Shield).
   ...Object.fromEntries(Object.values(CUPS).map((c) => art('tournaments', c.art))),
   // Milestone 0 loader test (?screen=test): the placeholder PWA icon as a real image, and one deliberately missing file.

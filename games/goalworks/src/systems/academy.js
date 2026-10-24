@@ -21,10 +21,10 @@
 // the retiree's position and a share of his quality as the projection (youth.regenOf: whose).
 import { Rng } from '../../../../core/Rng.js';
 import { INTAKE, POTENTIAL, YOUTH_SCALE, BREAKTHROUGH, REVEAL, LABELS, PLACES, ACADEMY_XP, DEFAULT_ACADEMY_FOCUS, MENTOR, AGES, YOUTH_LOAN } from '../../data/academy.js';
-import { FEATURED_NAMES, POSITION_ORDER } from '../../data/players.js';
+import { FEATURED_NAMES, POSITION_ORDER, STAR } from '../../data/players.js';
 import { FOCUSES, FATIGUE } from '../../data/training.js';
 import { LOAN, POOL, SQUAD_RULES } from '../../data/transfers.js';
-import { generatePlayer, overall } from './players.js';
+import { generatePlayer, overall, statCap } from './players.js';
 import { salaryFor } from './squad.js';
 import { normalisePlayer, dailyXp, gainXp, retrainDay, normaliseTraining } from './training.js';
 import { effect } from './effects.js';
@@ -115,8 +115,9 @@ export function rangeOf(data, p, day = 0) {
   const proj = p.youth?.projected ?? p.potential.exact ?? p.potential.high;
   const ovr = overall(p);
   // (a range that would start below his overall now slides up — the same width, so it gives nothing away)
-  const low = Math.min(99 - width, Math.max(1, Math.min(ovr, 99), proj - Math.round(width * hash01(p.id, 'ypot'))));
-  const high = Math.min(99, low + width);
+  const top = statCap(p); // (M20) 99, or 140 for a Star prospect
+  const low = Math.min(top - width, Math.max(1, Math.min(ovr, top), proj - Math.round(width * hash01(p.id, 'ypot'))));
+  const high = Math.min(top, low + width);
   return { low, high, width, label: labelOf(Math.round((low + high) / 2)) };
 }
 function refreshRange(data, p, day) {
@@ -176,8 +177,14 @@ function newCandidate(data, rng, used, year, golden, regen = null) {
   const p = generatePlayer(rng, { id: `y${A.nextId++}`, position, tier, ageRange: [age, age], area: data.club?.area ?? 'fen', usedNames: used });
   const k = YOUTH_SCALE[age] ?? 0.9; // a youngster has not grown into an adult's stats yet
   for (const s of Object.keys(p.stats)) p.stats[s] = Math.max(8, Math.round(p.stats[s] * k));
-  proj = Math.min(POTENTIAL.cap, Math.max(proj, overall(p) + POTENTIAL.room));
-  return youthBits(p, proj, year, regen ? { regenOf: regen.of } : {});
+  // (M20) a Star's regen who came out a Star (careers.js): a Star prospect — his ceiling can pass the academy's cap, to 140
+  if (regen?.star) {
+    p.star = true;
+    p.cap = STAR.cap;
+    p.tier = 'Elite';
+  }
+  proj = Math.min(p.star ? STAR.cap : POTENTIAL.cap, Math.max(proj, overall(p) + POTENTIAL.room));
+  return youthBits(p, proj, year, regen ? { regenOf: regen.of, ...(regen.star ? { star: true } : {}) } : {});
 }
 // The trial players for this year's intake (seeded by the run and the year). The first intake takes the M7 watch list
 // (they leave the watch list now) and still has at least one new face.
@@ -438,7 +445,7 @@ export function academyDay(data, day) {
       if (roll >= chance || left <= 0) continue;
       const by = Math.min(left, rng.int(...BREAKTHROUGH.step));
       p.youth.breakthrough += by;
-      p.potential.exact = Math.min(99, p.youth.projected + p.youth.breakthrough);
+      p.potential.exact = Math.min(statCap(p), p.youth.projected + p.youth.breakthrough);
       events.push({ kind: 'breakthrough', id: p.id, name: p.name, by });
       note(data, `Breakthrough: ${p.name} is beating his projection.`);
     }
@@ -468,7 +475,7 @@ export function validateAcademy(data) {
     if (!y || !Number.isFinite(y.projected)) errors.push(`${p.name}: no projection`);
     else {
       if (y.breakthrough < 0 || y.breakthrough > BREAKTHROUGH.max) errors.push(`${p.name}: breakthrough ${y.breakthrough}`);
-      if (p.potential.exact !== Math.min(99, y.projected + y.breakthrough)) errors.push(`${p.name}: exact potential ${p.potential.exact} ≠ ${y.projected} + ${y.breakthrough}`);
+      if (p.potential.exact !== Math.min(statCap(p), y.projected + y.breakthrough)) errors.push(`${p.name}: exact potential ${p.potential.exact} ≠ ${y.projected} + ${y.breakthrough}`);
     }
     if (!(p.potential.low <= p.potential.high)) errors.push(`${p.name}: range`);
     if (overall(p) > p.potential.exact) errors.push(`${p.name}: overall above his potential`);

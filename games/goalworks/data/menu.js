@@ -10,6 +10,8 @@ export const MENU_GROUPS = [
     row('shield', 'County Shield', 'The County cup: the bracket, your next tie and past winners', 'tournament_c02'), // (Milestone 17: shown once in County)
     row('knockout', 'National Knockout', 'The National cup: the bracket, your next tie and past winners', 'tournament_c03'), // (Milestone 18: shown once in National)
     row('trophy', 'Championship Trophy', 'The Championship cup: its final can be your Promotion Final', 'tournament_c05'), // (Milestone 19: shown once in the Championship)
+    row('premierCup', 'Premier Cup', 'The Crown Premier cup: the bracket, your next tie and past winners', 'tournament_c06'), // (Milestone 20: shown once in the Crown Premier)
+    row('masters', 'Continental Masters', 'The top clubs’ invitational, once you beat 4 Premier clubs in a season', 'tournament_c07'), // (Milestone 20)
     row('crownCup', 'Crown Cup', 'The cup for the strongest clubs in the land, from Rank C', 'tournament_c04'), // (Milestone 18: shown from Rank C)
   ] },
   { title: 'Team', rows: [
