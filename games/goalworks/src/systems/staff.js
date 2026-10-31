@@ -19,6 +19,7 @@ import { STAFF, STAFF_ROLES, STAFF_TIERS, STAFF_RULES, GATE_TEXT, staffById, rol
 import { RANK_ORDER } from '../../data/facilities.js';
 import { rank as clubRank, normaliseLeague } from './league.js';
 import { offerFor, normaliseGods, nextSeasonEnd } from './gods.js';
+import { post } from './finance.js'; // (M23) the ledger
 
 const WEEK = 7;
 const YEAR = 336;
@@ -64,7 +65,7 @@ export const staffBonus = (data, key) => {
 export const scoutName = (data) => (data?.staff ? inRole(data, 'SC')?.name ?? null : undefined);
 export const wageBill = (data) => hired(data).reduce((s, x) => s + x.salary, 0);
 const credits = (data) => normaliseLeague(data).credits;
-const pay = (data, n) => (data.league.credits = Math.round(credits(data) - n));
+const pay = (data, n, note = 'Staff', day = null) => post(data, -n, 'staff', note, day); // (M23) the ledger
 function note(data, text) {
   const st = data.staff;
   st.log = [...(st.log ?? []), text].slice(-12);
@@ -120,7 +121,7 @@ export function hire(data, id, day, { replace = false } = {}) {
   const cost = hireCost(id) + (cur ? releaseCost(data, cur.id) : 0);
   if (credits(data) < cost) return { ok: false, why: `Needs ${cost.toLocaleString('en-GB')} Credits (you have ${credits(data).toLocaleString('en-GB')}).` };
   if (cur) release(data, cur.id, day, { keepTask: true });
-  pay(data, hireCost(id));
+  pay(data, hireCost(id), `${def.name}: signing fee`, day);
   addHire(data, def, day, `${def.name} joined as ${roleById(def.role).name} (${def.tier}) for ${hireCost(id).toLocaleString('en-GB')} Credits.`);
   return { ok: true, replaced: cur?.id ?? null, cost };
 }
@@ -130,7 +131,7 @@ export function release(data, id, day, { keepTask = false } = {}) {
   const s = hired(data).find((x) => x.id === id);
   if (!s) return { ok: false, why: 'Not on the staff.' };
   const cost = releaseCost(data, id);
-  pay(data, Math.min(cost, Math.max(0, credits(data)))); // (never below zero: what can't be paid is written off)
+  pay(data, Math.min(cost, Math.max(0, credits(data))), `${s.name}: release pay`, day); // (never below zero: what can't be paid is written off)
   removeHire(data, id);
   if (STAFF_TIERS[s.tier]?.gate === 'divine') normaliseGods(data).returnAt[id] = nextSeasonEnd(day); // (M20b) a god: back after the next season's end
   if (s.role === 'SC' && !keepTask && data.transfers?.scouting?.task) data.transfers.scouting.task = null;
@@ -143,7 +144,7 @@ export function extend(data, id) {
   if (!raw) return { ok: false, why: 'Not on the staff.' };
   const cost = extendCost(id);
   if (credits(data) < cost) return { ok: false, why: `Needs ${cost.toLocaleString('en-GB')} Credits.` };
-  pay(data, cost);
+  pay(data, cost, `${raw.name}: contract extended`);
   raw.counters = { ...raw.counters, years: (raw.counters?.years ?? 0) + STAFF_TIERS[raw.tier].years };
   data.staff.rev = (data.staff.rev ?? 0) + 1;
   note(data, `${raw.name} signed on for ${STAFF_TIERS[raw.tier].years} more seasons (${cost.toLocaleString('en-GB')} Credits).`);
@@ -161,11 +162,7 @@ export function staffDay(data, day) {
   st.lastDay = day;
   const out = [];
   if (day > 0 && day % WEEK === 0 && st.hired.length) {
-    const bill = wageBill(data);
-    if (credits(data) < bill) {
-      data.league.credits = 0;
-      note(data, 'Staff wages ran short this week.');
-    } else pay(data, bill);
+    pay(data, wageBill(data), 'Staff wages', day); // (M23: a gap is covered by Emergency Credit)
   }
   if (day > 0 && day % YEAR === 0) {
     for (const raw of st.hired.slice()) {

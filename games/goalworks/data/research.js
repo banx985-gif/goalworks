@@ -115,11 +115,11 @@ export const RESEARCH_EFFECTS = {
   reinjuryPct: { waits: 'M25', what: 'injuries' },
   setPiecePct: { waits: 'M25', what: 'set pieces' },
   tacticalPrepPct: { live: true, system: 'match preparation (with an Analyst, M14)' },
-  fanGrowthPct: { waits: 'M23', what: 'fans' },
-  sponsorPct: { waits: 'M23', what: 'sponsors' },
-  stadiumOpsPct: { waits: 'M24', what: 'the stadium' },
-  mediaPct: { waits: 'M23', what: 'fans and media' },
-  commercialPct: { waits: 'M23', what: 'commercial income' },
+  fanGrowthPct: { live: true, system: 'Fan Trust (M23)' },
+  sponsorPct: { live: true, system: 'sponsor stipends (M23)' },
+  stadiumOpsPct: { live: true, system: 'stadium upkeep (M23)' },
+  mediaPct: { live: true, system: 'Fan Trust after big moments (M23)' },
+  commercialPct: { live: true, system: 'merch and sponsor income (M23)' },
   worldReputationPct: { waits: 'M21', what: 'continental competitions' },
 };
 

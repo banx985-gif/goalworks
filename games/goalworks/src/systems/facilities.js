@@ -19,6 +19,7 @@ import { FacilitySystem } from '../../../../core/FacilitySystem.js';
 import { FACILITIES, facilityById, STAGES, RANK_ORDER, START_LAYOUT, gateOf, EFFECT_KEYS, LEVELS } from '../../data/facilities.js';
 import { normaliseLeague, rank as clubRank } from './league.js';
 import { upgradeDays } from './effects.js'; // (M20b) Bolt: upgrades 25% faster
+import { post, buildBlock } from './finance.js'; // (M23) the ledger; debt freezes new building
 
 const DEFS = Object.fromEntries(FACILITIES.map((f) => [f.id, { id: f.id, name: f.name, cost: f.cost, w: f.w, h: f.h, effects: f.effects }]));
 // (M12c) one copy's multiplier for one effect at a level (as core/FacilitySystem works it out)
@@ -175,6 +176,8 @@ export function createLayout(data, { bus = null } = {}) {
       const u = unlockOf(data, defId);
       if (!u.ok) return { ok: false, reason: u.reason };
       if (fs.has(defId)) return { ok: false, reason: 'Already built' };
+      const frozen = buildBlock(data); // (M23) Emergency Credit owed: no new building
+      if (frozen) return { ok: false, reason: frozen };
       if (credits() < f.cost) return { ok: false, reason: `Not enough Credits: ${fmt(f.cost)} needed, ${fmt(credits())} available` };
       return { ok: true, reason: null };
     },
@@ -184,7 +187,7 @@ export function createLayout(data, { bus = null } = {}) {
       if (!can.ok) return can;
       const r = fs.place(defId, col, row);
       if (!r.ok) return r;
-      data.league.credits = Math.round(credits() - facilityById(defId).cost);
+      post(data, -facilityById(defId).cost, 'facilities', `Built: ${facilityById(defId).name}`); // (M23)
       write();
       note({ kind: 'build', def: defId, col, row });
       return { ok: true, reason: null, uid: r.item.uid };
@@ -207,7 +210,7 @@ export function createLayout(data, { bus = null } = {}) {
       const can = layout.canSell(uid);
       if (!can.ok) return can;
       const r = fs.remove(uid);
-      data.league.credits = Math.round(credits() + r.refund);
+      post(data, r.refund, 'facilities', `Sold: ${facilityById(r.item.def).name}`); // (M23)
       if (F.names) delete F.names[uid];
       write();
       note({ kind: 'sell', def: r.item.def, refund: r.refund });
@@ -234,6 +237,7 @@ export function createLayout(data, { bus = null } = {}) {
       const rk = clubRank(data).id;
       if (pending) info.block = `Upgrading to level ${pending.to}: ready on day ${pending.doneDay}`;
       else if (info.next.rank && RANK_ORDER.indexOf(rk) < RANK_ORDER.indexOf(info.next.rank)) info.block = `Level ${to} needs Club Rank ${info.next.rank}`;
+      else if (buildBlock(data)) info.block = buildBlock(data); // (M23) Emergency Credit owed
       else if (credits() < info.next.cost) info.block = `Not enough Credits: ${fmt(info.next.cost)} needed, ${fmt(credits())} available`;
       return info;
     },
@@ -244,7 +248,7 @@ export function createLayout(data, { bus = null } = {}) {
       if (info.block) return { ok: false, reason: info.block };
       const r = fs.startUpgrade(uid, { cost: info.next.cost, today, days: info.next.days });
       if (!r.ok) return { ok: false, reason: r.why };
-      data.league.credits = Math.round(credits() - info.next.cost);
+      post(data, -info.next.cost, 'facilities', `Upgrade: ${facilityById(layout.item(uid)?.def.id ?? '')?.name ?? 'facility'} to level ${info.next.level}`, today); // (M23)
       write();
       note({ kind: 'upgrade', uid, to: info.next.level, cost: info.next.cost });
       return { ok: true, reason: null, to: info.next.level, doneDay: r.doneDay, cost: info.next.cost };

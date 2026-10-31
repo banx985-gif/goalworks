@@ -38,6 +38,9 @@ import { seasonRetire, seasonAge, bandOf } from './careers.js';
 import { BAND } from '../../data/careers.js';
 import { normaliseGods, nextSeasonEnd } from './gods.js'; // (M20b)
 import { noteTransfer } from './rivals.js'; // (M22) a player signed from / sold to a rival
+import { post, weeklyIncomeEstimate, runningCosts } from './finance.js'; // (M23) every Credit through the ledger
+import { noteSale } from './fans.js'; // (M23) a favourite sold: Fan Trust falls
+import { wageBill as staffWageBill } from './staff.js';
 
 const YEAR = 336;
 const WEEK = 7;
@@ -49,8 +52,8 @@ const r3 = (v) => Math.round(v * 1000) / 1000;
 const SHAPE = { GK: 2, DF: 6, MF: 4, WG: 3, FW: 3 }; // what an AI club wants its squad to look like
 
 export const credits = (data) => normaliseLeague(data).credits;
-const spend = (data, n) => (data.league.credits = Math.round(data.league.credits - n));
-const earn = (data, n) => (data.league.credits = Math.round(data.league.credits + n));
+const spend = (data, n, cat, note, day) => post(data, -n, cat, note, day); // (M23) the ledger
+const earn = (data, n, cat, note, day) => post(data, n, cat, note, day);
 
 // --- the world ------------------------------------------------------------------------------------------------------------
 function allPlayers(data) {
@@ -206,7 +209,10 @@ const clubProblem = (players) => {
 };
 
 export const wageBill = (data) => data.squad.players.reduce((s, p) => s + (p.contract?.salary ?? 0), 0);
-export const wageSupport = (data) => roundTo((data.transfers?.wageBase ?? 0) * WAGES.rank[clubRank(data).id], WAGES.round);
+export const wageSupport = (data) => roundTo((data.transfers?.wageBase ?? 0) * WAGES.rank[clubRank(data).id] * (WAGES.league[data.league?.tier] ?? 1), WAGES.round);
+// (M23) What covers the squad's wages each week: the board's support plus the club's recurring income (sponsors, merch, about
+// half a home gate), less the staff wages and the running costs. A deal that takes the bill above it needs a cushion.
+export const wageCover = (data) => weeklyIncomeEstimate(data, { support: wageSupport(data) }) - staffWageBill(data) - runningCosts(data).reduce((s, c) => s + c.n, 0);
 
 // --- negotiation -----------------------------------------------------------------------------------------------------------
 const yearsWanted = (p) => CONTRACT_TERMS.yearsWanted.find(([upTo]) => p.age <= upTo)[1];
@@ -290,9 +296,9 @@ export function dealProblem(data, kind, p, owner, offer) {
   const salary = kind === 'loan' || kind === 'loanOption' ? p.contract?.salary ?? 0 : offer.salary ?? 0;
   const extra = kind === 'renew' ? salary - (p.contract?.salary ?? 0) : kind === 'pre' ? 0 : salary;
   const bill = wageBill(data) + extra;
-  const sup = wageSupport(data);
+  const sup = wageCover(data); // (M23: the weekly income, not only the board's support)
   if (extra > 0 && bill > sup && credits(data) - need < (bill - sup) * WAGES.cushionWeeks)
-    return `Wages would run over the board's support (${fmt(bill)} a week against ${fmt(sup)}): keep ${fmt((bill - sup) * WAGES.cushionWeeks)} Credits in hand for it.`;
+    return `Wages would run over the club's weekly income (${fmt(bill)} a week against ${fmt(sup)}): keep ${fmt((bill - sup) * WAGES.cushionWeeks)} Credits in hand for it.`;
   if (JOINING.includes(kind)) {
     const full = fullReason(data);
     if (full) return full;
@@ -380,7 +386,7 @@ export function completeDeal(data, kind, p, owner, offer, day) {
   if (why) return { ok: false, why };
   const v = valueOf(data, p, owner);
   if (kind !== 'renew') noteTransfer(data, owner, p, 'in', day); // (M22) before he leaves them: was he their captain?
-  spend(data, (offer.fee ?? 0) + (offer.bonus ?? 0));
+  spend(data, (offer.fee ?? 0) + (offer.bonus ?? 0), 'signing', kind === 'renew' ? `${p.name}: renewal bonus` : `${p.name}: fee and signing bonus`, day);
   if (kind === 'renew') {
     p.contract = contractOf(offer, day, v);
     log(data, day, `${p.name} renewed: ${offer.years} year${offer.years === 1 ? '' : 's'} at ${fmt(offer.salary)} a week (${offer.role}).`);
@@ -423,7 +429,8 @@ export function release(data, id, day) {
   if (pay > credits(data)) return { ok: false, why: `Not enough Credits for his payout: ${fmt(pay)} needed, ${fmt(credits(data))} available.` };
   const short = rosterProblem(data.squad.players.filter((x) => x !== p));
   if (short) return { ok: false, why: short };
-  spend(data, pay);
+  spend(data, pay, 'wages', `${p.name}: release payout`, day);
+  noteSale(data, p, day); // (M23) a favourite let go
   take(data, 'us', p);
   purgeTactics(data, id);
   toFree(data, p, 'us', day);
@@ -483,13 +490,26 @@ export const openBids = (data) => data.transfers.bids.filter((b) => b.talk.state
 function sellTo(data, p, clubId, fee, day) {
   take(data, 'us', p);
   purgeTactics(data, p.id);
-  earn(data, fee);
+  earn(data, fee, 'transfersIn', `${p.name} sold to ${ownerName(clubId)}`, day);
+  noteSale(data, p, day); // (M23) selling a favourite: Fan Trust falls
   const rng = new Rng(`${data.seed}:sale:${p.id}:${day}`);
   p.contract = { ...contractFor(rng, p, 'Starter'), salary: Math.round((p.contract.salary * 1.1) / 10) * 10 };
   p.shirt = null;
   p.origin = 'club';
   data.transfers.clubs[clubId].players.push(p);
   noteTransfer(data, clubId, p, 'out', day); // (M22)
+}
+// (M23) The board's rescue offer: this player sold today for that fee, to a club with room. → { ok, why }
+export function rescueSale(data, id, fee, day) {
+  const { p, why } = ownPlayer(data, id);
+  if (why) return { ok: false, why };
+  const short = rosterProblem(data.squad.players.filter((x) => x !== p));
+  if (short) return { ok: false, why: short };
+  const club = bidderFor(data, p, new Rng(`${data.seed}:rescue:${id}:${day}`));
+  if (!club) return { ok: false, why: 'No club has room for him.' };
+  sellTo(data, p, club, fee, day);
+  log(data, day, `${p.name} sold to ${ownerName(club)} for ${fmt(fee)} Credits (the board's rescue plan).`);
+  return { ok: true, autosave: true, club };
 }
 export function acceptBid(data, bidId, day) {
   const T = data.transfers;
@@ -544,7 +564,7 @@ export function loanOut(data, id, clubId, day) {
   p.loan = { from: 'us', until: day + LOAN.days };
   club.players.push(p);
   T.loanedOut.push({ id, clubId, until: day + LOAN.days });
-  earn(data, fee);
+  earn(data, fee, 'transfersIn', `${p.name}: loan fee`, day);
   log(data, day, `${p.name} loaned to ${ownerName(clubId)} until day ${day + LOAN.days} (+${fmt(fee)} Credits).`);
   return { ok: true, autosave: true };
 }
@@ -552,7 +572,7 @@ export function exerciseOption(data, id, day) {
   const p = data.squad.players.find((x) => x.id === id);
   if (!p?.loan?.optionPrice) return { ok: false, why: 'No option to buy on this loan.' };
   if (p.loan.optionPrice > credits(data)) return { ok: false, why: `Not enough Credits: ${fmt(p.loan.optionPrice)} needed, ${fmt(credits(data))} available.` };
-  spend(data, p.loan.optionPrice);
+  spend(data, p.loan.optionPrice, 'signing', `${p.name}: loan option`, day);
   log(data, day, `${p.name} bought from ${ownerName(p.loan.from)} for ${fmt(p.loan.optionPrice)} Credits (the loan option).`);
   p.contract = { ...p.contract, years: p.loan.years ?? 3, signedDay: day };
   p.loan = null;
@@ -656,13 +676,9 @@ function bidderFor(data, p, rng) {
 
 function weekly(data, day, rng) {
   const T = data.transfers;
-  // wages (the board's support in, the wage bill out — placeholder money; never below zero)
-  const net = wageSupport(data) - wageBill(data);
-  if (credits(data) + net < 0) {
-    data.league.credits = 0;
-    for (const p of data.squad.players) p.morale = Math.max(0, (p.morale ?? 50) - 2);
-    log(data, day, 'Wages ran short this week: the players are not happy.');
-  } else earn(data, net);
+  // wages: the board's support in, the wage bill out (M23: two ledger lines; a gap is covered by Emergency Credit)
+  earn(data, wageSupport(data), 'board', 'Board support', day);
+  spend(data, wageBill(data), 'wages', 'Squad wages', day);
   // an AI club bids for one of your players now and then (the better he is, the likelier)
   if (rng.next() < AI.bidChancePerWeek) {
     const cands = data.squad.players.filter((p) => !p.founder && !p.god && !p.loan && !openBids(data).some((b) => b.playerId === p.id));

@@ -30,6 +30,8 @@ import { cupById, CUPS, CUP_ORDER, ALL_CUPS } from '../../data/cups.js';
 import * as CUP from './cup.js';
 import { incomeMult } from './gods.js';
 import * as RIV from './rivals.js'; // (M22) the rivalry meter: rewards, cooldowns, results, the day's fade
+import { post, gateFor } from './finance.js'; // (M23) every Credit through the ledger; the matchday gate
+import { effect } from './effects.js'; // (M23) Aero Travel: away and tournament reputation
 
 const round1 = (v) => Math.round(v * 10) / 10;
 const blankClub = () => ({ w: 0, d: 0, l: 0, meetings: 0, cooldownUntil: 0 });
@@ -41,7 +43,7 @@ export function normaliseLeague(data) {
     nextId: 1,
     clubs: Object.fromEntries(REGIONAL_CLUBS.map((c) => [c.id, blankClub()])),
     rep: { history: 0, momentum: 0 },
-    credits: 0, // PLACEHOLDER until the money ledger (Milestone 23)
+    credits: 0, // (M23) changed only through the ledger (src/systems/finance.js post)
     promotion: { unlocked: false, won: false, county: null, retryAt: 0, matches: 0 }, // (Regional → County, M10)
     lastDay: null,
   };
@@ -403,9 +405,19 @@ export function recordResult(data, fixture, score, day) {
     c.meetings++;
     if (!fixture.cup) c.cooldownUntil = day + Math.round(club.cooldown * RIV.cooldownMult(data, club.id)); // (a cup tie leaves the league's rematch cooldown alone; M22: a Heated+ rival comes back sooner)
   }
+  // (M23) Aero Travel: an away match or a cup tie earns more reputation (wins and draws)
+  const awayPct = !friendly && (!fixture.home || fixture.cup) && reward.res !== 'loss' ? effect(data, 'awayRepPct') : 0;
+  if (awayPct) {
+    reward.history = round1(reward.history * (1 + awayPct / 100));
+    reward.momentum = round1(reward.momentum * (1 + awayPct / 100));
+    reward.rep = round1(reward.history + reward.momentum);
+  }
   L.rep.history = round1(L.rep.history + reward.history);
   L.rep.momentum = round1(Math.max(0, L.rep.momentum + reward.momentum));
-  L.credits += reward.credits;
+  post(data, reward.credits, 'prize', `${reward.res === 'win' ? 'Win' : reward.res === 'draw' ? 'Draw' : 'Match'} pay: ${club.name}`, day); // (M23)
+  // (M23) the matchday gate: each home match (not a Showcase friendly)
+  reward.gate = fixture.home && !friendly ? gateFor(data) : 0;
+  if (reward.gate) post(data, reward.gate, 'gate', `Home gate: ${club.name}`, day);
   L.offers = L.offers.filter((o) => o.state === 'open' && o.id !== fixture.offerId);
   // (M17) a cup tie: the bracket moves on; a round won earns Credits, the cup itself its prize and flags
   let cup = null;
@@ -414,7 +426,7 @@ export function recordResult(data, fixture, score, day) {
     const pz = cup?.prize;
     if (pz) {
       const k = cupById(cup.cup)?.tierScale ? leagueOf(data).tier : 1; // (M21b) the Showcase's prize grows with your league
-      L.credits += Math.round((pz.credits ?? 0) * k * incomeMult(data)); // (M20b) Kaching: +20% prize money
+      post(data, Math.round((pz.credits ?? 0) * k * incomeMult(data)), 'prize', `${cupById(cup.cup)?.name ?? 'Cup'} prize`, day); // (M20b) Kaching: +20% prize money; (M23) the ledger
       L.rep.history = round1(L.rep.history + (pz.history ?? 0) * k);
       L.rep.momentum = round1(L.rep.momentum + (pz.momentum ?? 0) * k);
       for (const f of pz.flags ?? []) (data.unlocks ??= {})[f] ??= day;

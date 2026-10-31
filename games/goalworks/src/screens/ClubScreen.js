@@ -46,6 +46,7 @@ import { characterPose, drawCharacter } from '../../../../core/CharacterMotion.j
 import { drawClubFlag } from '../ui/kitArt.js';
 import { drawBadge } from '../ui/clubArt.js';
 import { rank as clubRank, leagueOf } from '../systems/league.js';
+import { trust as fanTrust, band as fanBand } from '../systems/fans.js'; // (M23) Fan Trust on the plate's chip
 import { founderById, colourById, POSITIONS } from '../../data/setup.js';
 import { COMPLEX, TREES, PROPS, PERSON, LOOK as L, DRILL } from '../../data/complex.js';
 import { facilityById, ART_LOOK, ART_TWEAK, PITCHES } from '../../data/facilities.js';
@@ -1323,9 +1324,10 @@ export function createClubScreen({ renderer, layout, assets, bus, sheet, club, o
     ctx.restore();
     const bh = r.h - 16;
     drawBadge(ctx, { x: r.x + 14, y: r.y + 8, w: bh * 0.84, h: bh }, { ...c.badge, primary: c.colours.primary, secondary: c.colours.secondary });
-    // (M10) the Club Rank chip on the right
+    // (M10) the Club Rank chip on the right; (M23) Fan Trust under it when the chip is tall enough
     const rk = club()?.data.league ? clubRank(club().data).id : 'E';
-    const chip = { x: r.x + r.w - 20 - 120, y: r.y + 18, w: 120, h: r.h - 36 };
+    const fans = club()?.data.league && r.h - 24 >= 76;
+    const chip = fans ? { x: r.x + r.w - 20 - 150, y: r.y + 12, w: 150, h: r.h - 24 } : { x: r.x + r.w - 20 - 120, y: r.y + 18, w: 120, h: r.h - 36 };
     ctx.save();
     ctx.fillStyle = 'rgba(255,255,255,0.92)';
     ctx.strokeStyle = C.outline;
@@ -1335,7 +1337,11 @@ export function createClubScreen({ renderer, layout, assets, bus, sheet, club, o
     ctx.fill();
     ctx.stroke();
     ctx.restore();
-    text(ctx, `Rank ${rk}`, chip.x + chip.w / 2, chip.y + chip.h / 2 + 1, { size: S.small, bold: true, color: C.text, align: 'center', baseline: 'middle', maxWidth: chip.w - 12 });
+    if (fans) {
+      const fb = fanBand(club().data);
+      text(ctx, `Rank ${rk}`, chip.x + chip.w / 2, chip.y + chip.h * 0.32, { size: S.small, bold: true, color: C.text, align: 'center', baseline: 'middle', maxWidth: chip.w - 12 });
+      text(ctx, `Fans ${Math.round(fanTrust(club().data))}`, chip.x + chip.w / 2, chip.y + chip.h * 0.72, { size: 24, bold: true, color: fb.colour, align: 'center', baseline: 'middle', maxWidth: chip.w - 12 });
+    } else text(ctx, `Rank ${rk}`, chip.x + chip.w / 2, chip.y + chip.h / 2 + 1, { size: S.small, bold: true, color: C.text, align: 'center', baseline: 'middle', maxWidth: chip.w - 12 });
     const tx = r.x + 14 + bh * 0.84 + 12;
     const tr = chip.x - 12;
     // (M17) the league under the club's name ("County League")

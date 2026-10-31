@@ -132,12 +132,14 @@ export const SCOUTING = {
   ],
 };
 
-// The weekly wages and the board's wage support (a placeholder until the M23 ledger): each week Credits get the support and
-// pay the wage bill. The support starts a little above the starting squad's bill and grows with the Club Rank. A deal that
-// takes the bill above the support needs Credits for cushionWeeks of the difference.
+// The weekly wages and the board's wage support (M23: two ledger lines each week, 'Board support' in, 'Squad wages' out).
+// The support starts a little above the starting squad's bill and grows with the Club Rank; (M23) from the National League
+// up the board pays a smaller share (league), as sponsors, the gate and merch take over. A deal that takes the bill above
+// the club's weekly income (transfers.js wageCover) needs Credits for cushionWeeks of the difference.
 export const WAGES = {
   supportShare: 1.05,
   rank: { E: 1, D: 1.1, C: 1.25, B: 1.4, A: 1.6, S: 2 },
+  league: { regional: 1, county: 1, national: 0.9, championship: 0.65, premier: 0.45 },
   cushionWeeks: 8,
   round: 100,
 };

@@ -147,6 +147,7 @@ export function godBonus(data, key) {
   let v = 0;
   if (key === 'recoveryPct' && godPlayer(data, 'GOD3')) v += GODS.GOD3.blessing.recoveryPct;
   if (key === 'incomePct' && data.gods?.chairman === 'GOD4') v += GODS.GOD4.blessing.incomePct;
+  if (key === 'sponsorPct' && data.gods?.chairman === 'GOD4') v += GODS.GOD4.blessing.sponsorPct; // (M23: stored since M20b, live with sponsors)
   return v;
 }
 export const incomeMult = (data) => 1 + godBonus(data, 'incomePct') / 100;

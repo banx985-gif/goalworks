@@ -102,7 +102,7 @@ export const EFFECT_KEYS = {
   storeSize: { live: true, where: 'The Club Store holds {v} more items' }, // (Milestone 12c)
   injuryRecoveryPct: { waits: 'M25', what: 'injuries' },
   injuryPreventionPct: { waits: 'M25', what: 'injuries' },
-  kitCare: { waits: 'M23', what: 'the club finances (kit and equipment costs)' },
+  kitCare: { live: true, where: 'Kit and equipment cared for: stadium upkeep −10%' }, // (Milestone 23)
   // (Milestone 15) the academy (src/systems/academy.js): the trials need a Youth Corner; the Academy Building is the full
   // youth system, the Elite Academy higher potential rolls
   academyIntake: { live: true, where: 'The academy: a yearly intake of 3–6 young players at the trials (Month 3)' },
@@ -114,9 +114,9 @@ export const EFFECT_KEYS = {
   // strength on this pitch (DECISIONS 3 Oct)
   trainingGroups: { live: true, where: 'A second training group: its own session focus on this pitch (the Head Coach at half strength here)' },
   tacticalPrepPct: { live: true, where: 'Match preparation +{v}% (with an Analyst on the staff)' }, // (Milestone 14)
-  matchdayIncomePct: { waits: 'M23', what: 'matchday income' },
-  fanIncomePct: { waits: 'M23', what: 'fans and fan income' },
-  sponsorFanPct: { waits: 'M23', what: 'sponsors and fans' },
+  matchdayIncomePct: { live: true, where: 'Matchday gate +{v}%' }, // (Milestone 23)
+  fanIncomePct: { live: true, where: 'Merch and hospitality +{v}%' },
+  sponsorFanPct: { live: true, where: 'Sponsor stipends +{v}%' },
   legendBonus: { waits: 'M27', what: 'club history' },
   weatherProof: { waits: 'M24', what: 'matchday and stadium conditions' },
   globalScouting: { waits: 'M18', what: 'scouting beyond the Regional and County leagues' },

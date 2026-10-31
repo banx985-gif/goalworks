@@ -73,9 +73,9 @@ export const GODS = {
     art: 'staff_god_kaching',
     blessing: {
       name: 'Golden touch',
-      plain: '+20% on all match income and cup and league prize money. Later, +20% on sponsor payouts (sponsors arrive in M23).',
+      plain: '+20% on all match income, the matchday gate, merch, and cup and league prize money, and +20% on sponsor payouts.',
       incomePct: 20,
-      sponsorPct: 20, // (waits for M23)
+      sponsorPct: 20, // (M23: live — src/systems/sponsors.js stipendOf)
     },
   },
   GOD5: {

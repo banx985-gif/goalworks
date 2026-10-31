@@ -27,6 +27,7 @@ export const MENU_GROUPS = [
     row('clubStore', 'Club Store', 'Items the club has earned: give one to a player to raise a stat for good', 'item_25'),
   ] },
   { title: 'Club', rows: [
+    row('finances', 'Finances', 'Every Credit in and out, sponsors, Fan Trust and the board', 'ui_24'), // (Milestone 23)
     row('build', 'Build / Facilities', 'Build, move, sell and upgrade facilities on your ground', 'ui_03'),
     row('research', 'Research', 'Spend Research Points on better training, scouting and tactics', 'ui_26'),
     row('rumours', 'Rumours', 'Whispers around the club: strange clues, and who is waiting at the gates', 'ui_28'), // (Milestone 20b)

@@ -86,6 +86,7 @@ export const MEASURES = {
   cleanSheets8: (data) => normaliseSecrets(data).track.bestClean8,
   comebacks: (data) => normaliseSecrets(data).track.comebacks,
   ...RIVAL_MEASURES, // (M22) rivalryBorn, derbyRun, poachedCaptain
+  m28: () => 0, // (M23) the secret sponsors' real triggers wait for the Secret Engine (M28)
 };
 // (M21) Did you trail by 2 or more at any point? (the goals in order: team 0 is yours; an own goal counts for the side it
 // went to)
@@ -237,6 +238,18 @@ export function secretsDay(data, day, account = null) {
       }
       (data.rivals.popups ??= []).push({ kind: 'secret', id: secret.id, day, ...(club ? { clubId: club } : {}) });
       events.push({ kind: 'rivalFound', id: secret.id, club });
+      continue;
+    }
+    if (secret.reward.sponsor) {
+      // (M23) a secret sponsor found (M28's real triggers; ?debug=1 forces it): the sponsor can make offers now
+      st.found = day;
+      rumour(S, day, secret.id, 3, `A secret sponsor: ${secret.name}!`);
+      data.clubHistory = [...(data.clubHistory ?? []), { day, year: yearOf(day), text: `Secret found: ${secret.name} (${secret.conditions.map((x) => x.text).join('; ')})` }].slice(-60);
+      if (A && !A.found[secret.id]) {
+        A.found[secret.id] = { day, sponsor: secret.reward.sponsor, conditions: secret.conditions.map((x) => x.text) };
+        accountChanged = true;
+      }
+      events.push({ kind: 'sponsorFound', sponsor: secret.reward.sponsor, id: secret.id });
       continue;
     }
     if (secret.reward.cup) {

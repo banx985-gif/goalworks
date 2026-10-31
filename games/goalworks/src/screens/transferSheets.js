@@ -108,8 +108,8 @@ export function createTransferSheets({ sheet, assets, dialog, run, today, dateTe
       {
         title: 'My Contracts',
         lines: [
-          `Credits ${fmt(TR.credits(d))} (placeholder until the club's money arrives)`,
-          `Wages ${fmt(TR.wageBill(d))} a week · board support ${fmt(TR.wageSupport(d))} a week (placeholder)`,
+          `Credits ${fmt(TR.credits(d))} (every Credit in and out: Club Menu → Finances)`,
+          `Squad wages ${fmt(TR.wageBill(d))} a week · covered by ${fmt(TR.wageCover(d))} a week of income (board support, sponsors, merch, matchdays, less staff and running costs)`,
           `Squad ${TR.squadCount(d)} of ${SQUAD_RULES.max} (at least ${SQUAD_RULES.min}: 2 GK, 5 DF, 4 MF/WG, 3 FW/WG)`,
         ],
       },

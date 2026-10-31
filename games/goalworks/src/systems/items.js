@@ -13,6 +13,7 @@ import { ITEM_TYPES, ITEM_RARITIES, ITEM_RULES, ITEM_GROUPS, ITEM_SOURCES, ITEM_
 import { clubById } from '../../data/fixtures.js';
 import { bonus as facilityBonus } from './facilities.js';
 import { normaliseLeague } from './league.js';
+import { post } from './finance.js'; // (M23) the ledger
 import { statCap } from './players.js';
 
 export function normaliseItems(data) {
@@ -154,8 +155,8 @@ export function createItems(data, { bus = null } = {}) {
     sell(uid) {
       const v = sys.sell(uid);
       if (v == null) return null;
-      const L = normaliseLeague(data);
-      L.credits = Math.round(L.credits + v);
+      normaliseLeague(data);
+      post(data, v, 'other', 'An item sold back'); // (M23)
       write();
       return v;
     },

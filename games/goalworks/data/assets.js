@@ -44,7 +44,15 @@ export const ASSETS = {
   ...Object.fromEntries(Object.values(GODS).map((g) => art(g.kind === 'player' ? 'players' : 'staff', g.art))),
   // Milestone 22b: the chibi cast's nine filed faces (Cowork's stand-ins, 512×512; walking sheets come later).
   ...Object.fromEntries(CAST.filter((c) => c.still).map((c) => art('cast', c.still))),
+  // Milestone 23: the Finance, Sponsor and Fans icons, and the two secret sponsors' logos. (SP01–SP08's logos are optional:
+  // OPTIONAL_ASSETS below, loaded quietly if Aaron's files are there; until then a text badge drawn in code.)
+  ...Object.fromEntries(['ui_22', 'ui_24'].map((k) => [k, `assets/images/ui/${k}.png`])),
+  ...Object.fromEntries(['sponsor_secret_01', 'sponsor_secret_02'].map((k) => art('sponsors', k))),
   // Milestone 0 loader test (?screen=test): the placeholder PWA icon as a real image, and one deliberately missing file.
   m0Real: 'assets/branding/pwa/icon-192.png',
   m0Missing: 'assets/m0-missing-test.png',
 };
+
+// (M23) Pictures that may not exist yet: loaded quietly if they are there (core/AssetManager loadOptional — no warning, no
+// placeholder box); while missing, the code draws its own stand-in (SP01–SP08: a text badge, src/ui/sponsorArt.js).
+export const OPTIONAL_ASSETS = Object.fromEntries(['sp01', 'sp02', 'sp03', 'sp04', 'sp05', 'sp06', 'sp07', 'sp08'].map((n) => [`sponsor_${n}`, `assets/images/sponsors/sponsor_${n}.png`]));

@@ -65,7 +65,7 @@ export const SECRETS = [
     name: 'The gold coins',
     reward: { god: 'GOD4' },
     conditions: [
-      { key: 'creditsHeld', need: 250000, text: 'Hold 250,000 Credits at once' }, // (M21, Cowork: was 1,000,000; a placeholder until M23 / M35)
+      { key: 'creditsHeld', need: 2000000, text: 'Hold 2,000,000 Credits at once' }, // (M23: tuned on the 25-year soak — was 250,000 (M21), 1,000,000 (M20b))
       { key: 'crownCupWon', need: 1, text: 'Win the Crown Cup (C04)' },
       { key: 'premier', need: 1, text: 'Be in the Crown Premier League' },
     ],
@@ -111,6 +111,14 @@ SECRETS.push(
   rivalSecret('SEC-RIVAL-02', 'Rivalry Born', 'permanent', [{ key: 'rivalryBorn', need: 1, text: 'Face the same non-story club in 3 finals or promotion matches, the first two split 1–1' }], 'Three big games, one each, then the decider: this rivalry is for good.'),
   rivalSecret('SEC-RIVAL-03', 'Derby Fever', 'atmosphere', [{ key: 'derbyRun', need: 5, text: 'Win 5 rivalry matches in a row' }], 'The whole town is buzzing: your ground roars louder for every rivalry match (+2% at home).'),
   rivalSecret('SEC-RIVAL-04', 'Poached Captain', 'newsChain', [{ key: 'poachedCaptain', need: 1, text: 'Sign a rival club’s captain after beating that rival 3 times' }], 'You took their captain. The papers will be full of it for weeks.'),
+);
+// (M23) The secret sponsors (bible §32 SEC-SPON-01 / 02): registered here so the Secret Engine (M28) finds them, with the
+// bible's exact requirements as their words. Their real triggers are M28's: until then the one measure, m28, is always 0, so
+// only ?debug=1 (Finances → Debug) can unlock SP09 Legacy Athletic / SP10 Zero Eleven. No clue stages.
+const sponsorSecret = (id, name, sponsor, text) => ({ id, name, kind: 'sponsor', reward: { sponsor }, conditions: [{ key: 'm28', need: 1, text }], clues: [] });
+SECRETS.push(
+  sponsorSecret('SEC-SPON-01', 'Legacy Athletic', 'SP09', 'Win C10; develop 2 academy players to Elite; Fan Trust 90+'),
+  sponsorSecret('SEC-SPON-02', 'Zero Eleven', 'SP10', 'NG+2; win C15; recruit 3 Secret players; Global Reputation max tier'),
 );
 export const secretById = (id) => SECRETS.find((s) => s.id === id) ?? null;
 export const secretForGod = (godId) => SECRETS.find((s) => s.reward.god === godId) ?? null;

@@ -19,6 +19,7 @@ import { FORMATIONS } from '../../data/tactics.js';
 import { clubById } from '../../data/fixtures.js';
 import { bonus as facilityBonus, facilityLevel } from './facilities.js';
 import { rank as clubRank } from './league.js';
+import { sponsorBonus } from './sponsors.js'; // (M23) Vertex Tech: +RP a day
 
 const fmt = (n) => Math.round(n).toLocaleString('en-GB');
 
@@ -36,7 +37,7 @@ export function normaliseResearch(data) {
   return data.research;
 }
 
-export const rpPerDay = (data) => RP.day + facilityBonus(data, 'rpDay');
+export const rpPerDay = (data) => RP.day + facilityBonus(data, 'rpDay') + sponsorBonus(data, 'rpDay');
 
 // --- formations (R25 Formation Library) ----------------------------------------------------------------------------
 const unlockedList = (data, type) => data?.research?.unlocks?.unlocked?.[type] ?? [];

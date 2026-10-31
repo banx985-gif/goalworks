@@ -33,8 +33,9 @@ export const REPUTATION = {
   fade: 0.5,
 };
 
-// Credits per result (a PLACEHOLDER counter until the real money ledger in Milestone 23).
-export const CREDITS = { win: { 1: 400, 2: 600, 3: 850, 4: 1100, 5: 1350, 6: 1600, 7: 2000, 8: 2300, 9: 2600, 10: 3100, 11: 3500, 12: 3900, 13: 4600, 14: 5200, 15: 5800 }, draw: { 1: 150, 2: 220, 3: 300, 4: 400, 5: 480, 6: 560, 7: 700, 8: 800, 9: 900, 10: 1050, 11: 1200, 12: 1350, 13: 1550, 14: 1750, 15: 1950 }, loss: { 1: 60, 2: 80, 3: 100, 4: 140, 5: 160, 6: 180, 7: 220, 8: 250, 9: 280, 10: 320, 11: 360, 12: 400, 13: 460, 14: 520, 15: 580 }, promotionWin: 1500 };
+// Credits per result: win pay (the ledger's 'Win pay and prize money'). (M23) Scaled up from the National League so a
+// Premier club can afford a Premier squad (a Premier win was 5,800 — less than Jinx's weekly wage); tiers 1–6 unchanged.
+export const CREDITS = { win: { 1: 400, 2: 600, 3: 850, 4: 1100, 5: 1350, 6: 1600, 7: 2400, 8: 2800, 9: 3200, 10: 4200, 11: 4800, 12: 5400, 13: 7500, 14: 8500, 15: 9500 }, draw: { 1: 150, 2: 220, 3: 300, 4: 400, 5: 480, 6: 560, 7: 800, 8: 950, 9: 1100, 10: 1400, 11: 1600, 12: 1800, 13: 2500, 14: 2800, 15: 3200 }, loss: { 1: 60, 2: 80, 3: 100, 4: 140, 5: 160, 6: 180, 7: 240, 8: 280, 9: 320, 10: 420, 11: 480, 12: 540, 13: 750, 14: 850, 15: 950 }, promotionWin: 1500 };
 
 // Regional → County (bible §8): beat 4 distinct Regional clubs + 8 total Regional wins → a Promotion Match against the
 // highest unlocked Regional opponent; win it → the County promotion offer.

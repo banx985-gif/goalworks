@@ -29,6 +29,9 @@ import { strength } from './cup.js';
 import { promotion, addHistory, leagueOfClub } from './league.js';
 import { familiarity } from './tactics.js';
 import { inRole } from './staff.js';
+import * as BOARD from './board.js'; // (M23) the board's objectives and confidence
+import { trust as fanTrust, band as fanBandOf } from './fans.js'; // (M23)
+import { confidenceText } from '../../data/board.js';
 
 const YEAR = 336;
 const MONTH = 28;
@@ -185,14 +188,20 @@ export function voiceParts(data, day) {
       frac = st.won ? 1 : (Math.min(1, st.distinct / Math.max(1, st.need.distinct)) + Math.min(1, st.wins / Math.max(1, st.need.wins)) + (st.rankOk ? 1 : 0)) / 3;
     }
     const credits = data.league?.credits ?? 0;
-    const money = (S.minCredits >= 0 ? 1 : 0) + (credits >= S.start.credits ? 1 : 0);
+    const black = S.minCredits >= 0 && !(data.finance?.emergency?.years ?? []).includes(S.year); // (M23) Emergency Credit this season: not in the black
+    const money = (black ? 1 : 0) + (credits >= S.start.credits ? 0.5 : 0); // (M23: of its 1.5 — in the black 1, grown 0.5)
     const built = Math.max(0, facilityScore(data) - S.start.facilities);
+    const objs = BOARD.evaluate(data, S); // (M23)
+    const objMet = objs.filter((o) => o.met).length;
+    const conf = BOARD.normaliseBoard(data).confidence;
     out.board = {
-      parts: { progress: v.parts.progress * frac, money: Math.min(v.parts.money, money), facilities: Math.min(v.parts.facilities, built * v.perFacility) },
+      parts: { progress: v.parts.progress * frac, money: Math.min(v.parts.money, money), facilities: Math.min(v.parts.facilities, built * v.perFacility), objectives: objs.length ? (v.parts.objectives * objMet) / objs.length : v.parts.objectives }, // (no objectives set — an older save's first season: never held against you)
       words: {
         progress: crown ? 'The Crown title is ours' : promoted ? `Promoted to the ${lg.name}` : frac >= 1 ? 'Every promotion condition is met' : `Promotion conditions ${Math.round(frac * 100)}% of the way`,
-        money: S.minCredits >= 0 ? `The books stayed in the black${credits >= S.start.credits ? ` and grew to ${fmt(credits)} Credits` : ''}` : `The Credits went below zero this year`,
+        money: black ? `The books stayed in the black${credits >= S.start.credits ? ` and grew to ${fmt(credits)} Credits` : ''}` : `The board had to lend an Emergency Credit this year`,
+        objectives: `${objs.length ? `Objectives: ${objMet} of ${objs.length} met${objs.length ? ` (${objs.map((o) => `${o.line}: ${o.met ? 'yes' : 'no'}`).join('; ')})` : ''}.` : 'No objectives set this season.'} ${confidenceText(conf)} (Board Confidence ${Math.round(conf)}).`,
       },
+      objectives: objs,
     };
   }
   // the Fans
@@ -208,10 +217,12 @@ export function voiceParts(data, day) {
         rivals: clamp((S.rivalW - S.rivalL) * v.perRival, -v.parts.rivals, v.parts.rivals),
         home: v.parts.home * Math.min(1, home / v.homeFull),
         favourites: v.parts.favourites * favs,
+        trust: v.parts.trust * Math.min(1, fanTrust(data) / 100), // (M23)
       },
       words: {
         record: `${S.w} won, ${S.d} drawn, ${S.l} lost`,
         cups: S.cupsWon.length ? `The ${cupById(S.cupsWon[0])?.name ?? 'cup'} came home.` : S.tiesWon ? `${S.tiesWon} cup tie${S.tiesWon === 1 ? '' : 's'} won.` : '',
+        trust: `Fan Trust ${Math.round(fanTrust(data))} (${fanBandOf(data).name}).`, // (M23)
       },
     };
   }
@@ -308,6 +319,7 @@ export function awardsNight(data, day, { items = null } = {}) {
   const L = data.league;
   const tier = tierOf(L?.tier);
   const rv = review(data, day);
+  const board = BOARD.settle(data, S, day); // (M23) the board's objectives scored, confidence moves (after the review read them)
   const awards = [];
   for (const award of AWARDS) {
     let p = null;
@@ -347,6 +359,7 @@ export function awardsNight(data, day, { items = null } = {}) {
     great,
     honours,
     xi,
+    board: { met: board.met, of: board.of, rows: board.rows.map(({ id, line, met }) => ({ id, line, met })) }, // (M23)
   };
   V.seasons = [...V.seasons, record].slice(-40);
   V.lastAwards = S.year;

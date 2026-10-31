@@ -212,6 +212,13 @@ import { FRIENDLIES } from '../data/cups.js';
 import * as RIV from './systems/rivals.js'; // (M22) rivals, dynamic rivalry, the late twist
 import { createRivalSheets } from './screens/rivalSheets.js';
 import { castGlyph, drawCast } from './ui/castArt.js'; // (M22b) the chibi cast's faces
+import * as FIN from './systems/finance.js'; // (M23) the money ledger, gate, merch, Emergency Credit
+import * as SP from './systems/sponsors.js'; // (M23) sponsors
+import * as FAN from './systems/fans.js'; // (M23) Fan Trust
+import * as BOARD from './systems/board.js'; // (M23) the board's objectives and rescue offer
+import { createFinanceSheets } from './screens/financeSheets.js'; // (M23)
+import { registerSponsorArt } from './ui/sponsorArt.js'; // (M23) SP01–SP08's text badges until the logos arrive
+import { sponsorById } from '../data/sponsors.js';
 import { NARRATOR, SPONSOR_REP, SAM, castById } from '../data/cast.js';
 import { TWIST } from '../data/rivals.js';
 import { secretById } from '../data/secrets.js';
@@ -434,6 +441,13 @@ function openRun(n, data) {
   if (!data.gods || !data.secrets) setTimeout(() => autosave.request('gods:start'), 0);
   GD.normaliseGods(data);
   SE.normaliseSecrets(data);
+  // (an M22b save: the ledger starts today from the Credits it has; Fan Trust starts from its results (50 ±); no past sponsor
+  // is invented; the board sets its first objectives at the next season's start)
+  if (!data.finance || !data.fans || !data.sponsors || !data.board) setTimeout(() => autosave.request('finance:start'), 0);
+  FIN.normaliseFinance(data, data.calendar?.clock?.totalDays ?? 0);
+  FAN.normaliseFans(data);
+  SP.normaliseSponsors(data, data.calendar?.clock?.totalDays ?? 0);
+  BOARD.normaliseBoard(data);
   // (M17) a save that accepted a promotion offer while the next league was "coming soon" moves up now (M17 County, M18
   // National): a News line and a banner
   const movedTo = LG.catchUp(data, data.calendar?.clock?.totalDays ?? 0);
@@ -484,6 +498,7 @@ bus.on('clock:day', () => {
   commitCupTie(); // (M17) a Shield tie takes the week's slot: fixed as soon as no match is pending
   for (const e of staffDay(open.data, c.clock.totalDays)) staffLeft(e); // (M14) staff wages each week; contracts at the season's end
   TR.transfersDay(open.data, c.clock.totalDays); // (M11) scouting, bids, loans, wages, the AI clubs' moves, the season's end
+  for (const e of FIN.financeDay(open.data, c.clock.totalDays)) financeEvent(e); // (M23) merch, sponsors, running costs, Emergency Credit, the board's season, Fan Trust
   for (const e of CA.careersDay(open.data, c.clock.totalDays)) careerEvent(e); // (M16) retirements announced / done, the Hall of Fame
   for (const e of VD.verdictsDay(open.data, c.clock.totalDays, { items: open.items })) awardsEvent(e); // (M21b) the season's tally; Awards Night
   godsDay(c.clock.totalDays); // (M20b) rumours, a god's arrival, a window that closes, a god back after the season's end
@@ -554,7 +569,7 @@ function godsDay(day) {
 // An arrival shows when the club is free (no sheet, no dialog); the rest wait their turn. (M21b) Awards Night waits its
 // turn in the same queue, after them.
 function pumpArrivals() {
-  if (open && router.currentName === 'club' && !sheet.active && !dialog.active && !awardsNight.active && !godUi.pump() && !pumpReveals() && !pumpRivals()) pumpAwards();
+  if (open && router.currentName === 'club' && !sheet.active && !dialog.active && !awardsNight.active && !godUi.pump() && !pumpReveals() && !pumpRivals() && !pumpAwards()) pumpMoney();
 }
 // (M22) A new rivalry, the late twist, a rivalry secret: one-tap pop-ups, one at a time (kept in the save until seen).
 function pumpRivals() {
@@ -603,6 +618,45 @@ function pumpAwards() {
       setTimeout(() => pumpArrivals(), 0);
     },
   });
+}
+// (M23) The money's pop-ups, one at a time when the club is free (after the gods, reveals, rivals and Awards Night): Edith
+// Marlow's objectives at the season's start, the board's rescue plan, then Celeste Moore's new offers (each pops once; it
+// stays on Finances → Sponsors until it runs out).
+function pumpMoney() {
+  if (!open || dialog.active || awardsNight.active || sheet.active) return false;
+  const d = open.data;
+  if (d.board?.toShow != null) {
+    financeUi.openBoardSheet();
+    return true;
+  }
+  const R = BOARD.pendingRescue(d);
+  if (R && !R.seen) {
+    R.seen = true;
+    autosave.request('board:rescue:seen');
+    financeUi.openRescue();
+    return true;
+  }
+  const o = SP.openOffers(d).find((x) => !x.seen);
+  if (o) {
+    o.seen = true;
+    autosave.request('sponsor:offer:seen');
+    financeUi.openOffer(o.uid);
+    return true;
+  }
+  return false;
+}
+// (M23) The ledger's day: a sponsor's offer, the board's sheet or rescue plan (pop-ups); Emergency Credit lent / repaid, a
+// deal ended, Fan Trust moving a band (banners).
+function financeEvent(e) {
+  if (!open) return;
+  const day = open.calendar.today;
+  const fmtC = (n) => Math.round(n).toLocaleString('en-GB');
+  if (e.kind === 'offer' || e.kind === 'boardObjectives' || e.kind === 'rescue') setTimeout(() => pumpArrivals(), 0);
+  else if (e.kind === 'loan') researchBanner.show({ id: `loan:${day}`, title: 'Emergency Credit', line: `The board lent ${fmtC(e.n)} Credits to cover the gap`, gives: 'Repaid from income each week · new building frozen until then', icon: 'ui_24', color: COL.bad });
+  else if (e.kind === 'repaid') researchBanner.show({ id: `repaid:${day}`, title: 'Emergency Credit repaid', line: 'The club is out of debt', gives: 'Building is open again', icon: 'ui_24', color: COL.good });
+  else if (e.kind === 'ended') researchBanner.show({ id: `spEnd:${e.id}:${day}`, title: `${sponsorById(e.id)?.name ?? 'A sponsor'}: deal over`, line: e.early ? 'Replaced early' : `${e.met} of ${e.of} objectives met · bonus ${fmtC(e.bonus)} Credits`, gives: e.resign ? 'They want to re-sign: see Finances → Sponsors' : 'Celeste is looking for the next one', icon: sponsorById(e.id)?.art ?? 'ui_22', color: e.met === e.of ? COL.good : COL.progress });
+  else if (e.kind === 'fanBand') researchBanner.show({ id: `fans:${e.band}:${day}`, title: `Fans: ${e.name}`, line: e.line ?? '', gives: `Fan Trust ${Math.round(e.trust)} · Del Price, Supporters’ Club`, icon: 'ui_23', color: e.up ? COL.good : COL.bad });
+  debug.log(`finance: ${e.kind}${e.id ? ` ${e.id}` : ''}`);
 }
 // (M21) A secret tournament found: a one-tap pop-up reveals its name and art (several wait their turn).
 const reveals = [];
@@ -1142,6 +1196,7 @@ function matchFinished(world) {
   if (open.data.squad && !friendly) CA.recordMatch(open.data, { xiIds, score: r.score, scorers: r.scorers }); // (M16) career stats, club records
   if (fx && open.data.squad) VD.afterMatch(open.data, { fixture: fx, score: r.score, scorers: r.scorers, cup: league?.cup ?? null, xiIds }, open.calendar.today); // (M21b) the season's tally (not a friendly)
   if (fx && open.data.squad) SE.afterMatch(open.data, { fixture: fx, score: r.score, scorers: r.scorers, cup: league?.cup ?? null, xiIds }, open.calendar.today); // (M20b) the secrets' tallies
+  const fanEvents = fx?.source === 'league' && open.data.squad ? FIN.afterMatch(open.data, { fixture: fx, score: r.score, xiIds, sum: league }, open.calendar.today) : []; // (M23) sponsors' objectives, Fan Trust
   if (open.data.transfers) TR.afterMatch(open.data, xiIds); // (M11) a promised role not met: morale
   // (M9) familiarity: the formation / style the match started in
   if (world.setup.formation) familiarityMatch(open.data, pairKey(world.setup.formation[0], world.setup.tactics?.[0]?.build ?? 'balanced'));
@@ -1154,12 +1209,13 @@ function matchFinished(world) {
   debug.log(`full time: ${r.score.join('–')}`);
   router.go('club');
   for (const it of won) itemArrived(it);
+  for (const e of fanEvents) financeEvent(e); // (M23) Del Price, when Fan Trust moves a band
   // (M17) a cup tie: through, out, or the cup won
   const ct = league?.cup;
   if (ct) {
     const cup = cupById(ct.cup);
     const id = `cuptie:${ct.cup}:${open.calendar.today}`;
-    if (ct.champion && !cup.friendly) LG.news(open.data, open.calendar.today, `${castById(SPONSOR_REP).name} (Commercial Partnerships): “Sponsors have noticed the club after that ${cup.name} win. Expect my call.”`, SPONSOR_REP); // (M22b) sponsor interest (offers come with M23)
+    if (ct.champion && !cup.friendly) LG.news(open.data, open.calendar.today, `${castById(SPONSOR_REP).name} (Commercial Partnerships): “Sponsors have noticed the club after that ${cup.name} win. Expect my call — the next offer will be better.”`, SPONSOR_REP); // (M22b) sponsor interest; (M23) the next offer pays more (sponsors.js afterMatch)
     if (ct.champion) researchBanner.show({ id, title: `${cup.name} winners!`, line: `+${Math.round(cup.prize.credits * GD.incomeMult(open.data)).toLocaleString('en-GB')} Credits · reputation +${cup.prize.history + cup.prize.momentum}`, gives: 'Sponsors have noticed the club', icon: cup.art, color: C_GOLD });
     else if (ct.won) researchBanner.show({ id, title: `Through to the ${cup.rounds[cup.rounds.indexOf(ct.roundName) + 1].toLowerCase()}!`, line: `${cup.name}${ct.pens ? ` · won ${ct.pens[0]}–${ct.pens[1]} on penalties` : ''}`, gives: `+${cup.roundWin.credits} Credits · the next tie in about 4 weeks`, icon: cup.art, color: COL.good });
     else researchBanner.show({ id, title: `Out of the ${cup.name}`, line: `${ct.roundName}${ct.pens ? ` · lost ${ct.pens[0]}–${ct.pens[1]} on penalties` : ''}`, gives: 'It opens again next season', icon: cup.art, color: COL.bad });
@@ -1257,7 +1313,7 @@ const matchScreen = createMatchScreen({
     // (M22) a rivalry match: DERBY / RIVALS on the result, with what it changed
     const rv = RIV.info(open.data, fx.opponent.id);
     const rvLine = rv ? `${rv.banner} ${p.res === 'win' ? 'WON' : p.res === 'loss' ? 'LOST' : 'DRAWN'} · ${rv.band.name} rivalry${rv.band.id !== 'cool' ? (p.res === 'win' ? ' · +50% reputation and Credits' : p.res === 'loss' ? ' · a dent in your reputation' : '') : ''}` : null;
-    return [`${pf ? 'PROMOTION FINAL · ' : ''}${fx.cup ? `${cupById(fx.cup.id).name} ${fx.cup.name.toLowerCase()} · ` : fx.promotion ? `${promoName} · ` : ''}+${p.credits} Credits (placeholder) · reputation ${rep >= 0 ? '+' : ''}${Math.round(rep)} · +${rp} RP`, rvLine, cupLine, fx.promotion && p.res === 'win' ? (lg.promotion.final.title ? 'CROWN CHAMPIONS! The Crown Premier title is yours.' : `Promotion earned: the ${nextLeagueName(lg.promotion.to)} offer is waiting.`) : null].filter(Boolean);
+    return [`${pf ? 'PROMOTION FINAL · ' : ''}${fx.cup ? `${cupById(fx.cup.id).name} ${fx.cup.name.toLowerCase()} · ` : fx.promotion ? `${promoName} · ` : ''}+${p.credits} win pay${fx.home ? ` · gate +${FIN.gateFor(open.data).toLocaleString('en-GB')}` : ''} · reputation ${rep >= 0 ? '+' : ''}${Math.round(rep)} · +${rp} RP`, rvLine, cupLine, fx.promotion && p.res === 'win' ? (lg.promotion.final.title ? 'CROWN CHAMPIONS! The Crown Premier title is yours.' : `Promotion earned: the ${nextLeagueName(lg.promotion.to)} offer is waiting.`) : null].filter(Boolean);
   },
   held: () => sheet.active, // (the match waits while a sheet is open over it)
   leftHanded: () => settings.get('leftHanded') === true, // (M12b)
@@ -1387,6 +1443,7 @@ const MENU_OPEN = {
   rumours: () => godUi.openRumours(), // (M20b)
   tournaments: () => tournamentsUi.openTournaments(), // (M21)
   rivals: () => rivalsUi.openRivals(), // (M22)
+  finances: () => financeUi.openFinances(), // (M23)
   academy: () => academyUi.openAcademy(), // (M15)
   hallOfFame: () => hofUi.openHallOfFame(), // (M16)
   shield: () => openShield(false, 'C02'), // (M17)
@@ -1445,6 +1502,12 @@ function menuState(id) {
     const n = Object.keys(GODS).filter((g) => GD.offerFor(open.data, g)).length;
     const heard = open.data.secrets?.rumours?.length ?? 0;
     return { badge: n || null, sub: n ? `${n === 1 ? 'Someone is' : `${n} figures are`} waiting at the club gates!` : heard ? `${heard} rumour${heard === 1 ? '' : 's'} heard` : 'Nothing yet: strange things happen at clubs that climb high' };
+  }
+  if (id === 'finances' && open) { // (M23)
+    const d = open.data;
+    const offers = SP.openOffers(d).length;
+    const owed = FIN.owed(d);
+    return { badge: offers || (owed ? '!' : null), sub: owed ? `Emergency Credit: ${owed.toLocaleString('en-GB')} owed · building frozen` : offers ? `${offers === 1 ? 'A sponsor offer is' : `${offers} sponsor offers are`} waiting · ${d.league.credits.toLocaleString('en-GB')} Credits` : `${d.league.credits.toLocaleString('en-GB')} Credits · ${(d.sponsors?.active?.length ?? 0)} sponsor${d.sponsors?.active?.length === 1 ? '' : 's'} · Fan Trust ${Math.round(FAN.trust(d))}` };
   }
   if (id === 'clubStore') return openClubStore && open?.items ? { badge: open.items.inventory.length || null } : { hidden: true };
   return {};
@@ -1594,6 +1657,24 @@ const rivalsUi = createRivalSheets({
     autosave.request('rivals:ghost:debug');
   },
 });
+// Milestone 23: the Finances screen and the money pop-ups (Celeste's offers, Edith's objectives, the rescue plan).
+const financeUi = createFinanceSheets({
+  sheet,
+  assets,
+  run: () => open?.data ?? null,
+  today: () => open?.calendar.today ?? 0,
+  dateText: (day) => {
+    const dd = open?.calendar.clock.dateOf(day);
+    return dd ? `Year ${dd.year} · Month ${dd.month} · Day ${dd.day}` : '';
+  },
+  onSell: (d, id, fee, day) => TR.rescueSale(d, id, fee, day),
+  onChange: (why) => {
+    debug.log(why);
+    autosave.request(why);
+    if (why === 'board:seen') setTimeout(() => pumpArrivals(), 0); // (the next pop-up waiting, e.g. Celeste's offer)
+  },
+  debug: debug.enabled,
+});
 const godUi = createGodSheets({
   sheet,
   dialog,
@@ -1679,6 +1760,7 @@ const splashScreen = createSplashScreen({
   load: (onProgress) =>
     Promise.all([
       assets.loadImages(ASSETS, (done, total) => onProgress(done / total)).then((r) => debug.log(`assets: ${r.loaded} loaded, ${r.missing.length} missing`)),
+      Promise.resolve(registerSponsorArt(assets)), // (M23) SP01–SP08: their logos if the files are there, else the text badge
       prepareSaves().catch((err) => console.error('[GOALWORKS] saves unavailable', err)),
     ]),
   done: () => {
@@ -1761,7 +1843,7 @@ function addFeaturedStar(fid) {
 }
 // ?debug=1: a test hook for automated checks.
 if (debug.enabled) {
-  window.__gw = { RIV, rivalsUi, pumpRivals, VD, awardsNight, debugAwardsNight, debugShowcase, pumpAwards, syncGreatTeams, tournamentsUi, pumpArrivals, godUi, GD, SE, signGod, releaseGod, renderer, layout, input, loop, router, assets, sheet, dialog, systemBack, textPrompt, splashScreen, menuScreen, slotsScreen, setupScreen, clubScreen, squadScreen, trainingScreen, openTraining, tacticsScreen, openTactics, openMatchTactics, playSlot, startClub, deleteSlot, openShop, setRank, facilityBonus, researchUi, researchBanner, get research() { return open?.research ?? null; }, newGame, openLeague, openCountyOffer, openPromotionOffer, openCrownChampions, addFeaturedStar, overall, openShield, commitCupTie, LG, CUP, acceptChallenge, issueChallenge, transfers: transfersUi, TR, openMatchSetup, playPlaceholder, kickOff, startTestMatch, matchScreen, restoreMatchWorld, get match() { return match; }, toggleSpeedFlag, autosave, saveRun, canvasLost, canvasLossCount, itemsUi, staffUi, normaliseStaff, academyUi, AC, openStaffRole, hofUi, CA, syncHallOfFame, facilityLevel: (id) => (open ? facilityLevel(open.data, id) : 0), get items() { return open?.items ?? null; }, settings, governor, lowFx, haptics, hintLine, openNavMenu, MENU_OPEN, menuState, openSettings, get account() { return account; }, taps: [], get campaigns() { return campaigns; }, get open() { return open; } };
+  window.__gw = { FIN, SP, FAN, BOARD, financeUi, pumpMoney, RIV, rivalsUi, pumpRivals, VD, awardsNight, debugAwardsNight, debugShowcase, pumpAwards, syncGreatTeams, tournamentsUi, pumpArrivals, godUi, GD, SE, signGod, releaseGod, renderer, layout, input, loop, router, assets, sheet, dialog, systemBack, textPrompt, splashScreen, menuScreen, slotsScreen, setupScreen, clubScreen, squadScreen, trainingScreen, openTraining, tacticsScreen, openTactics, openMatchTactics, playSlot, startClub, deleteSlot, openShop, setRank, facilityBonus, researchUi, researchBanner, get research() { return open?.research ?? null; }, newGame, openLeague, openCountyOffer, openPromotionOffer, openCrownChampions, addFeaturedStar, overall, openShield, commitCupTie, LG, CUP, acceptChallenge, issueChallenge, transfers: transfersUi, TR, openMatchSetup, playPlaceholder, kickOff, startTestMatch, matchScreen, restoreMatchWorld, get match() { return match; }, toggleSpeedFlag, autosave, saveRun, canvasLost, canvasLossCount, itemsUi, staffUi, normaliseStaff, academyUi, AC, openStaffRole, hofUi, CA, syncHallOfFame, facilityLevel: (id) => (open ? facilityLevel(open.data, id) : 0), get items() { return open?.items ?? null; }, settings, governor, lowFx, haptics, hintLine, openNavMenu, MENU_OPEN, menuState, openSettings, get account() { return account; }, taps: [], get campaigns() { return campaigns; }, get open() { return open; } };
 }
 
 router.go('boot');

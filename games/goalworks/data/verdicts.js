@@ -5,9 +5,11 @@
 //
 // Each voice: base + its parts, each part capped, rounded to a whole number and kept 1–10. (docs/DECISIONS.md, M21b)
 //   board  — league progress (the promotion conditions of your league, or promoted / Crown title this season: full),
-//            Credits never below zero this season + ending at least where it started, facilities built / levelled
+//            Credits never below zero this season + ending at least where it started, facilities built / levelled,
+//            (M23) the board's two objectives (src/systems/board.js; no Emergency Credit this season counts as 'never below
+//            zero'), and Board Confidence in its words
 //   fans   — win rate, cup ties and cups won, rival results (the clubs with a rivalry id), home form, the three
-//            favourites (best overall at the season's start) still at the club
+//            favourites (best overall at the season's start) still at the club, (M23) Fan Trust
 //   press  — goals a match, Stars in the squad + big signings (new this season, at least the XI's average), giant-killings
 //            (a win against a side 3+ overall stronger or from a higher league), secret cups found this season
 //   coach  — youth minutes (XI appearances by players 21 or under), overall gained by the squad, familiarity of the
@@ -19,13 +21,13 @@ export const VOICES = [
   {
     id: 'board', name: 'The Board', who: 'Edith Marlow, Chair of the Board', art: 'ui_05', colour: '#1B2A4A',
     base: 2,
-    parts: { progress: 4, money: 2, facilities: 2 },
+    parts: { progress: 3.5, money: 1.5, facilities: 1.5, objectives: 1.5 }, // (M23: objectives from the others' share)
     perFacility: 0.5, // a build or a level-up
   },
   {
     id: 'fans', name: 'The Fans', who: 'Del Price, Supporters’ Club', art: 'ui_23', colour: '#D0322B',
     base: 1,
-    parts: { wins: 4, cups: 2, rivals: 1, home: 1, favourites: 1 },
+    parts: { wins: 3.5, cups: 2, rivals: 1, home: 0.75, favourites: 0.75, trust: 1 }, // (M23: Fan Trust from the others' share)
     winsFull: 0.65, // the win rate that scores the whole part
     homeFull: 0.65,
     perTie: 0.5, perCup: 1, perRival: 0.5,
@@ -54,14 +56,14 @@ export const voiceById = (id) => VOICES.find((v) => v.id === id) ?? null;
 // What each voice says: low (1–4), fair (5–7), high (8–10). {x} words come from the season (verdicts.js lines()).
 export const VOICE_LINES = {
   board: {
-    low: 'The Board expected more. {progress}. {money}.',
-    mid: 'A steady year in the boardroom. {progress}. {money}.',
-    high: 'The Board is delighted. {progress}. {money}.',
+    low: 'The Board expected more. {progress}. {money}. {objectives}',
+    mid: 'A steady year in the boardroom. {progress}. {money}. {objectives}',
+    high: 'The Board is delighted. {progress}. {money}. {objectives}',
   },
   fans: {
-    low: '{record}. The terraces were quiet this year.',
-    mid: '{record}. {cups} The fans want a bit more.',
-    high: '{record}! {cups} The Supporters’ Club is singing your name.',
+    low: '{record}. The terraces were quiet this year. {trust}',
+    mid: '{record}. {cups} The fans want a bit more. {trust}',
+    high: '{record}! {cups} The Supporters’ Club is singing your name. {trust}',
   },
   press: {
     low: '“{goals} — a season the back pages forgot.”',
