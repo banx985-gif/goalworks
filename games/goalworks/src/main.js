@@ -209,6 +209,11 @@ import * as VD from './systems/verdicts.js'; // (M21b) Awards Night, the Season 
 import { createAwardsNight } from './ui/awardsNight.js';
 import { registerTintedArt } from './ui/kitArt.js';
 import { FRIENDLIES } from '../data/cups.js';
+import * as RIV from './systems/rivals.js'; // (M22) rivals, dynamic rivalry, the late twist
+import { createRivalSheets } from './screens/rivalSheets.js';
+import { TWIST } from '../data/rivals.js';
+import { secretById } from '../data/secrets.js';
+const TWIST_LINE = TWIST.newsLine;
 const COL = THEME.color;
 const C_GOLD = COL.gold;
 
@@ -547,7 +552,23 @@ function godsDay(day) {
 // An arrival shows when the club is free (no sheet, no dialog); the rest wait their turn. (M21b) Awards Night waits its
 // turn in the same queue, after them.
 function pumpArrivals() {
-  if (open && router.currentName === 'club' && !sheet.active && !dialog.active && !awardsNight.active && !godUi.pump() && !pumpReveals()) pumpAwards();
+  if (open && router.currentName === 'club' && !sheet.active && !dialog.active && !awardsNight.active && !godUi.pump() && !pumpReveals() && !pumpRivals()) pumpAwards();
+}
+// (M22) A new rivalry, the late twist, a rivalry secret: one-tap pop-ups, one at a time (kept in the save until seen).
+function pumpRivals() {
+  if (!open || dialog.active || awardsNight.active) return false;
+  const p = RIV.takePopup(open.data);
+  if (!p) return false;
+  autosave.request('rivals:popup');
+  const name = p.clubId ? clubById(p.clubId)?.name ?? '' : '';
+  const crest = p.clubId ? clubById(p.clubId)?.crest : null;
+  if (p.kind === 'formed') dialog.confirm({ title: 'New rivalry!', body: `${name} and ${open.data.club.name} have met in too many big games. They are your rivals now: matches against them pay more and matter more to the fans.`, art: crest ?? 'ui_19', yes: 'See Rivals', no: 'Later', onYes: () => rivalsUi.openRival(p.clubId) });
+  else if (p.kind === 'twist') dialog.confirm({ title: 'They have worked you out…', body: TWIST_LINE, art: 'ui_07', yes: 'Tactics', no: 'OK', onYes: () => openTactics('club') });
+  else {
+    const s = secretById(p.id);
+    dialog.confirm({ title: `A secret: ${s?.name ?? 'rivalry'}!`, body: `${s?.line ?? ''}${name ? ` (${name})` : ''}`, art: crest ?? 'ui_28', yes: 'See Rivals', no: 'Later', onYes: () => (p.clubId ? rivalsUi.openRival(p.clubId) : rivalsUi.openRivals()) });
+  }
+  return true;
 }
 // (M21b) Awards Night: decided and saved on the day (verdicts.js); the ceremony opens when the club is free. The calendar
 // pauses for it (and runs again after, if it was running).
@@ -926,7 +947,28 @@ function fixtureKits(club, opp) {
 function openMatchSetup() {
   if (!open?.calendar.atKickoff) return;
   open.setupShown = true;
-  sheet.open(matchSetupSheet({ calendar, clubName: () => open?.data.club.name ?? '', club: () => open?.data.club ?? null, kits: () => (open?.calendar.fixture ? fixtureKits(open.data.club, open.calendar.fixture.opponent) : null), onKickOff: (mode) => kickOff(mode), onPlayed: debug.enabled ? () => playPlaceholder() : null, resuming: () => savedMode(open?.data.match), clue: () => matchClue(), promotionFinal: () => !!open && LG.isPromotionFinal(open.data, open.calendar.fixture) }));
+  if (open.calendar.fixture && !LG.isFriendly(open.calendar.fixture)) RIV.preMatchNews(open.data, open.calendar.fixture, open.calendar.today); // (M22) the rival manager's line, once
+  sheet.open(matchSetupSheet({ calendar, clubName: () => open?.data.club.name ?? '', club: () => open?.data.club ?? null, kits: () => (open?.calendar.fixture ? fixtureKits(open.data.club, open.calendar.fixture.opponent) : null), onKickOff: (mode) => kickOff(mode), onPlayed: debug.enabled ? () => playPlaceholder() : null, resuming: () => savedMode(open?.data.match), clue: () => matchClue(), promotionFinal: () => !!open && LG.isPromotionFinal(open.data, open.calendar.fixture), rivalry: () => rivalryOnSetup() }));
+}
+// (M22) Match Setup's rivalry: the DERBY / RIVALS tag, the band and what it changes, the rival manager's line; the late
+// twist's counter.
+function rivalryOnSetup() {
+  const f = open?.calendar.fixture;
+  if (!f || LG.isFriendly(f)) return null;
+  const m = RIV.matchMods(open.data, f, open.calendar.today);
+  if (!m.rival && !m.counter) return null;
+  const b = m.rival?.band;
+  const perks = m.rival ? [b && b.id !== 'cool' ? 'win: +50% reputation and Credits' : null, m.intensity[0] > 0 || m.intensity[1] > 0 ? 'both sides fired up (+3%)' : null].filter(Boolean) : [];
+  const said = RIV.beforeLine(open.data, f);
+  return {
+    banner: m.banner,
+    face: said?.face ?? null,
+    lines: [
+      ...(m.rival ? [`${m.banner === 'DERBY' ? 'Derby day' : 'Rivals'}: ${b.name} rivalry (${m.rival.meter})${perks.length ? ` · ${perks.join(' · ')}` : ''}`] : []),
+      ...(said ? [said.text] : []),
+      ...(m.counter ? [`They have studied your ${formationById(m.counter.target).name}: expect a ${formationById(m.counter.formation).name}${m.counter.playing ? '' : ' (you are not playing it today)'}`] : []),
+    ],
+  };
 }
 
 // (M14) the Analyst's line on Match Setup: the opponent clue (Match Notes) and the match preparation
@@ -1012,7 +1054,7 @@ function fixtureXIs(data, fixture) {
   return {
     home: teamSide(data).players, // (M9) in the club's formation, with its hand-picked players
     // (M11) the club's own squad as it is now (it signs and sells); a club the world does not know: generated as before
-    away: xiForMatch(data.transfers?.clubs?.[fixture.opponent.id]?.players ?? opponentSquad({ seed: `${data.seed}:${fixture.id}`, clubId: fixture.opponent.id }).players, { formation: opponentSide(fixture.opponent.id).formation }),
+    away: xiForMatch(data.transfers?.clubs?.[fixture.opponent.id]?.players ?? opponentSquad({ seed: `${data.seed}:${fixture.id}`, clubId: fixture.opponent.id }).players, { formation: opponentSide(fixture.opponent.id, data).formation }), // (M22: the late twist's counter shape)
   };
 }
 // Kick off: the seed and line-ups are fixed now and saved with the campaign; reopening resumes the same match.
@@ -1032,10 +1074,18 @@ function kickOff(mode = 'watch') {
       LG.news(open.data, open.calendar.today, `Havoc’s chaos roll: ${roll.good ? '+8%' : '−4%'} today. ${roll.line}`);
       researchBanner.show({ id: `havoc:${f.id}`, title: roll.good ? 'Havoc: +8% today!' : 'Havoc: −4% today…', line: roll.line, gives: 'Havoc’s chaos roll for this match', icon: GODS.GOD5.art, color: roll.good ? COL.good : COL.bad });
     }
+    // (M22) a rivalry match: Fierce+ both XIs +3%, Derby Fever +2% at home
+    const rv = RIV.matchMods(open.data, f, open.calendar.today);
+    RIV.applyMatchMods(xi.home, xi.away, rv);
+    if (rv.counter && !open.data.rivals.twistSeen) {
+      open.data.rivals.twistSeen = open.calendar.today; // (the first countered match: a banner as well as the News line)
+      researchBanner.show({ id: `twist:${f.id}`, title: 'They have worked you out…', line: `${f.opponent.name} set up to beat your ${formationById(rv.counter.target).name}`, gives: 'Change your shape now and then to keep them guessing', icon: 'ui_07', color: COL.bad });
+    }
     const setup = createMatchSetup({ seed: `${open.data.seed}:${f.id}`, home: { ...sides.home, players: xi.home }, away: { ...sides.away, players: xi.away } });
+    if (rv.rival) setup.rivalry = { banner: rv.banner, band: rv.rival.band.id, roar: rv.roar, cardRisk: rv.cardRisk, intensity: rv.intensity }; // (the crowd roars; the card risk is stored for M25)
     // (M9) both sides' formations, instructions, our roles and familiarity
     const ours = teamSide(open.data);
-    const theirs = opponentSide(f.opponent.id);
+    const theirs = opponentSide(f.opponent.id, open.data); // (M22) the late twist
     setup.formation = [ours.formation, theirs.formation];
     setup.tactics = [ours.tactics, theirs.tactics];
     setup.roles = [ours.roles, []];
@@ -1112,6 +1162,7 @@ function matchFinished(world) {
   }
   commitCupTie(); // (M17) the next Shield tie may be waiting for this slot
   if (league?.cup?.champion) syncPrestige(open.data); // (M21 C08's Prestige Tokens)
+  if (league?.rivalry?.formed) setTimeout(() => pumpArrivals(), 0); // (M22) "New rivalry!" when the club is free
   if (league?.crownTitle) setTimeout(() => openCrownChampions(), 0); // (M20) the title chain won
   else if (league?.offerNow) setTimeout(() => openPromotionOffer(league.offerNow), 0);
   else if (league?.promotionUnlocked) debug.log(`${league.league === 'regional' ? 'Promotion Match' : 'Promotion Playoff'} unlocked`);
@@ -1199,7 +1250,10 @@ const matchScreen = createMatchScreen({
     }
     const pf = LG.isPromotionFinal(open.data, fx); // (M19) the Trophy's final as the Promotion Final
     if (pf && cupLine) cupLine = /winners/.test(cupLine) ? `PROMOTION FINAL WON · ${cupLine} · the ${nextLeagueName(lg.promotion.to)} offer is waiting` : `Promotion Final lost · ${cupLine} · it comes again after a wait`;
-    return [`${pf ? 'PROMOTION FINAL · ' : ''}${fx.cup ? `${cupById(fx.cup.id).name} ${fx.cup.name.toLowerCase()} · ` : fx.promotion ? `${promoName} · ` : ''}+${p.credits} Credits (placeholder) · reputation ${rep >= 0 ? '+' : ''}${Math.round(rep)} · +${rp} RP`, cupLine, fx.promotion && p.res === 'win' ? (lg.promotion.final.title ? 'CROWN CHAMPIONS! The Crown Premier title is yours.' : `Promotion earned: the ${nextLeagueName(lg.promotion.to)} offer is waiting.`) : null].filter(Boolean);
+    // (M22) a rivalry match: DERBY / RIVALS on the result, with what it changed
+    const rv = RIV.info(open.data, fx.opponent.id);
+    const rvLine = rv ? `${rv.banner} ${p.res === 'win' ? 'WON' : p.res === 'loss' ? 'LOST' : 'DRAWN'} · ${rv.band.name} rivalry${rv.band.id !== 'cool' ? (p.res === 'win' ? ' · +50% reputation and Credits' : p.res === 'loss' ? ' · a dent in your reputation' : '') : ''}` : null;
+    return [`${pf ? 'PROMOTION FINAL · ' : ''}${fx.cup ? `${cupById(fx.cup.id).name} ${fx.cup.name.toLowerCase()} · ` : fx.promotion ? `${promoName} · ` : ''}+${p.credits} Credits (placeholder) · reputation ${rep >= 0 ? '+' : ''}${Math.round(rep)} · +${rp} RP`, rvLine, cupLine, fx.promotion && p.res === 'win' ? (lg.promotion.final.title ? 'CROWN CHAMPIONS! The Crown Premier title is yours.' : `Promotion earned: the ${nextLeagueName(lg.promotion.to)} offer is waiting.`) : null].filter(Boolean);
   },
   held: () => sheet.active, // (the match waits while a sheet is open over it)
   leftHanded: () => settings.get('leftHanded') === true, // (M12b)
@@ -1328,6 +1382,7 @@ const MENU_OPEN = {
   staff: () => staffUi.openStaff(), // (M14)
   rumours: () => godUi.openRumours(), // (M20b)
   tournaments: () => tournamentsUi.openTournaments(), // (M21)
+  rivals: () => rivalsUi.openRivals(), // (M22)
   academy: () => academyUi.openAcademy(), // (M15)
   hallOfFame: () => hofUi.openHallOfFame(), // (M16)
   shield: () => openShield(false, 'C02'), // (M17)
@@ -1371,6 +1426,11 @@ function menuState(id) {
     const n = account.hallOfFame?.length ?? 0;
     const leaving = open?.data.squad.players.filter((p) => p.retiring).length ?? 0;
     return { badge: leaving || null, sub: leaving ? `${leaving} player${leaving === 1 ? ' retires' : 's retire'} this season · ${n} legend${n === 1 ? '' : 's'}` : n ? `${n} legend${n === 1 ? '' : 's'} · club records` : 'Club legends and records' };
+  }
+  if (id === 'rivals' && open) { // (M22)
+    const rows = RIV.rivalsList(open.data).rows;
+    const hot = rows.slice().sort((a, b) => b.meter - a.meter)[0];
+    return { sub: hot ? `${rows.length} rival${rows.length === 1 ? '' : 's'} · hottest: ${hot.name} (${hot.band.name})` : 'Your rivals: the meter, head-to-head, their style' };
   }
   if (id === 'tournaments' && open) {
     const live = LG.activeCups(open.data).filter((c) => open.data.cups?.[c.id]?.current).length;
@@ -1490,6 +1550,17 @@ const tournamentsUi = createTournamentSheets({
   debug: debug.enabled,
 });
 // Milestone 20b: the Works Gods' sheets — a god's card, the arrival pop-up (one tap, one at a time) and the Rumours list.
+// Milestone 22: the Rivals screen (Club Menu → Rivals; a rival's card one tap more).
+const rivalsUi = createRivalSheets({
+  sheet,
+  run: () => open?.data ?? null,
+  debug: debug.enabled,
+  onUnlockGhost: () => {
+    if (!open) return;
+    RIV.unlockGhost(open.data, open.calendar.today);
+    autosave.request('rivals:ghost:debug');
+  },
+});
 const godUi = createGodSheets({
   sheet,
   dialog,
@@ -1657,7 +1728,7 @@ function addFeaturedStar(fid) {
 }
 // ?debug=1: a test hook for automated checks.
 if (debug.enabled) {
-  window.__gw = { VD, awardsNight, debugAwardsNight, debugShowcase, pumpAwards, syncGreatTeams, tournamentsUi, pumpArrivals, godUi, GD, SE, signGod, releaseGod, renderer, layout, input, loop, router, assets, sheet, dialog, systemBack, textPrompt, splashScreen, menuScreen, slotsScreen, setupScreen, clubScreen, squadScreen, trainingScreen, openTraining, tacticsScreen, openTactics, openMatchTactics, playSlot, startClub, deleteSlot, openShop, setRank, facilityBonus, researchUi, researchBanner, get research() { return open?.research ?? null; }, newGame, openLeague, openCountyOffer, openPromotionOffer, openCrownChampions, addFeaturedStar, overall, openShield, commitCupTie, LG, CUP, acceptChallenge, issueChallenge, transfers: transfersUi, TR, openMatchSetup, playPlaceholder, kickOff, startTestMatch, matchScreen, restoreMatchWorld, get match() { return match; }, toggleSpeedFlag, autosave, saveRun, canvasLost, canvasLossCount, itemsUi, staffUi, normaliseStaff, academyUi, AC, openStaffRole, hofUi, CA, syncHallOfFame, facilityLevel: (id) => (open ? facilityLevel(open.data, id) : 0), get items() { return open?.items ?? null; }, settings, governor, lowFx, haptics, hintLine, openNavMenu, MENU_OPEN, menuState, openSettings, get account() { return account; }, taps: [], get campaigns() { return campaigns; }, get open() { return open; } };
+  window.__gw = { RIV, rivalsUi, pumpRivals, VD, awardsNight, debugAwardsNight, debugShowcase, pumpAwards, syncGreatTeams, tournamentsUi, pumpArrivals, godUi, GD, SE, signGod, releaseGod, renderer, layout, input, loop, router, assets, sheet, dialog, systemBack, textPrompt, splashScreen, menuScreen, slotsScreen, setupScreen, clubScreen, squadScreen, trainingScreen, openTraining, tacticsScreen, openTactics, openMatchTactics, playSlot, startClub, deleteSlot, openShop, setRank, facilityBonus, researchUi, researchBanner, get research() { return open?.research ?? null; }, newGame, openLeague, openCountyOffer, openPromotionOffer, openCrownChampions, addFeaturedStar, overall, openShield, commitCupTie, LG, CUP, acceptChallenge, issueChallenge, transfers: transfersUi, TR, openMatchSetup, playPlaceholder, kickOff, startTestMatch, matchScreen, restoreMatchWorld, get match() { return match; }, toggleSpeedFlag, autosave, saveRun, canvasLost, canvasLossCount, itemsUi, staffUi, normaliseStaff, academyUi, AC, openStaffRole, hofUi, CA, syncHallOfFame, facilityLevel: (id) => (open ? facilityLevel(open.data, id) : 0), get items() { return open?.items ?? null; }, settings, governor, lowFx, haptics, hintLine, openNavMenu, MENU_OPEN, menuState, openSettings, get account() { return account; }, taps: [], get campaigns() { return campaigns; }, get open() { return open; } };
 }
 
 router.go('boot');

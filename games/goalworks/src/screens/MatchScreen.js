@@ -173,6 +173,7 @@ export function createMatchScreen({ renderer, layout, assets, bus = null, input 
       home: w ? kitOf(w.setup.home) : { shirt: '#888888', shorts: '#F7F7F2' },
       away: w ? kitOf(w.setup.away) : { shirt: '#888888', shorts: '#F7F7F2' },
       gaps: [{ side: 'left', from: ly(APRON.from) - end, to: ly(APRON.to) - end }],
+      roar: w?.setup.rivalry?.roar ?? 1, // (M22) a rivalry match: the crowd roars louder
     });
     crowdFor = w ? w.setup.seed : '';
   }
@@ -666,6 +667,7 @@ export function createMatchScreen({ renderer, layout, assets, bus = null, input 
       return banner;
     },
     crowd,
+    resultLines, // (M22: the browser test reads the result panel's lines)
     vfx,
     officials,
     // (M12b) Tests: were all 22 players and the ball drawn last frame, each from a picture (and size copy) with visible

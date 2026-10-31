@@ -37,6 +37,7 @@ import { scoutingFac } from './effects.js';
 import { seasonRetire, seasonAge, bandOf } from './careers.js';
 import { BAND } from '../../data/careers.js';
 import { normaliseGods, nextSeasonEnd } from './gods.js'; // (M20b)
+import { noteTransfer } from './rivals.js'; // (M22) a player signed from / sold to a rival
 
 const YEAR = 336;
 const WEEK = 7;
@@ -378,6 +379,7 @@ export function completeDeal(data, kind, p, owner, offer, day) {
   const why = dealProblem(data, kind, p, owner, offer);
   if (why) return { ok: false, why };
   const v = valueOf(data, p, owner);
+  if (kind !== 'renew') noteTransfer(data, owner, p, 'in', day); // (M22) before he leaves them: was he their captain?
   spend(data, (offer.fee ?? 0) + (offer.bonus ?? 0));
   if (kind === 'renew') {
     p.contract = contractOf(offer, day, v);
@@ -487,6 +489,7 @@ function sellTo(data, p, clubId, fee, day) {
   p.shirt = null;
   p.origin = 'club';
   data.transfers.clubs[clubId].players.push(p);
+  noteTransfer(data, clubId, p, 'out', day); // (M22)
 }
 export function acceptBid(data, bidId, day) {
   const T = data.transfers;

@@ -103,5 +103,14 @@ SECRETS.push(
   cupSecret('C13', 'Clean sheets', [{ key: 'cleanSheets8', need: 6, text: '6 clean sheets in 8 matches' }]),
   cupSecret('C14', 'Comebacks', [{ key: 'comebacks', need: 3, text: 'Win 3 matches after trailing by 2 or more' }]),
 );
+// (M22) The rivalry secrets (bible §32 SEC-RIVAL-02 … 04) on the same checker, so the Secret Engine (M28) finds them.
+// SEC-RIVAL-01 (Ghost Eleven) is M28's. No clue stages. Prizes (src/systems/rivals.js secretPrize): 02 — that dynamic
+// rivalry becomes permanent; 03 — a rivalry atmosphere bonus (+2% to your XI at home in a rivalry match); 04 — a News chain.
+const rivalSecret = (id, name, prize, conditions, line) => ({ id, name, kind: 'rivalry', reward: { rival: prize }, conditions, clues: [], line });
+SECRETS.push(
+  rivalSecret('SEC-RIVAL-02', 'Rivalry Born', 'permanent', [{ key: 'rivalryBorn', need: 1, text: 'Face the same non-story club in 3 finals or promotion matches, the first two split 1–1' }], 'Three big games, one each, then the decider: this rivalry is for good.'),
+  rivalSecret('SEC-RIVAL-03', 'Derby Fever', 'atmosphere', [{ key: 'derbyRun', need: 5, text: 'Win 5 rivalry matches in a row' }], 'The whole town is buzzing: your ground roars louder for every rivalry match (+2% at home).'),
+  rivalSecret('SEC-RIVAL-04', 'Poached Captain', 'newsChain', [{ key: 'poachedCaptain', need: 1, text: 'Sign a rival club’s captain after beating that rival 3 times' }], 'You took their captain. The papers will be full of it for weeks.'),
+);
 export const secretById = (id) => SECRETS.find((s) => s.id === id) ?? null;
 export const secretForGod = (godId) => SECRETS.find((s) => s.reward.god === godId) ?? null;

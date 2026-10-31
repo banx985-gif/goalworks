@@ -14,6 +14,7 @@ export const MENU_GROUPS = [
     row('masters', 'Continental Masters', 'The top clubs’ invitational, once you beat 4 Premier clubs in a season', 'tournament_c07'), // (Milestone 20)
     row('crownCup', 'Crown Cup', 'The cup for the strongest clubs in the land, from Rank C', 'tournament_c04'), // (Milestone 18: shown from Rank C)
     row('tournaments', 'Tournaments', 'All 16 cups: which are open, queued or running, and the secret ones', 'tournament_c08'), // (Milestone 21)
+    row('rivals', 'Rivals', 'Your rivals: how heated it is, head-to-head, last results, their style', 'club_reg03_crest'), // (Milestone 22: RV01's crest)
   ] },
   { title: 'Team', rows: [
     row('squad', 'Team / Squad', 'Your players: stats, form, fitness, contracts', 'ui_01'),

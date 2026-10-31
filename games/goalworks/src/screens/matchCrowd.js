@@ -10,6 +10,7 @@
 //   crowd.drawStrip(g)              the stands and the painted fans (into the cached layer)
 //   crowd.drawLive(ctx, ox, oy)     the 80 individuals, at the layer's screen position
 //   crowd.cheer(team)  crowd.update(dt)   crowd.count → { strip, live }
+// (M22) layout({ roar }): a rivalry match — every cheer lasts × roar and its fans jump × roar higher (1: as before).
 import { Rng } from '../../../../core/Rng.js';
 
 export const MAX_LIVE = 80;
@@ -28,10 +29,14 @@ export function createCrowd() {
   let cheerT = 0;
   let cheerTeam = -1;
   let time = 0;
+  let roar = 1;
+  let life = 2.6;
 
   function layout(o) {
     k = o.k;
     ky = o.ky;
+    roar = o.roar ?? 1;
+    life = 2.6 * roar;
     bands = o.bands;
     const rng = new Rng(`${o.seed}:crowd`);
     const pal = [o.home, o.away];
@@ -112,7 +117,7 @@ export function createCrowd() {
     },
     cheer(team) {
       cheerTeam = team;
-      cheerT = 2.6;
+      cheerT = life;
     },
     update(dt) {
       time += dt;
@@ -139,14 +144,14 @@ export function createCrowd() {
     },
     drawLive(ctx, ox, oy) {
       if (!live.length) return;
-      const env = cheerT > 0 ? Math.min(1, cheerT / 0.6, (2.6 - cheerT) / 0.15) : 0;
+      const env = cheerT > 0 ? Math.min(1, cheerT / 0.6, (life - cheerT) / 0.15) : 0;
       ctx.save();
       ctx.translate(ox, oy);
       ctx.strokeStyle = EDGE;
       ctx.lineWidth = Math.max(1, 0.05 * k);
       for (const f of live) {
         const mine = f.team === cheerTeam;
-        const hop = env > 0 ? Math.abs(Math.sin(time * (mine ? 9 : 5) + f.phase)) * (mine ? 0.55 : 0.18) * k * env : 0;
+        const hop = env > 0 ? Math.abs(Math.sin(time * (mine ? 9 : 5) + f.phase)) * (mine ? 0.55 : 0.18) * roar * k * env : 0;
         fan(ctx, f, hop, env > 0 && mine);
       }
       ctx.restore();

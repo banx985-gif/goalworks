@@ -62,7 +62,7 @@ export function createHallOfFameSheets({ sheet, assets, entries = () => [], run 
       ],
     });
     const found = secrets() ?? [];
-    if (found.length) sections.push({ title: `Secrets found · ${found.length} of 5 Works Gods`, lines: found.map((x) => `${x.godName} (${x.name}): ${x.conditions.join('; ')}`) });
+    if (found.length) sections.push({ title: `Secrets found · ${found.length}`, lines: found.map((x) => `${x.godName} (${x.name}): ${x.conditions.join('; ')}`) });
     return { title: CAREER_TEXT.hofTitle, subtitle: CAREER_TEXT.hofSubtitle, art: SHIRTS, accent: C.gold, sections };
   }
   function openHallOfFame() {

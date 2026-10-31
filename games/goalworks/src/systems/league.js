@@ -29,6 +29,7 @@ import { ISSUE, RANKS, REPUTATION, CREDITS, LEAGUES, leagueById, COMING, ACHIEVE
 import { cupById, CUPS, CUP_ORDER, ALL_CUPS } from '../../data/cups.js';
 import * as CUP from './cup.js';
 import { incomeMult } from './gods.js';
+import * as RIV from './rivals.js'; // (M22) the rivalry meter: rewards, cooldowns, results, the day's fade
 
 const round1 = (v) => Math.round(v * 10) / 10;
 const blankClub = () => ({ w: 0, d: 0, l: 0, meetings: 0, cooldownUntil: 0 });
@@ -307,6 +308,7 @@ export function leagueDay(data, day) {
     if (cup.window) news(data, day, `${cup.name} skipped this year: another cup run filled Month ${cup.window.month}. It comes back next Month ${cup.window.month}.`); // (M21b)
     else news(data, day, `${cup.name} skipped this season: it waited in the queue until the season ended. It opens again next season.`);
   }
+  RIV.rivalsDay(data, day); // (M22) story rivals of a new league, the monthly fade, News chains, the late twist (its pop-ups queue in data.rivals)
   checkPromotion(data); // (M17) the County conditions include a Club Rank, which can move any day
   // the promotion step, once unlocked (it stays open until played; after a loss it comes back after a short wait)
   const P = progressOf(data, lg.id);
@@ -369,7 +371,13 @@ export function previewReward(data, clubId, score, promo = false, friendly = fal
   if (friendly) return { res, credits: 0, history: 0, momentum: 0, rep: 0 }; // (M21b) the Showcase pays only its prize
   let credits = CREDITS[res][tier];
   let history = res === 'loss' ? 0 : REPUTATION[res][tier].history;
-  let momentum = res === 'loss' ? -Math.min(normaliseLeague(data).rep.momentum, REPUTATION.loss[tier]) : REPUTATION[res][tier].momentum;
+  const rv = RIV.rewardMods(data, clubId, res); // (M22) a rival, Heated+: a win × 1.5, a loss a little extra momentum
+  let momentum = res === 'loss' ? -Math.min(normaliseLeague(data).rep.momentum, REPUTATION.loss[tier] * (1 + rv.dip)) : REPUTATION[res][tier].momentum;
+  if (rv.mult !== 1) {
+    credits = Math.round(credits * rv.mult);
+    history = round1(history * rv.mult);
+    momentum = round1(momentum * rv.mult);
+  }
   if (promo && res === 'win') {
     const b = (leagueOfClub(clubId) ?? LEAGUES[0]).promotion.bonus; // (the Promotion Match / Playoff of that club's league)
     credits += b.credits;
@@ -393,7 +401,7 @@ export function recordResult(data, fixture, score, day) {
     const c = (L.clubs[club.id] ??= blankClub());
     c[reward.res === 'win' ? 'w' : reward.res === 'draw' ? 'd' : 'l']++;
     c.meetings++;
-    if (!fixture.cup) c.cooldownUntil = day + club.cooldown; // (a cup tie leaves the league's rematch cooldown alone)
+    if (!fixture.cup) c.cooldownUntil = day + Math.round(club.cooldown * RIV.cooldownMult(data, club.id)); // (a cup tie leaves the league's rematch cooldown alone; M22: a Heated+ rival comes back sooner)
   }
   L.rep.history = round1(L.rep.history + reward.history);
   L.rep.momentum = round1(Math.max(0, L.rep.momentum + reward.momentum));
@@ -419,6 +427,7 @@ export function recordResult(data, fixture, score, day) {
     if (cup?.champion) addHistory(data, day, `Won the ${cupById(cup.cup).name}`); // (M18: the C04 "club history" prize)
     if (cup) cup.events = [...(cup.events ?? []), ...cupsDay(data, day)]; // (M21) the next tie today: 7 days after the result
   }
+  const rivalry = friendly ? null : RIV.afterResult(data, fixture, score, day, cup); // (M22) the meter, head-to-head, a new rivalry, the manager's line
   const lg = leagueOf(data);
   const P = progressOf(data, lg.id);
   if (reward.res === 'win' && !friendly) noteSeasonWin(data, club.id, day); // (M20) C07's door: different league clubs beaten this season
@@ -460,7 +469,7 @@ export function recordResult(data, fixture, score, day) {
     if (ch === 'unlocked') unlockedNow = true;
     if (ch === 'offered') offerNow = lg.id;
   }
-  return { ...reward, club: club.id, rankBefore: before.id, rankAfter: rank(data).id, total: reputation(data).total, promotionUnlocked: unlockedNow, promotionWon: (promo && reward.res === 'win') || (promotionFinal && !!cup?.champion), promotionFinal, offerNow, crownTitle, league: lg.id, cup };
+  return { ...reward, club: club.id, rankBefore: before.id, rankAfter: rank(data).id, total: reputation(data).total, promotionUnlocked: unlockedNow, promotionWon: (promo && reward.res === 'win') || (promotionFinal && !!cup?.champion), promotionFinal, offerNow, crownTitle, league: lg.id, cup, rivalry };
 }
 
 // (M17) Moving up: your league becomes the next one. Its clubs' records start (the old league's stay in the history), the
@@ -470,6 +479,7 @@ function enterLeague(data, id, day, line) {
   const lg = leagueById(id);
   L.tier = id;
   L.entered = { ...(L.entered ?? {}), [id]: day };
+  RIV.normaliseRivals(data, day); // (M22) this league's story rival starts now
   for (const c of lg.clubs) L.clubs[c] ??= blankClub();
   L.offers = L.offers.filter((o) => o.state === 'accepted' || o.cup || lg.clubs.includes(o.clubId)); // (a cup tie still stands)
   if (lg.stadiumFlag) (data.unlocks ??= {})[lg.stadiumFlag] ??= day;

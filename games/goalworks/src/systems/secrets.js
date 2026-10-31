@@ -21,6 +21,7 @@ import { leagueById } from '../../data/league.js';
 import { rank as clubRank, leagueOfClub } from './league.js';
 import { strength, normaliseCups } from './cup.js';
 import { godAtClub, normaliseGods, normaliseAccountGods, offerFor } from './gods.js';
+import { measures as RIVAL_MEASURES, secretPrize } from './rivals.js'; // (M22) SEC-RIVAL-02 … 04
 
 const YEAR = 336;
 const yearOf = (day) => Math.floor((Math.max(1, day) - 1) / YEAR) + 1;
@@ -84,6 +85,7 @@ export const MEASURES = {
   unbeatenRun: (data) => normaliseSecrets(data).track.bestUnbeaten,
   cleanSheets8: (data) => normaliseSecrets(data).track.bestClean8,
   comebacks: (data) => normaliseSecrets(data).track.comebacks,
+  ...RIVAL_MEASURES, // (M22) rivalryBorn, derbyRun, poachedCaptain
 };
 // (M21) Did you trail by 2 or more at any point? (the goals in order: team 0 is yours; an own goal counts for the side it
 // went to)
@@ -223,6 +225,20 @@ export function secretsDay(data, day, account = null) {
       S.track.readyDay[secret.id] ??= day;
       if (S.track.defeatDay == null || S.track.defeatDay < S.track.readyDay[secret.id]) continue; // the next defeat
     }
+    if (secret.reward.rival) {
+      // (M22) a rivalry secret: its prize now, a Rumours line, the recipe in the history and the account, a one-tap pop-up
+      st.found = day;
+      const club = secretPrize(data, secret.reward.rival, day);
+      rumour(S, day, secret.id, 3, `${secret.name}! ${secret.line}`);
+      data.clubHistory = [...(data.clubHistory ?? []), { day, year: yearOf(day), text: `Secret found: ${secret.name} (${secret.conditions.map((x) => x.text).join('; ')})` }].slice(-60);
+      if (A && !A.found[secret.id]) {
+        A.found[secret.id] = { day, rival: secret.reward.rival, conditions: secret.conditions.map((x) => x.text) };
+        accountChanged = true;
+      }
+      (data.rivals.popups ??= []).push({ kind: 'secret', id: secret.id, day, ...(club ? { clubId: club } : {}) });
+      events.push({ kind: 'rivalFound', id: secret.id, club });
+      continue;
+    }
     if (secret.reward.cup) {
       // (M21) a secret tournament found: it opens now (its first edition today), the recipe in the history and the account
       st.found = day;
@@ -257,7 +273,7 @@ export const rumours = (data) => normaliseSecrets(data).rumours.slice().reverse(
 // The secrets found (this run, or by any run in the account), with their exact conditions — for the Hall of Fame.
 export function foundRecipes(data, account = null) {
   const S = data ? normaliseSecrets(data) : null;
-  return SECRETS.filter((s) => S?.state[s.id]?.found != null || account?.gods?.found?.[s.id]).map((s) => ({ id: s.id, name: s.name, god: s.reward.god ?? null, cup: s.reward.cup ?? null, godName: s.reward.god ? godById(s.reward.god).name : cupById(s.reward.cup).name, conditions: s.conditions.map((c) => c.text), here: S?.state[s.id]?.found ?? null }));
+  return SECRETS.filter((s) => S?.state[s.id]?.found != null || account?.gods?.found?.[s.id]).map((s) => ({ id: s.id, name: s.name, god: s.reward.god ?? null, cup: s.reward.cup ?? null, godName: s.reward.god ? godById(s.reward.god).name : s.reward.cup ? cupById(s.reward.cup).name : s.name, conditions: s.conditions.map((c) => c.text), here: S?.state[s.id]?.found ?? null }));
 }
 
 // ?debug=1 / tests: a god arrives now (his secret counts as found here, not in the account).

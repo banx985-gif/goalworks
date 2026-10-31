@@ -319,13 +319,14 @@ export function promotionOfferSheet({ clubName, league, nextName, via, nextBuilt
 // resuming() → null (no match yet) | 'watch' | 'manage' | 'play' (the match under way).  onKickOff(mode)
 // kits() → { home, away, sides } (src/match/kits.js matchKits + both sides' names) or null
 // (M19) promotionFinal() → true when today's cup final is also the Promotion Final (a banner line and the title say so)
-export function matchSetupSheet({ calendar, clubName, kits = () => null, onKickOff, onPlayed = null, resuming = () => null, clue = () => null, promotionFinal = () => false }) {
+export function matchSetupSheet({ calendar, clubName, kits = () => null, onKickOff, onPlayed = null, resuming = () => null, clue = () => null, promotionFinal = () => false, rivalry = () => null }) {
   return () => {
     const cal = calendar();
     const f = cal?.fixture;
     if (!f || !cal.atKickoff) return null;
     const src = sourceById(f.source);
     const under = resuming();
+    const rv = rivalry(); // (M22) { banner, lines, face } or null
     const kick = under
       ? [{ id: 'kickoff', label: 'Resume match', sub: under === 'play' ? 'Play · you control your side' : under === 'manage' ? 'Manage · your team commands' : 'Watch · 1× / 2×', accent: C.good, onTap: () => onKickOff(under) }]
       : [
@@ -338,10 +339,10 @@ export function matchSetupSheet({ calendar, clubName, kits = () => null, onKickO
       subtitle: `${promotionFinal() ? `${cupById(f.cup.id)?.name} final · ` : ''}${clubName()} vs ${f.opponent.name}${f.home === false ? ' (away)' : ''}`,
       art: clubById(f.opponent.id)?.crest ?? 'facility_f01', // (M12b) the opponent's crest
       accent: C.action,
-      tag: promotionFinal() ? { text: 'PROMOTION FINAL', color: C.purple } : { text: 'MATCH DAY', color: C.action },
+      tag: promotionFinal() ? { text: 'PROMOTION FINAL', color: C.purple } : rv?.banner ? { text: rv.banner, color: C.bad } : { text: 'MATCH DAY', color: C.action }, // (M22) DERBY / RIVALS
       sections: [
         // (kept short so all three Kick off buttons fit on a 9:16 phone without scrolling)
-        { title: promotionFinal() ? 'Fixture · win it and the Crown Premier League wants you' : 'Fixture', lines: [`${dateText(cal, f.matchDay)} · ${f.cup ? 'Knockout tie: a draw goes to penalties' : src?.name ?? f.source}${src?.temporary ? ' (temporary)' : ''}`, ...kitLine(kits()), ...(clue() ? [clue()] : [])] }, // (M14) the Analyst's clue and preparation
+        { title: promotionFinal() ? 'Fixture · win it and the Crown Premier League wants you' : 'Fixture', lines: [`${dateText(cal, f.matchDay)} · ${f.cup ? 'Knockout tie: a draw goes to penalties' : src?.name ?? f.source}${src?.temporary ? ' (temporary)' : ''}`, ...kitLine(kits()), ...(clue() ? [clue()] : []), ...(rv?.lines ?? [])] }, // (M14) the Analyst's clue and preparation; (M22) the rivalry and the rival manager's line
         {
           title: 'Match · 11 v 11, about 5 minutes',
           buttons: [

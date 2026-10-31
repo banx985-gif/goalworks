@@ -19,6 +19,8 @@ import { leagueById } from '../../data/league.js';
 import { clubById } from '../../data/fixtures.js';
 import { cupById, US } from '../../data/cups.js';
 import { SECRETS } from '../../data/secrets.js';
+import { storyForClub } from '../../data/rivals.js';
+import { fansWeight } from './rivals.js'; // (M22)
 import { staffById } from '../../data/staff.js';
 import { overall } from './players.js';
 import { bestXI } from './squad.js';
@@ -101,9 +103,12 @@ export function afterMatch(data, { fixture, score = [0, 0], scorers = [], cup = 
   }
   if (cup?.won) S.tiesWon++;
   if (cup?.champion && !S.cupsWon.includes(cup.cup)) S.cupsWon.push(cup.cup);
-  if (oppId && clubById(oppId)?.rivalry) {
-    if (won) S.rivalW++;
-    if (lost) S.rivalL++;
+  // (M22) a rival result counts by its band at kickoff (Cool 0.5 … Blood Feud 2; a result recorded without the league —
+  // a test — counts a story rival as 1, as in M21b)
+  const rw = oppId ? (data.rivals?.last?.clubId === oppId && data.rivals.last.day === day ? fansWeight(data, oppId, day) : clubById(oppId)?.rivalry || storyForClub(oppId) ? 1 : 0) : 0;
+  if (rw) {
+    if (won) S.rivalW = Math.round((S.rivalW + rw) * 10) / 10;
+    if (lost) S.rivalL = Math.round((S.rivalL + rw) * 10) / 10;
   }
   // a giant-killing: their XI clearly stronger, or a club from a league above yours
   if (won && oppId) {

@@ -111,26 +111,28 @@ export const POACH_CHAIN = [
 // The late twist (Kairosoft gap 5): from Year 19, or on reaching the Crown Premier if later, the Premier clubs counter
 // your most-used formation. They read your last `window` competitive matches; only a formation used in at least `share`
 // of them is "worked out". The counter: the formation and build style that score best against it (COUNTERS, measured
-// with the M9 engine: tools/gw_m22_counters.mjs) plus a small edge for having studied you — only while you actually play
-// that formation, at most `edgeMax` (+% to their XI). Change your shape and they have prepared for the wrong team.
+// with the M9 engine: tools/gw_m22_counters.mjs). The cap (DECISIONS, M22): a club counters you in every other meeting
+// with it (`every`), and never with a stat edge — at Crown Premier level even +1% to an XI is about 8 points of win rate.
+// Mix your shapes (none in `share` of your last matches) and there is nothing to counter.
 export const TWIST = {
   year: 19,
   league: 'premier',
   window: 20,
   share: 0.5,
-  edgeMax: 0.03, // the cap (DECISIONS, M22)
+  every: 2, // the cap: every other meeting with that club (its meetings count even: the first one after the twist)
   newsLine: 'The big clubs have worked you out: Premier sides now set up to beat your favourite formation. Changing your shape now and then keeps them guessing.',
 };
 
-// Your formation → the Premier side's counter { formation, build, …instructions }. (Measured by tools/gw_m22_counters.mjs:
-// for each of your formations, every opponent shape × build at Crown Premier strength; the best goal difference for them.)
+// Your formation → the Premier side's counter { formation, build } (on top of the club's own instructions). Measured by
+// tools/gw_m22_counters.mjs on 31 Oct (10 matches a pairing; both XIs one Crown Premier squad, you on Balanced, them on
+// Attacking): for each of your formations, every opponent shape × build; the best goal difference for them (in brackets).
 export const COUNTERS = {
-  442: { formation: '433', build: 'possession', press: 'high' },
-  433: { formation: '4231', build: 'counter' },
-  4231: { formation: '352', build: 'direct' },
-  352: { formation: '433', build: 'balanced', width: 'wide' },
-  343: { formation: '532', build: 'counter' },
-  532: { formation: '4231', build: 'possession' },
-  4141: { formation: '343', build: 'direct' },
-  4411: { formation: '433', build: 'possession', press: 'high' },
+  442: { formation: '532', build: 'counter' }, // (+0.9)
+  433: { formation: '352', build: 'possession' }, // (+1.5)
+  4231: { formation: '4231', build: 'direct' }, // (+1.8)
+  352: { formation: '442', build: 'direct' }, // (+0.7)
+  343: { formation: '532', build: 'direct' }, // (+1.0)
+  532: { formation: '442', build: 'possession' }, // (+0.2)
+  4141: { formation: '442', build: 'direct' }, // (+1.4)
+  4411: { formation: '4411', build: 'direct' }, // (+1.3)
 };

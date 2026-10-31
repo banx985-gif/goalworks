@@ -11,12 +11,15 @@
 //   rolesOf(data, formation?) → [role per slot]      setRole(data, slot, role)
 //   lineupOf(data, formation?) → [playerId | null per slot]   placePlayer(data, slot, playerId)   clearLineup(data)
 //   teamSide(data) → { formation, tactics, roles, players (the XI for the match), familiarity }
-//   opponentSide(clubId) → { formation, tactics } from data/tactics.js CLUB_TACTICS
+//   opponentSide(clubId, data?) → { formation, tactics } from data/tactics.js CLUB_TACTICS; (M22) with the run save, a Crown
+//                                     Premier club after the late twist sets up to counter your most-used formation
+//                                     (src/systems/rivals.js counterFor: its formation and build over the club's own)
 import { TACTICS } from '../../data/match.js';
 import { FORMATIONS, formationById, DEFAULT_FORMATION, rolesForSlot, FAMILIARITY, pairKey, CLUB_TACTICS } from '../../data/tactics.js';
 import { tacticsOf } from '../match/matchWorld.js';
 import { xiForMatch } from './squad.js';
 import { effect as bonus } from './effects.js';
+import { counterFor } from './rivals.js';
 
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const round1 = (v) => Math.round(v * 100) / 100; // (two decimals: the daily fade is 0.15)
@@ -121,8 +124,10 @@ export function teamSide(data) {
   };
 }
 
-export function opponentSide(clubId) {
+export function opponentSide(clubId, data = null) {
   const c = CLUB_TACTICS[clubId] ?? { formation: DEFAULT_FORMATION };
   const { formation = DEFAULT_FORMATION, ...instr } = c;
+  const k = data ? counterFor(data, clubId) : null; // (M22) the late twist
+  if (k) return { formation: k.formation, tactics: tacticsOf({ ...instr, ...k.instr }), counter: k };
   return { formation, tactics: tacticsOf(instr) };
 }
