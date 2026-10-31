@@ -57,9 +57,9 @@ export function normaliseLeague(data) {
 export const leagueOf = (data) => leagueById(normaliseLeague(data).tier);
 export const clubsOf = (data, id = leagueOf(data).id) => leagueById(id).clubs.map((c) => clubById(c));
 export const leagueOfClub = (clubId) => LEAGUES.find((l) => l.clubs.includes(clubId)) ?? null;
-export function news(data, day, text) {
+export function news(data, day, text, face = null) {
   const L = normaliseLeague(data);
-  L.news = [...L.news, { day, text }].slice(-20);
+  L.news = [...L.news, { day, text, ...(face ? { face } : {}) }].slice(-20); // (M22b) face: the chibi cast member who says it
 }
 // (M18) A line in the club's history (promotions, cups won — the Hall of Fame sheet shows it).
 const YEAR = 336;

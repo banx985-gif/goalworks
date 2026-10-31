@@ -130,7 +130,11 @@ export function leagueSheet({ calendar, league, debugFlags = null, message = () 
       }),
     });
     const news = L.news?.() ?? [];
-    if (news.length) sections.push({ title: 'News', lines: news.slice(-3).reverse().map((n) => `${dateText(cal, n.day)}: ${n.text}`) });
+    if (news.length) sections.push({ title: 'News', lines: news.slice(-3).reverse().map((n) => {
+      const text = `${dateText(cal, n.day)}: ${n.text}`;
+      const glyph = n.face ? L.newsFace?.(n.face) : null; // (M22b) the speaker's face (a rival manager, the sponsor rep)
+      return glyph ? { text, glyph } : text;
+    }) });
     // the promotion offer (Regional → County; County → National)
     const nextName = L.nextName(pr.to);
     if (pr.offer === 'offered' || pr.offer === 'accepted') {
@@ -239,7 +243,8 @@ function shieldSummary(cal, st, L) {
   else if (st.nextStart != null) lines.push(`${st.edition?.champion ? `Last winner: ${st.edition.champion === 'us' ? 'your club!' : L.club(st.edition.champion)?.name}. ` : ''}The next ${st.cup.name} opens ${dateText(cal, st.nextStart)}.`);
   lines.push(`Won ${st.wins} time${st.wins === 1 ? '' : 's'} · prize ${st.cup.prize.credits.toLocaleString('en-GB')} Credits + ${prizeWords(st.cup)}`);
   const id = st.cup.id === 'C02' ? 'shield' : `cup:${st.cup.id}`; // (M17's button id kept for the Shield)
-  return { title: st.cup.name, lines, columns: 1, buttons: [{ id, label: `${st.cup.name} bracket`, sub: 'Quarter-final · semi-final · final', icon: st.cup.art, accent: C.gold, onTap: () => L.onShield(st.cup.id) }] };
+  // (M22b fix) the bracket button lists the cup's own rounds (the Summer Showcase has two)
+  return { title: st.cup.name, lines, columns: 1, buttons: [{ id, label: `${st.cup.name} bracket`, sub: st.cup.rounds.map((r, i) => (i ? r.toLowerCase() : r)).join(' · '), icon: st.cup.art, accent: C.gold, onTap: () => L.onShield(st.cup.id) }] };
 }
 // What a cup's prize gives besides Credits (data/cups.js prize).
 // (M21) every cup's prize in words: its flags (CUP_FLAGS), a clue line, Prestige Tokens

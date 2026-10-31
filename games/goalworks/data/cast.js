@@ -73,6 +73,8 @@ const TORSO = { x0: 0.3, x1: 0.7, y0: 0.44, y1: 0.74 };
 const clothes = (h, s = [0.3, 1], l = [0.12, 0.9], box = TORSO) => ({ h, s, l, ...box });
 export const CAST_MASKS = {
   hair: { h: [0, 60], s: [0, 1], l: [0, 0.5], x0: 0.15, x1: 0.85, y0: 0, y1: 0.3 },
+  // (long hair: down the sides of the face to the shoulders, clear of the eyes)
+  hairSides: { h: [0, 60], s: [0, 1], l: [0, 0.5], x0: 0.15, x1: 0.85, y0: 0.3, y1: 0.5, eyes: [0.34, 0.66] },
   skin: { h: [5, 42], s: [0.2, 0.85], l: [0.3, 0.9], x0: 0, x1: 1, y0: 0, y1: 1 },
   clothes: {
     1: clothes([40, 62], [0.5, 1]), // yellow jumper

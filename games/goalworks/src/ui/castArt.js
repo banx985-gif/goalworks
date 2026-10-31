@@ -102,7 +102,8 @@ export function recolourPixel(r, g, b, u, v, palette, chibi) {
     const mid = (cm.l[0] + cm.l[1]) / 2;
     return hslRgb(th, ts, clamp01(tl + (l - mid) * 0.8));
   }
-  if (palette.hair && inMask(CAST_MASKS.hair, h, s, l, u, v)) {
+  const sides = CAST_MASKS.hairSides;
+  if (palette.hair && (inMask(CAST_MASKS.hair, h, s, l, u, v) || (inMask(sides, h, s, l, u, v) && (u < sides.eyes[0] || u > sides.eyes[1])))) {
     const [th, ts] = rgbHsl(...hexRgb(palette.hair.hex));
     return hslRgb(th, Math.min(ts, 0.7), clamp01(l + (palette.hair.dl ?? 0)));
   }

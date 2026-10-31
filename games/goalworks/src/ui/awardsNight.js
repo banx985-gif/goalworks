@@ -1,7 +1,8 @@
 // Awards Night (Milestone 21b): the full-screen ceremony on the last day of Month 12. One tap moves to the next step
 // (the four voices revealed one at a time with their /10 and line, the total /40, then each award with its trophy); "Skip
 // all" (or Back) closes it at once. Everything was already decided and saved by src/systems/verdicts.js: this only shows
-// it. main.js opens it from its pop-up queue (never on top of a dialog or another pop-up) and pauses the calendar meanwhile.
+// it. (M22b) The chibi cast stands beside it: Edith, Del, Priya and Sam (only with no Head Coach) beside their voices,
+// Rex Lamar hosting the intro and the award reveals. A face whose picture isn't loaded is simply left out. main.js opens it from its pop-up queue (never on top of a dialog or another pop-up) and pauses the calendar meanwhile.
 //   createAwardsNight({ layout, assets }) → { open(record, { club, onClose }), close(), active, step, steps, next(), skip(),
 //     update(dt), render(ctx), onTap(p), onBack(), skipRect(), nextRect() }
 import { THEME, font } from '../../../../core/Theme.js';
@@ -10,6 +11,8 @@ import { text, para } from '../../../../core/ui/Kit.js';
 import { itemName } from '../systems/items.js';
 import { leagueById } from '../../data/league.js';
 import { cupById } from '../../data/cups.js';
+import { drawCast } from './castArt.js';
+import { VOICE_FACES, HOST } from '../../data/cast.js';
 
 const C = THEME.color;
 const S = THEME.size;
@@ -135,19 +138,31 @@ export function createAwardsNight({ layout, assets }) {
       const artBox = Math.min(520, a.w - 200);
       const artY = a.y + 290;
       const count = (target) => Math.round(target * Math.min(1, t / COUNT));
+      // (M22b) the picture with a cast member beside it: the chibi on the left, the picture on the right, on one floor
+      const withFace = (face, art) => {
+        const fw = artBox * 0.62;
+        const aw = artBox * 0.62;
+        const x0 = cx - (fw + aw) / 2;
+        if (!drawCast(ctx, assets, face, { x: x0, y: artY, w: fw, h: artBox })) return assets.drawContained(ctx, art, { x: cx - artBox / 2, y: artY, w: artBox, h: artBox });
+        assets.drawContained(ctx, art, { x: x0 + fw, y: artY + artBox - aw, w: aw, h: aw });
+      };
+      // (an Awards Night saved before M22b has no face on its voices: the three fixed ones, and Sam if the coach was the stand-in)
+      const faceOf = (v) => v.face ?? (v.id === 'coach' ? (/Assistant/.test(v.who) ? VOICE_FACES.coach : null) : VOICE_FACES[v.id] ?? null);
       const so = rec.voices.slice(0, s.kind === 'voice' ? s.n : 0).reduce((x, v) => x + v.score, 0);
       let y = artY + artBox + 40;
       if (s.kind === 'intro') {
-        assets.drawContained(ctx, 'trophy_13', { x: cx - artBox / 2, y: artY, w: artBox, h: artBox });
+        withFace(HOST, 'trophy_13'); // (M22b) Rex Lamar hosts
         text(ctx, 'The Season Review', cx, y, { size: S.title, bold: true, color: C.textOnDark, align: 'center', maxWidth: tw });
         y += 90;
         const r = rec.record;
         y += para(ctx, `${leagueById(rec.league)?.name ?? ''} · ${r.p} matches: ${r.w} won, ${r.d} drawn, ${r.l} lost · ${r.gf} scored, ${r.ga} conceded`, a.x + pad, y, tw, { size: S.body, color: C.textOnDark, align: 'center' });
         y += 20;
-        para(ctx, `Four voices give their verdict, each out of 10. Then the awards.${rec.partial ? ' (A short season: the review counts from the day this save was first opened in this version.)' : ''}`, a.x + pad, y, tw, { size: S.small, color: '#C9BFE3', align: 'center' });
+        para(ctx, `Your host, Rex Lamar: “Four voices give their verdict, each out of 10. Then the awards!”${rec.partial ? ' (A short season: the review counts from the day this save was first opened in this version.)' : ''}`, a.x + pad, y, tw, { size: S.small, color: '#C9BFE3', align: 'center' });
       } else if (s.kind === 'voice') {
         const v = s.v;
-        assets.drawContained(ctx, v.art, { x: cx - artBox / 2, y: artY, w: artBox, h: artBox });
+        const face = faceOf(v);
+        if (face) withFace(face, v.art);
+        else assets.drawContained(ctx, v.art, { x: cx - artBox / 2, y: artY, w: artBox, h: artBox });
         text(ctx, v.name, cx, y, { size: S.title, bold: true, color: C.textOnDark, align: 'center', maxWidth: tw });
         y += 76;
         text(ctx, v.who, cx, y, { size: S.body, color: '#C9BFE3', align: 'center', maxWidth: tw });
@@ -165,7 +180,7 @@ export function createAwardsNight({ layout, assets }) {
         para(ctx, rec.voices.map((v) => `${v.name.replace(/^The |^Your /, '')} ${v.score}`).join(' · '), a.x + pad, y, tw, { size: S.body, color: '#C9BFE3', align: 'center' });
       } else if (s.kind === 'award') {
         const aw = s.a;
-        assets.drawContained(ctx, aw.art, { x: cx - artBox / 2, y: artY, w: artBox, h: artBox });
+        withFace(HOST, aw.art); // (M22b) Rex reveals each award
         text(ctx, aw.name, cx, y, { size: S.title, bold: true, color: GOLD, align: 'center', maxWidth: tw });
         y += 80;
         text(ctx, aw.player, cx, y, { size: S.heading, bold: true, color: C.textOnDark, align: 'center', maxWidth: tw });

@@ -5,6 +5,7 @@ import { ALL_CLUBS } from './fixtures.js';
 import { CUPS } from './cups.js';
 import { FACILITIES } from './facilities.js';
 import { GODS } from './gods.js';
+import { CAST } from './cast.js';
 
 const art = (folder, key) => [key, `assets/images/${folder}/${key}.png`];
 
@@ -41,6 +42,8 @@ export const ASSETS = {
   ...Object.fromEntries(Object.values(CUPS).map((c) => art('tournaments', c.art))),
   // Milestone 20b: the Works Gods (stand-ins from the base pictures; Cowork swaps in the GOALWORKS outfits under the same names).
   ...Object.fromEntries(Object.values(GODS).map((g) => art(g.kind === 'player' ? 'players' : 'staff', g.art))),
+  // Milestone 22b: the chibi cast's nine filed faces (Cowork's stand-ins, 512×512; walking sheets come later).
+  ...Object.fromEntries(CAST.filter((c) => c.still).map((c) => art('cast', c.still))),
   // Milestone 0 loader test (?screen=test): the placeholder PWA icon as a real image, and one deliberately missing file.
   m0Real: 'assets/branding/pwa/icon-192.png',
   m0Missing: 'assets/m0-missing-test.png',

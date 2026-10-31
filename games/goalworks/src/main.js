@@ -211,6 +211,8 @@ import { registerTintedArt } from './ui/kitArt.js';
 import { FRIENDLIES } from '../data/cups.js';
 import * as RIV from './systems/rivals.js'; // (M22) rivals, dynamic rivalry, the late twist
 import { createRivalSheets } from './screens/rivalSheets.js';
+import { castGlyph, drawCast } from './ui/castArt.js'; // (M22b) the chibi cast's faces
+import { NARRATOR, SPONSOR_REP, SAM, castById } from '../data/cast.js';
 import { TWIST } from '../data/rivals.js';
 import { secretById } from '../data/secrets.js';
 const TWIST_LINE = TWIST.newsLine;
@@ -835,6 +837,7 @@ function leagueApi() {
     clubs: () => LG.clubsOf(d),
     club: (id) => clubById(id),
     news: () => d.league.news ?? [],
+    newsFace: (id) => castGlyph(assets, id), // (M22b)
     nextName: nextLeagueName,
     cup: () => (lg.cup ? CUP.status(d, lg.cup) : null),
     cups: () => LG.activeCups(d).map((c) => CUP.status(d, c.id)), // (M18: every cup running — league cup and Crown Cup)
@@ -965,7 +968,7 @@ function rivalryOnSetup() {
     face: said?.face ?? null,
     lines: [
       ...(m.rival ? [`${m.banner === 'DERBY' ? 'Derby day' : 'Rivals'}: ${b.name} rivalry (${m.rival.meter})${perks.length ? ` · ${perks.join(' · ')}` : ''}`] : []),
-      ...(said ? [said.text] : []),
+      ...(said ? [said.face && castGlyph(assets, said.face) ? { text: said.text, glyph: castGlyph(assets, said.face) } : said.text] : []), // (M22b) his face beside it
       ...(m.counter ? [`They have studied your ${formationById(m.counter.target).name}: expect a ${formationById(m.counter.formation).name}${m.counter.playing ? '' : ' (you are not playing it today)'}`] : []),
     ],
   };
@@ -1156,6 +1159,7 @@ function matchFinished(world) {
   if (ct) {
     const cup = cupById(ct.cup);
     const id = `cuptie:${ct.cup}:${open.calendar.today}`;
+    if (ct.champion && !cup.friendly) LG.news(open.data, open.calendar.today, `${castById(SPONSOR_REP).name} (Commercial Partnerships): “Sponsors have noticed the club after that ${cup.name} win. Expect my call.”`, SPONSOR_REP); // (M22b) sponsor interest (offers come with M23)
     if (ct.champion) researchBanner.show({ id, title: `${cup.name} winners!`, line: `+${Math.round(cup.prize.credits * GD.incomeMult(open.data)).toLocaleString('en-GB')} Credits · reputation +${cup.prize.history + cup.prize.momentum}`, gives: 'Sponsors have noticed the club', icon: cup.art, color: C_GOLD });
     else if (ct.won) researchBanner.show({ id, title: `Through to the ${cup.rounds[cup.rounds.indexOf(ct.roundName) + 1].toLowerCase()}!`, line: `${cup.name}${ct.pens ? ` · won ${ct.pens[0]}–${ct.pens[1]} on penalties` : ''}`, gives: `+${cup.roundWin.credits} Credits · the next tie in about 4 weeks`, icon: cup.art, color: COL.good });
     else researchBanner.show({ id, title: `Out of the ${cup.name}`, line: `${ct.roundName}${ct.pens ? ` · lost ${ct.pens[0]}–${ct.pens[1]} on penalties` : ''}`, gives: 'It opens again next season', icon: cup.art, color: COL.bad });
@@ -1323,7 +1327,7 @@ const clubScreen = createClubScreen({
   showMenu: () => settings.get('showMenu') !== false,
   onNavMenu: () => openNavMenu(),
   menuIcon: MENU_TEXT.icon,
-  hint: { get current() { return hintLine.current; }, update: (dt) => hintLine.update(dt), render: (ctx) => hintLine.render(ctx), handleTap: (p) => hintLine.handleTap(p) },
+  hint: { get current() { return hintLine.current; }, update: (dt) => hintLine.update(dt), render: (ctx) => renderHint(ctx), handleTap: (p) => hintLine.handleTap(p) },
   lowFx,
 });
 // What a facility's sheet opens (the old station sheets' rows): a training pitch → Training; the Manager Office → League,
@@ -1480,10 +1484,39 @@ function hintRules() {
   ];
 }
 const hintLine = new HintLine({
-  rect: () => clubScreen.rectOf('hint'),
-  rules: hintRules(),
+  rect: () => hintTextRect(), // (M22b) Sam Okafor's face sits at its left; the line moves over for it
+  rules: hintRules().map((r) => ({ ...r, text: typeof r.text === 'function' ? () => SAM.hint(r.text()) : SAM.hint(r.text) })), // (M22b) in Sam's voice: "Boss, …"
   quiet: () => !open || router.currentName !== 'club' || sheet.active || clubScreen.buildMode || dialog.active || loop.paused || settings.get('showHints') === false,
 });
+// (M22b) The hint line with the narrator's face: Sam Okafor (Assistant Manager) at its left, the line beside him.
+const hintFace = () => {
+  const r = clubScreen.rectOf('hint');
+  return r ? r.h * 1.5 : 0;
+};
+function hintTextRect() {
+  const r = clubScreen.rectOf('hint');
+  if (!r) return r;
+  const f = hintFace();
+  return { x: r.x + f * 0.8, y: r.y, w: r.w - f * 0.8, h: r.h };
+}
+function renderHint(ctx) {
+  hintLine.render(ctx);
+  const r = clubScreen.rectOf('hint');
+  if (!hintLine.current || !r) return;
+  const f = hintFace();
+  ctx.save();
+  ctx.globalAlpha = hintLine.fade;
+  ctx.fillStyle = '#FFF4DE';
+  ctx.strokeStyle = COL.action;
+  ctx.lineWidth = 4;
+  ctx.beginPath();
+  ctx.arc(r.x + f / 2 - 6, r.y + r.h / 2, f / 2, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.stroke();
+  ctx.clip();
+  drawCast(ctx, assets, NARRATOR, { x: r.x - 6, y: r.y + r.h / 2 - f / 2, w: f, h: f }, { crop: 'head' });
+  ctx.restore();
+}
 // Settings: the series list in its order, Help / Privacy / Credits, then GOALWORKS' extras, then the display test.
 // Reachable from the Main Menu (always) and the Club Menu.
 function openSettings() {

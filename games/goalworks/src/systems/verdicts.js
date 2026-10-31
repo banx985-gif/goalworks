@@ -6,7 +6,7 @@
 //   tally = { year, startDay, partial, start: { credits, facilities, tier, players: { id: overall }, favourites, xiAvg },
 //             minCredits, p, w, d, l, gf, ga, cs, homeP, homeW, tiesWon, cupsWon, rivalW, rivalL, giants,
 //             players: { id: { name, apps, goals, cs } }, apps, youthApps, fatSum, fatN }
-//   record (a season on the Seasons list) = { year, partial, total, voices: [{ id, name, who, art, score, line }],
+//   record (a season on the Seasons list) = { year, partial, total, voices: [{ id, name, who, art, face, score, line }],
 //             awards: [{ id, name, art, playerId, player, detail, item }], league, record, cupsWon, promoted, crown,
 //             great, xi }
 //   normaliseVerdicts(data, day)        an older save: the tally starts today (partial); no past season is invented
@@ -21,6 +21,7 @@ import { cupById, US } from '../../data/cups.js';
 import { SECRETS } from '../../data/secrets.js';
 import { storyForClub } from '../../data/rivals.js';
 import { fansWeight } from './rivals.js'; // (M22)
+import { VOICE_FACES, SAM } from '../../data/cast.js'; // (M22b)
 import { staffById } from '../../data/staff.js';
 import { overall } from './players.js';
 import { bestXI } from './squad.js';
@@ -256,7 +257,8 @@ export function review(data, day) {
     return {
       id: v.id,
       name: v.name,
-      who: coach ? (hc ? `${hc.name}, Head Coach` : v.standIn) : v.who,
+      who: coach ? (hc ? `${hc.name}, Head Coach` : SAM.standIn) : v.who, // (M22b) Sam Okafor stands in
+      face: coach && hc ? null : VOICE_FACES[v.id] ?? null, // (M22b) the chibi beside the voice (a hired coach keeps his own portrait)
       art: coach && hc ? staffById(hc.id)?.art ?? v.art : v.art,
       colour: v.colour,
       score,
@@ -335,7 +337,7 @@ export function awardsNight(data, day, { items = null } = {}) {
     year: S.year,
     partial: !!S.partial,
     total: rv.total,
-    voices: rv.voices.map(({ id, name, who, art, colour, score, line, parts }) => ({ id, name, who, art, colour, score, line, parts })),
+    voices: rv.voices.map(({ id, name, who, art, face, colour, score, line, parts }) => ({ id, name, who, art, face, colour, score, line, parts })), // (M22b) face: the chibi beside the voice
     awards,
     league: L?.tier ?? 'regional',
     record: { p: S.p, w: S.w, d: S.d, l: S.l, gf: S.gf, ga: S.ga },
