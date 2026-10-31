@@ -26,7 +26,7 @@ export const GODS = {
     art: 'staff_god_bolt',
     blessing: {
       name: 'Patch-up',
-      plain: 'Injured players recover 50% faster and get 30% fewer injuries (injuries arrive in M25). Facility upgrades finish 25% faster. As your Physio, fatigue recovers 10% faster and builds up 10% slower.',
+      plain: 'Injured players recover 50% faster and get 30% fewer injuries. Facility upgrades finish 25% faster. As your Physio, fatigue recovers 10% faster and builds up 10% slower.',
     },
     // (his effects are on his staff entry, data/staff.js GOD1: the shared effect query reads them as a hired staff member)
   },
@@ -43,7 +43,9 @@ export const GODS = {
       name: 'Lucky bounce',
       plain: 'About 1 in 10 shots that would beat her hit the post instead. While she is in goal your team wins penalty shoot-outs about 75% of the time.',
       post: 0.1,
-      shootout: 0.75,
+      shootout: 0.75, // (the target; since M25 it comes from the real kicks: readPen + penSave, measured in m25.test.mjs)
+      readPen: 0.46, // (M25) a shoot-out / penalty kick: she reads the taker this often (dives the right way)
+      penSave: 0.1, // … and her saves are this much likelier
     },
   },
   GOD3: {

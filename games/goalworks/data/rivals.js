@@ -49,7 +49,7 @@ export const EFFECTS = {
   cooldownMult: 0.5,
   intensityBand: 'fierce',
   intensity: 0.03, // both XIs
-  cardRisk: 0.1, // stored only (M25)
+  cardRisk: 0.1, // (M25) a Fierce / Blood Feud derby: the referee is 10% stricter with cards (src/match/setPieces.js)
   crowdRoar: 1.6, // × the crowd's cheer (jump height and length)
   derbyFever: 0.02, // (SEC-RIVAL-03) your XI at home in a rivalry match
 };

@@ -12,7 +12,7 @@
 export const STAFF_ROLES = [
   { id: 'HC', name: 'Head Coach', short: 'Coach', stations: ['F01', 'F11'], verb: 'Coaching', colour: '#E0533D', line: 'Runs training: better sessions, tactics that sink in, faster young players.' },
   { id: 'SC', name: 'Scout', short: 'Scout', stations: ['F04', 'F25'], verb: 'Reading reports', colour: '#D4A017', line: 'Goes out on scouting reports: closer ranges, more names, rarer finds.' },
-  { id: 'PH', name: 'Physio', short: 'Physio', stations: ['F05', 'F15', 'F22'], verb: 'Treating players', colour: '#2E86C1', line: 'Keeps the squad fresh: faster recovery, less fatigue (injuries: M25).' },
+  { id: 'PH', name: 'Physio', short: 'Physio', stations: ['F05', 'F15', 'F22'], verb: 'Treating players', colour: '#2E86C1', line: 'Keeps the squad fresh: faster recovery, less fatigue, injuries heal sooner.' },
   { id: 'YC', name: 'Youth Coach', short: 'Youth', stations: ['F09', 'F14', 'F26'], verb: 'Working with the youth', colour: '#3FA34D', line: 'Brings on the academy’s young players: more XP, faster position learning, potential read better.' },
   { id: 'AN', name: 'Analyst', short: 'Analyst', stations: ['F13', 'F24', 'F08'], verb: 'Studying match video', colour: '#7D3C98', line: 'Prepares each match: opponent clues, preparation, quicker changes in Manage.' },
 ];
@@ -51,14 +51,14 @@ export const STAFF = [
   S('SC04', 'Iris North', 'Legendary', 'World Eye', 'reveals one extra hidden trait', 'Secret', [{ key: 'hiddenTraitReveal', value: 1 }], 'Reveals one extra hidden trait on scouted players.'),
   S('SC05', 'Null Mercer', 'Secret', 'Impossible Find', 'can surface Secret player rumours when conditions are met', 'NG+ secret', [{ key: 'secretRumours', value: 1 }], 'Can surface Secret player rumours when the conditions are met.'),
 
-  S('PH01', 'Jae Bell', 'Standard', 'Recovery Hands', '-5% recovery time', 'Start', [{ key: 'recoveryPct', value: 5 }], 'Fatigue recovers 5% faster every day (injury recovery: M25).'),
+  S('PH01', 'Jae Bell', 'Standard', 'Recovery Hands', '-5% recovery time', 'Start', [{ key: 'recoveryPct', value: 5 }], 'Fatigue recovers 5% faster every day, and injuries heal 5% faster.'),
   S('PH02', 'Priya Stone', 'Rare', 'Load Manager', '-8% fatigue accumulation', 'County', [{ key: 'fatigueGainPct', value: -8 }], 'Players build up 8% less fatigue in training and matches.'),
-  S('PH03', 'Mara Cross', 'Elite', 'Prevention', '+10% injury resistance', 'Rank B', [{ key: 'injuryResistPct', value: 10 }], '10% fewer injuries (stored until injuries arrive in M25).'),
+  S('PH03', 'Mara Cross', 'Elite', 'Prevention', '+10% injury resistance', 'Rank B', [{ key: 'injuryResistPct', value: 10 }], '10% fewer injuries.'),
   S('PH04', 'Dr. Selene Ward', 'Legendary', 'Return Strong', 'recovered players return with +5 morale', 'Secret', [{ key: 'returnMorale', value: 5 }], 'Players back from injury return with +5 morale.'),
   S('PH05', 'Dr. Zero Hale', 'Secret', 'Second Wind', 'one serious injury/season downgrades one severity tier', 'NG+ secret', [{ key: 'secondWind', value: 1 }], 'Once a season a serious injury drops one severity tier.'),
 
   // (M20b) Bolt, God of Tinkering: the Divine Physio (his blessing: data/gods.js GOD1)
-  { ...S('GOD1', 'Bolt', 'Divine', 'Patch-up', 'injuries heal 50% faster, 30% fewer; upgrades 25% faster; +10% recovery, −10% fatigue', 'His secret', [{ key: 'upgradeFasterPct', value: 25 }, { key: 'injuryRecoveryPct', value: 50 }, { key: 'injuryResistPct', value: 30 }, { key: 'recoveryPct', value: 10 }, { key: 'fatigueGainPct', value: -10 }], 'Injured players recover 50% faster and get 30% fewer injuries (injuries arrive in M25). Facility upgrades finish 25% faster. Fatigue recovers 10% faster and builds up 10% slower.'), role: 'PH', art: 'staff_god_bolt', god: 'GOD1' },
+  { ...S('GOD1', 'Bolt', 'Divine', 'Patch-up', 'injuries heal 50% faster, 30% fewer; upgrades 25% faster; +10% recovery, −10% fatigue', 'His secret', [{ key: 'upgradeFasterPct', value: 25 }, { key: 'injuryRecoveryPct', value: 50 }, { key: 'injuryResistPct', value: 30 }, { key: 'recoveryPct', value: 10 }, { key: 'fatigueGainPct', value: -10 }], 'Injured players recover 50% faster and get 30% fewer injuries. Facility upgrades finish 25% faster. Fatigue recovers 10% faster and builds up 10% slower.'), role: 'PH', art: 'staff_god_bolt', god: 'GOD1' },
 
   S('YC01', 'Ben Moss', 'Standard', 'Patient', '+5% academy XP', 'Start', [{ key: 'academyXpPct', value: 5 }], 'Academy players get 5% more XP.'),
   S('YC02', 'Zoe Grant', 'Rare', 'Position Teacher', 'position learning +10%', 'County', [{ key: 'positionLearnPct', value: 10 }], 'Players retraining to a new position learn it 10% faster.'),
@@ -89,11 +89,11 @@ export const STAFF_EFFECTS = {
   weaknessClue: { live: true, system: 'match setup' },
   tacticalPrepPct: { live: true, system: 'match preparation' },
   settleFasterPct: { live: true, system: 'Manage' },
-  injuryResistPct: { waits: 'M25', what: 'injuries' },
-  returnMorale: { waits: 'M25', what: 'injuries' },
-  secondWind: { waits: 'M25', what: 'injuries' },
+  injuryResistPct: { live: true, system: 'injuries' }, // (M25)
+  returnMorale: { live: true, system: 'injuries' }, // (M25)
+  secondWind: { live: true, system: 'injuries' }, // (M25)
   upgradeFasterPct: { live: true, system: 'facility upgrades' }, // (M20b Bolt)
-  injuryRecoveryPct: { waits: 'M25', what: 'injuries' }, // (M20b Bolt)
+  injuryRecoveryPct: { live: true, system: 'injuries' }, // (M20b Bolt; live since M25)
   academyXpPct: { live: true, system: 'academy' }, // (Milestone 15)
   positionLearnPct: { live: true, system: 'position learning' },
   youthRevealPct: { live: true, system: 'academy' },

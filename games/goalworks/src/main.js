@@ -219,6 +219,10 @@ import * as BOARD from './systems/board.js'; // (M23) the board's objectives and
 import { createFinanceSheets } from './screens/financeSheets.js'; // (M23)
 import { registerSponsorArt } from './ui/sponsorArt.js'; // (M23) SP01–SP08's text badges until the logos arrive
 import * as STAD from './systems/stadium.js'; // (M24) the stadium stages, pieces, attendance
+import * as MED from './systems/medical.js'; // (M25) injuries, bans
+import * as SPM from './match/setPieces.js'; // (M25: ?debug=1 tests reach the set pieces through __gw)
+import { benchFor } from './systems/squad.js';
+import { matchExtras } from './match/lineups.js';
 import { STADIUM_TEXT } from '../data/stadium.js';
 import { createStadiumSheets } from './screens/stadiumSheets.js';
 import { setSpriteLayout, sheetManifest, sheetKey } from './ui/castArt.js'; // (M24) the chibi walking sheets
@@ -453,6 +457,9 @@ function openRun(n, data) {
   // (an M23 save: the stadium stage its league flags reached, as M23 read it, no pieces bought yet)
   if (!data.stadium) setTimeout(() => autosave.request('stadium:start'), 0);
   STAD.normaliseStadium(data);
+  // (an M24 save: nobody injured or banned, no yellows; the set-piece takers start on Auto — the best on the day)
+  if (!data.medical) setTimeout(() => autosave.request('medical:start'), 0);
+  MED.normaliseMedical(data);
   FAN.normaliseFans(data);
   SP.normaliseSponsors(data, data.calendar?.clock?.totalDays ?? 0);
   BOARD.normaliseBoard(data);
@@ -496,6 +503,7 @@ bus.on('clock:day', () => {
   // (M13) the day's Research Points and a work day on the node in the slot (a node finished today counts from today)
   for (const n of open.research.day(c.clock.totalDays)) researchDone(n);
   const r = trainDay(open.data, { day: c.clock.totalDays, matchDay: c.atKickoff });
+  for (const e of r.medical ?? []) medicalEvent(e); // (M25) back from injury
   for (const x of r.players) if (x.learned) academyEvent({ kind: 'learned', id: x.id, name: open.data.squad.players.find((p) => p.id === x.id)?.name ?? '', to: x.learned }); // (M15)
   for (const e of AC.academyDay(open.data, c.clock.totalDays)) academyEvent(e); // (M15) the trials, academy training, breakthroughs, the season's end
   open.items.noteTraining(r.players); // (M12c) the week's training effort (the great-session item)
@@ -652,6 +660,16 @@ function pumpMoney() {
     return true;
   }
   return false;
+}
+// (M25) A match's injuries and bans, and a player back from injury: a banner (the News line is already written).
+function medicalEvent(e) {
+  if (!open) return;
+  const day = open.calendar.today;
+  const p = open.data.squad?.players.find((x) => x.id === e.id);
+  if (e.kind === 'injury') researchBanner.show({ id: `inj:${e.id}:${day}`, title: `${e.name} injured`, line: `Out for ${e.days >= 14 ? `${Math.round(e.days / 7)} weeks` : `${e.days} days`} (${e.sev})`, gives: 'Team → Injuries · the Physio and the Medical room speed it up', icon: 'ui_01', color: COL.bad });
+  else if (e.kind === 'ban') researchBanner.show({ id: `ban:${e.id}:${day}`, title: `${e.name} banned`, line: `${e.matches} match${e.matches === 1 ? '' : 'es'} · ${e.why}`, gives: 'He sits out your next competitive matches', icon: 'ui_01', color: COL.bad });
+  else if (e.kind === 'recovered' && p) researchBanner.show({ id: `back:${e.id}:${day}`, title: `${e.name} is back`, line: 'Fit to play again', gives: 'Team: pick him for the next match', icon: 'ui_01', color: COL.good });
+  debug.log(`medical: ${e.kind} ${e.name ?? ''}`);
 }
 // (M23) The ledger's day: a sponsor's offer, the board's sheet or rescue plan (pop-ups); Emergency Credit lent / repaid, a
 // deal ended, Fan Trust moving a band (banners).
@@ -1016,7 +1034,16 @@ function openMatchSetup() {
   if (!open?.calendar.atKickoff) return;
   open.setupShown = true;
   if (open.calendar.fixture && !LG.isFriendly(open.calendar.fixture)) RIV.preMatchNews(open.data, open.calendar.fixture, open.calendar.today); // (M22) the rival manager's line, once
-  sheet.open(matchSetupSheet({ calendar, clubName: () => open?.data.club.name ?? '', club: () => open?.data.club ?? null, kits: () => (open?.calendar.fixture ? fixtureKits(open.data.club, open.calendar.fixture.opponent) : null), onKickOff: (mode) => kickOff(mode), onPlayed: debug.enabled ? () => playPlaceholder() : null, resuming: () => savedMode(open?.data.match), clue: () => matchClue(), promotionFinal: () => !!open && LG.isPromotionFinal(open.data, open.calendar.fixture), rivalry: () => rivalryOnSetup(), crowd: () => crowdOnSetup() }));
+  sheet.open(matchSetupSheet({ calendar, clubName: () => open?.data.club.name ?? '', club: () => open?.data.club ?? null, kits: () => (open?.calendar.fixture ? fixtureKits(open.data.club, open.calendar.fixture.opponent) : null), onKickOff: (mode) => kickOff(mode), onPlayed: debug.enabled ? () => playPlaceholder() : null, resuming: () => savedMode(open?.data.match), clue: () => matchClue(), promotionFinal: () => !!open && LG.isPromotionFinal(open.data, open.calendar.fixture), rivalry: () => rivalryOnSetup(), crowd: () => crowdOnSetup(), squadNote: () => squadNoteOnSetup() }));
+}
+// (M25) Match Setup's squad line: the bench of 7, the penalty taker, who is out.
+function squadNoteOnSetup() {
+  const d = open?.data;
+  if (!d?.squad) return null;
+  const side = teamSide(d);
+  const name = (id) => d.squad.players.find((p) => p.id === id)?.name.split(' ').slice(-1)[0] ?? '—';
+  const out = [...MED.injuryList(d).map((p) => `${p.name.split(' ').slice(-1)[0]} (injured)`), ...MED.banList(d).map((p) => `${p.name.split(' ').slice(-1)[0]} (banned)`)];
+  return `Bench ${side.bench.length} · penalties ${name(side.takers.pen)}${out.length ? ` · out: ${out.slice(0, 3).join(', ')}${out.length > 3 ? '…' : ''}` : ''}`;
 }
 // (M24) Match Setup's crowd: the home crowd expected today ("Crowd 8,412 / 10,000"), sold out or not.
 function crowdOnSetup() {
@@ -1131,11 +1158,22 @@ function fixtureSides(club, opp) {
 // Milestone 7: both XIs for a fixture — ours from the squad, theirs generated at the same level (the same every time
 // for this fixture).
 function fixtureXIs(data, fixture) {
+  const ours = teamSide(data);
+  const theirSquad = data.transfers?.clubs?.[fixture.opponent.id]?.players ?? opponentSquad({ seed: `${data.seed}:${fixture.id}`, clubId: fixture.opponent.id }).players;
+  const away = xiForMatch(theirSquad, { formation: opponentSide(fixture.opponent.id, data).formation }); // (M22: the late twist's counter shape)
   return {
-    home: teamSide(data).players, // (M9) in the club's formation, with its hand-picked players
+    home: ours.players, // (M9) in the club's formation, with its hand-picked players; (M25) never an injured or banned one
     // (M11) the club's own squad as it is now (it signs and sells); a club the world does not know: generated as before
-    away: xiForMatch(data.transfers?.clubs?.[fixture.opponent.id]?.players ?? opponentSquad({ seed: `${data.seed}:${fixture.id}`, clubId: fixture.opponent.id }).players, { formation: opponentSide(fixture.opponent.id, data).formation }), // (M22: the late twist's counter shape)
+    away,
+    homeBench: ours.bench, // (M25) seven each on the bench
+    awayBench: benchFor(theirSquad, away.map((p) => p.id)),
   };
+}
+// (M25) A cup tie level at full time: the match's own shoot-out → { won, pens: [ours, theirs] } (an older save's match
+// that ended before shoot-outs existed: the old coin toss)
+function shootoutOf(world, fx) {
+  if (world.pens?.done) return { won: world.pens.winner === 0, pens: [...world.pens.score] };
+  return CUP.pensFor(open.data, fx.cup);
 }
 // Kick off: the seed and line-ups are fixed now and saved with the campaign; reopening resumes the same match.
 // mode: 'watch' (the AI plays both sides), 'manage' (the AI plays to your team commands) or 'play' (you control our side;
@@ -1161,8 +1199,8 @@ function kickOff(mode = 'watch') {
       open.data.rivals.twistSeen = open.calendar.today; // (the first countered match: a banner as well as the News line)
       researchBanner.show({ id: `twist:${f.id}`, title: 'They have worked you out…', line: `${f.opponent.name} set up to beat your ${formationById(rv.counter.target).name}`, gives: 'Change your shape now and then to keep them guessing', icon: 'ui_07', color: COL.bad });
     }
-    const setup = createMatchSetup({ seed: `${open.data.seed}:${f.id}`, home: { ...sides.home, players: xi.home }, away: { ...sides.away, players: xi.away } });
-    if (rv.rival) setup.rivalry = { banner: rv.banner, band: rv.rival.band.id, roar: rv.roar, cardRisk: rv.cardRisk, intensity: rv.intensity }; // (the crowd roars; the card risk is stored for M25)
+    const setup = createMatchSetup({ seed: `${open.data.seed}:${f.id}`, home: { ...sides.home, players: xi.home, bench: xi.homeBench }, away: { ...sides.away, players: xi.away, bench: xi.awayBench } });
+    if (rv.rival) setup.rivalry = { banner: rv.banner, band: rv.rival.band.id, roar: rv.roar, cardRisk: rv.cardRisk, intensity: rv.intensity }; // (the crowd roars; M25: the referee is stricter with cards)
     // (M9) both sides' formations, instructions, our roles and familiarity
     const ours = teamSide(open.data);
     const theirs = opponentSide(f.opponent.id, open.data); // (M22) the late twist
@@ -1171,6 +1209,7 @@ function kickOff(mode = 'watch') {
     setup.roles = [ours.roles, []];
     setup.familiarity = [preparedFamiliarity(open.data, ours.familiarity), null]; // (M14) the Analyst's match preparation
     setup.settle = [settleSec(open.data), 0]; // (M14) Manage changes settle over this many match seconds (Live Read: faster)
+    matchExtras(setup, { fixture: f, ours }); // (M25) a cup tie's shoot-out, our set-piece takers and routine
     const world = createMatchWorld(setup, { start: mode });
     open.data.match = { fixtureId: f.id, ...world.serialize(), director: createMatchDirector(world, { prompts: prefs().keyMoments !== false, camera: settings.get('matchCamera') ?? 'full' }).serialize() };
     autosave.request('match:kickoff');
@@ -1210,7 +1249,8 @@ function matchFinished(world) {
   // (M10) the Regional League: record, reputation, Credits, promotion — before the calendar closes the fixture
   const fx = open.calendar.fixture;
   const friendly = LG.isFriendly(fx); // (M21b) a Summer Showcase friendly: not a competitive match
-  const league = fx?.source === 'league' ? LG.recordResult(open.data, fx, r.score, open.calendar.today) : null;
+  const league = fx?.source === 'league' ? LG.recordResult(open.data, fx, r.score, open.calendar.today, { pens: r.pens }) : null; // (M25: the match's own shoot-out)
+  const medEvents = open.data.squad ? MED.afterMatch(open.data, { fixture: fx, incidents: r.incidents ?? [] }, open.calendar.today) : []; // (M25) injuries, cards, bans
   if (league && !friendly) open.research.match({ clubId: fx.opponent.id, score: r.score, promotion: !!fx.promotion, league: LG.leagueOfClub(fx.opponent.id)?.id }, open.calendar.today); // (M13) RP
   open.layout.sync(); // (M12) a new Club Rank grows the ground
   // Milestone 8: the XI tire; form and morale follow the result, minutes and roles
@@ -1233,6 +1273,7 @@ function matchFinished(world) {
   router.go('club');
   for (const it of won) itemArrived(it);
   for (const e of fanEvents) financeEvent(e); // (M23) Del Price, when Fan Trust moves a band
+  for (const e of medEvents) medicalEvent(e); // (M25) "Out for 3 weeks", a ban
   // (M17) a cup tie: through, out, or the cup won
   const ct = league?.cup;
   if (ct) {
@@ -1316,7 +1357,7 @@ const matchScreen = createMatchScreen({
     if (friendly) {
       const cup = cupById(fx.cup.id);
       const [a, b] = world.score;
-      const sh = a === b ? CUP.pensFor(open.data, fx.cup) : null;
+      const sh = a === b ? shootoutOf(world, fx) : null; // (M25) the match's own shoot-out
       const through = sh ? sh.won : a > b;
       const final = fx.cup.round === cup.rounds.length - 1;
       return [`${cup.name} ${fx.cup.name.toLowerCase()} · a friendly: no league record, stats or reward`, `${sh ? `Penalties: ${sh.pens[0]}–${sh.pens[1]} · ` : ''}${through ? (final ? `Showcase winners! +${(cup.prize.credits * lg.tier).toLocaleString('en-GB')} Credits · fan buzz +${cup.prize.momentum * lg.tier} reputation` : `Through to the final · +${cup.roundWin.credits * lg.tier} Credits`) : `Out of the ${cup.name}`}`];
@@ -1326,7 +1367,7 @@ const matchScreen = createMatchScreen({
     if (fx.cup) {
       const cup = cupById(fx.cup.id);
       const [a, b] = world.score;
-      const sh = a === b ? CUP.pensFor(open.data, fx.cup) : null;
+      const sh = a === b ? shootoutOf(world, fx) : null; // (M25) the match's own shoot-out
       const through = sh ? sh.won : a > b;
       const final = fx.cup.round === cup.rounds.length - 1;
       cupLine = `${sh ? `Penalties: ${sh.pens[0]}–${sh.pens[1]} · ` : ''}${through ? (final ? `${cup.name} winners! +${cup.prize.credits.toLocaleString('en-GB')} Credits` : `Through to the ${cup.rounds[fx.cup.round + 1].toLowerCase()} · +${cup.roundWin.credits} Credits`) : `Out of the ${cup.name}`}`;
@@ -1941,7 +1982,7 @@ function addFeaturedStar(fid) {
 }
 // ?debug=1: a test hook for automated checks.
 if (debug.enabled) {
-  window.__gw = { STAD, stadiumUi, walkerScene, setWalkerOverride: (o) => (walkerOverride = o), FIN, SP, FAN, BOARD, financeUi, pumpMoney, RIV, rivalsUi, pumpRivals, VD, awardsNight, debugAwardsNight, debugShowcase, pumpAwards, syncGreatTeams, tournamentsUi, pumpArrivals, godUi, GD, SE, signGod, releaseGod, renderer, layout, input, loop, router, assets, sheet, dialog, systemBack, textPrompt, splashScreen, menuScreen, slotsScreen, setupScreen, clubScreen, squadScreen, trainingScreen, openTraining, tacticsScreen, openTactics, openMatchTactics, playSlot, startClub, deleteSlot, openShop, setRank, facilityBonus, researchUi, researchBanner, get research() { return open?.research ?? null; }, newGame, openLeague, openCountyOffer, openPromotionOffer, openCrownChampions, addFeaturedStar, overall, openShield, commitCupTie, LG, CUP, acceptChallenge, issueChallenge, transfers: transfersUi, TR, openMatchSetup, playPlaceholder, kickOff, startTestMatch, matchScreen, restoreMatchWorld, get match() { return match; }, toggleSpeedFlag, autosave, saveRun, canvasLost, canvasLossCount, itemsUi, staffUi, normaliseStaff, academyUi, AC, openStaffRole, hofUi, CA, syncHallOfFame, facilityLevel: (id) => (open ? facilityLevel(open.data, id) : 0), get items() { return open?.items ?? null; }, settings, governor, lowFx, haptics, hintLine, openNavMenu, MENU_OPEN, menuState, openSettings, get account() { return account; }, taps: [], get campaigns() { return campaigns; }, get open() { return open; } };
+  window.__gw = { MED, SPM, STAD, stadiumUi, walkerScene, setWalkerOverride: (o) => (walkerOverride = o), FIN, SP, FAN, BOARD, financeUi, pumpMoney, RIV, rivalsUi, pumpRivals, VD, awardsNight, debugAwardsNight, debugShowcase, pumpAwards, syncGreatTeams, tournamentsUi, pumpArrivals, godUi, GD, SE, signGod, releaseGod, renderer, layout, input, loop, router, assets, sheet, dialog, systemBack, textPrompt, splashScreen, menuScreen, slotsScreen, setupScreen, clubScreen, squadScreen, trainingScreen, openTraining, tacticsScreen, openTactics, openMatchTactics, playSlot, startClub, deleteSlot, openShop, setRank, facilityBonus, researchUi, researchBanner, get research() { return open?.research ?? null; }, newGame, openLeague, openCountyOffer, openPromotionOffer, openCrownChampions, addFeaturedStar, overall, openShield, commitCupTie, LG, CUP, acceptChallenge, issueChallenge, transfers: transfersUi, TR, openMatchSetup, playPlaceholder, kickOff, startTestMatch, matchScreen, restoreMatchWorld, get match() { return match; }, toggleSpeedFlag, autosave, saveRun, canvasLost, canvasLossCount, itemsUi, staffUi, normaliseStaff, academyUi, AC, openStaffRole, hofUi, CA, syncHallOfFame, facilityLevel: (id) => (open ? facilityLevel(open.data, id) : 0), get items() { return open?.items ?? null; }, settings, governor, lowFx, haptics, hintLine, openNavMenu, MENU_OPEN, menuState, openSettings, get account() { return account; }, taps: [], get campaigns() { return campaigns; }, get open() { return open; } };
 }
 
 router.go('boot');

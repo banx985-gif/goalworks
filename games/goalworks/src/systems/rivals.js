@@ -230,7 +230,7 @@ export function matchMods(data, fixture, day = data.league?.lastDay ?? 0) {
     intensity: [(fierce ? EFFECTS.intensity : 0) + (fever ? EFFECTS.derbyFever : 0), fierce ? EFFECTS.intensity : 0],
     shared: fierce ? EFFECTS.intensity : 0, // (both sides: the same points, applyMatchMods)
     ours: fever ? EFFECTS.derbyFever : 0, // (your XI only: Derby Fever)
-    cardRisk: fierce ? EFFECTS.cardRisk : 0, // (stored for M25)
+    cardRisk: fierce ? EFFECTS.cardRisk : 0, // (M25: the referee reads it)
     counter,
     roar: i ? EFFECTS.crowdRoar : 1,
   };

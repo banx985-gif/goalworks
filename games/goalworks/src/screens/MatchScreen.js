@@ -24,6 +24,10 @@
 //   createMatchScreen({ renderer, layout, assets, bus, input, live, onMenu, onContinue, onReplay, onProgress })
 //     live() → { world, director, mode: 'fixture'|'test', hold } or null (hold: debug, the match stands still)
 //     onProgress(world, reason) — after goals / every few s
+// Milestone 25: a yellow card / a red cross over a player (INJURED while the play is stopped for him), banners for cards,
+// injuries, changes, penalties and free kicks, the man count when a side is down to ten, the penalty prompt in Play (your
+// taker: tap where in the goal, the power is the meter when you tap; your keeper: tap the side to dive, the timing is the
+// meter) and the shoot-out board (kick by kick, Skip to the end).
 import { THEME } from '../../../../core/Theme.js';
 import { CachedLayer } from '../../../../core/CachedLayer.js';
 import { VfxSystem } from '../../../../core/VfxSystem.js';
@@ -38,6 +42,7 @@ import { drawBadge } from '../ui/clubArt.js';
 import { createMatchControls } from './matchControls.js';
 import { createModeUi } from './matchModeUi.js';
 import { createCrowd } from './matchCrowd.js';
+import { penaltyPrompt } from '../match/setPieces.js';
 
 const C = THEME.color;
 const S = THEME.size;
@@ -407,6 +412,40 @@ export function createMatchScreen({ renderer, layout, assets, bus = null, input 
       assets.draw(ctx, headOf(team, p), -s / 2 + head.x * s - hs / 2, y - s * 0.92 + head.y * s - hs * 0.56, hs, hs);
     }
     ctx.restore();
+    if (p.yellow || p.hurt) {
+      // (M25) a yellow card by his head; a red cross when he is hurt (INJURED while the play is stopped for him)
+      const my = y - s * 0.92;
+      ctx.save();
+      if (p.yellow) {
+        ctx.fillStyle = '#F4D03F';
+        ctx.strokeStyle = C.outline;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.roundRect(x + s * 0.18, my + 4, 16, 22, 3);
+        ctx.fill();
+        ctx.stroke();
+      }
+      if (p.hurt) {
+        ctx.fillStyle = '#FFFFFF';
+        ctx.strokeStyle = '#C0392B';
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.arc(x - s * 0.22, my + 14, 15, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+        ctx.fillStyle = '#C0392B';
+        ctx.fillRect(x - s * 0.22 - 3, my + 5, 6, 18);
+        ctx.fillRect(x - s * 0.22 - 9, my + 11, 18, 6);
+        if (world.special?.phase === 'stoppage') {
+          ctx.fillStyle = '#C0392B';
+          ctx.beginPath();
+          ctx.roundRect(x - 70, my - 40, 140, 40, 20);
+          ctx.fill();
+          text(ctx, 'INJURED', x, my - 19, { size: 26, bold: true, color: '#FFFFFF', align: 'center', baseline: 'middle' });
+        }
+      }
+      ctx.restore();
+    }
     if (p.manual) {
       // a marker over their head
       const my = y - s * 0.92 - 10;
@@ -505,6 +544,98 @@ export function createMatchScreen({ renderer, layout, assets, bus = null, input 
     const nameW = half - 48 - 52;
     text(ctx, setup.home.name, r.x + 48, r.y + 118, { size: S.small, bold: true, baseline: 'middle', maxWidth: nameW });
     text(ctx, setup.away.name, r.x + r.w - 48, r.y + 118, { size: S.small, bold: true, baseline: 'middle', align: 'right', maxWidth: nameW });
+    // (M25) a side down to ten (or fewer); the shoot-out's score
+    for (const t of [0, 1]) {
+      const n = world.players.filter((p) => p.team === t).length;
+      if (n < 11) text(ctx, `${n} men`, t ? r.x + r.w - 48 : r.x + 48, r.y + r.h + 22, { size: 24, bold: true, color: C.bad, align: t ? 'right' : 'left', baseline: 'middle' });
+    }
+    if (world.pens) drawShootout(ctx, world, r);
+  }
+  // (M25) The shoot-out board under the score: each side's kicks as dots (scored / missed), the score, Skip.
+  function drawShootout(ctx, world, r) {
+    const P = world.pens;
+    const y = r.y + r.h + 54;
+    ctx.save();
+    ctx.fillStyle = 'rgba(20,30,20,0.78)';
+    ctx.beginPath();
+    ctx.roundRect(r.x, y - 34, r.w, 96, 18);
+    ctx.fill();
+    ctx.restore();
+    text(ctx, `Penalties ${P.score[0]} – ${P.score[1]}`, r.x + r.w / 2, y - 6, { size: 30, bold: true, color: '#FFFFFF', align: 'center', baseline: 'middle' });
+    for (const t of [0, 1]) {
+      const kicks = P.kicks.filter((k) => k.team === t);
+      const n = Math.max(5, kicks.length);
+      for (let i = 0; i < n; i++) {
+        const k = kicks[i];
+        const cx = t ? r.x + r.w - 40 - i * 34 : r.x + 40 + i * 34;
+        ctx.save();
+        ctx.fillStyle = k ? (k.scored ? '#2ECC71' : '#E74C3C') : 'rgba(255,255,255,0.25)';
+        ctx.beginPath();
+        ctx.arc(cx, y + 34, 12, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+      }
+    }
+    if (!world.done) drawButton(ctx, skipRect(), 'Skip shoot-out', { accent: C.progress });
+  }
+  const skipRect = () => {
+    const r = scoreRect();
+    return { x: r.x + r.w / 2 - 170, y: r.y + r.h + 110, w: 340, h: 80 };
+  };
+  // (M25) The penalty prompt (Play): the goal to aim at / dive across, and the meter (power / timing) below it.
+  let meterT = 0;
+  const meter = () => {
+    const u = (meterT / 1.4) % 1;
+    return u < 0.5 ? u * 2 : 2 - u * 2;
+  };
+  const penRects = () => {
+    const w = Math.min(W - 80, 820);
+    const top = scroll ? (area.top + area.bottom) / 2 - 200 : oy + pitchH / 2 - 200;
+    return { goal: { x: (W - w) / 2, y: top, w, h: 260 }, meter: { x: (W - w) / 2, y: top + 300, w, h: 56 } };
+  };
+  function drawPenaltyPrompt(ctx, world, kind) {
+    const { goal, meter: m } = penRects();
+    ctx.save();
+    ctx.fillStyle = 'rgba(10,20,10,0.55)';
+    ctx.fillRect(0, goal.y - 90, W, goal.h + m.h + 190);
+    // the goal: posts, bar, net lines; the thirds to dive into
+    ctx.strokeStyle = '#FFFFFF';
+    ctx.lineWidth = 10;
+    ctx.strokeRect(goal.x, goal.y, goal.w, goal.h);
+    ctx.lineWidth = 1.5;
+    ctx.strokeStyle = 'rgba(255,255,255,0.35)';
+    for (let i = 1; i < 12; i++) {
+      ctx.beginPath();
+      ctx.moveTo(goal.x + (goal.w * i) / 12, goal.y);
+      ctx.lineTo(goal.x + (goal.w * i) / 12, goal.y + goal.h);
+      ctx.stroke();
+    }
+    if (kind === 'dive') {
+      ctx.fillStyle = 'rgba(255,255,255,0.12)';
+      ctx.fillRect(goal.x + goal.w / 3, goal.y, goal.w / 3, goal.h);
+    }
+    // the meter
+    ctx.fillStyle = 'rgba(255,255,255,0.2)';
+    ctx.fillRect(m.x, m.y, m.w, m.h);
+    const v = meter();
+    ctx.fillStyle = kind === 'kick' ? (v > 0.88 ? '#E74C3C' : '#F4D03F') : Math.abs(v - 0.5) < 0.2 ? '#2ECC71' : '#F4D03F';
+    ctx.fillRect(m.x, m.y, m.w * v, m.h);
+    if (kind === 'dive') {
+      ctx.fillStyle = 'rgba(46,204,113,0.35)';
+      ctx.fillRect(m.x + m.w * 0.3, m.y, m.w * 0.4, m.h);
+    }
+    ctx.restore();
+    text(ctx, kind === 'kick' ? 'PENALTY · tap where to shoot (the power is the bar)' : 'PENALTY · tap the side to dive (time it on the bar)', W / 2, goal.y - 46, { size: 30, bold: true, color: '#FFFFFF', align: 'center', baseline: 'middle', maxWidth: W - 40 });
+  }
+  function tapPenalty(p, world, kind) {
+    const { goal } = penRects();
+    const inX = p.x >= goal.x - 120 && p.x <= goal.x + goal.w + 120;
+    const inY = p.y >= goal.y - 120 && p.y <= goal.y + goal.h + 140;
+    if (!inX || !inY) return false;
+    const ax = Math.max(-1.2, Math.min(1.2, ((p.x - goal.x) / goal.w) * 2 - 1));
+    if (kind === 'kick') world.command(['pen', Math.round(ax * 100) / 100, Math.round(Math.max(0, Math.min(1.2, 1 - (p.y - goal.y) / goal.h)) * 100) / 100, Math.round(meter() * 100) / 100]);
+    else world.command(['dive', ax < -1 / 3 ? -1 : ax > 1 / 3 ? 1 : 0, Math.round(meter() * 100) / 100]);
+    return true;
   }
 
   // A team's badge: the club's code-drawn badge, an opponent's crest art, or a plain disc in its colour.
@@ -645,6 +776,26 @@ export function createMatchScreen({ renderer, layout, assets, bus = null, input 
         crowd.cheer(e.team);
         goalPop();
         onProgress(world, 'match:goal');
+      } else if (e.type === 'yellow') {
+        banner = { title: 'Yellow card', sub: `${e.by} — ${(e.team === 0 ? world.setup.home : world.setup.away).name}`, t: 0, life: 1.6, color: '#F4D03F' };
+      } else if (e.type === 'red') {
+        banner = { title: 'RED CARD!', sub: `${e.by} is sent off${e.second ? ' (a second yellow)' : ''}`, t: 0, life: 2.2, color: '#E74C3C' };
+        onProgress(world, 'match:red');
+      } else if (e.type === 'injury') {
+        banner = { title: 'INJURED', sub: `${e.by} is hurt`, t: 0, life: 2, color: '#E74C3C' };
+      } else if (e.type === 'sub') {
+        banner = { title: 'Substitution', sub: `${e.on} on for ${e.off}`, t: 0, life: 1.8 };
+      } else if (e.type === 'penalty') {
+        banner = { title: 'PENALTY!', sub: `${e.by} to take it`, t: 0, life: 1.8, color: '#FFD84A' };
+      } else if (e.type === 'penKick' && !e.shootout && e.result !== 'goal') {
+        banner = { title: e.result === 'save' ? 'SAVED!' : 'MISSED!', sub: e.result === 'save' ? `${e.keeper} keeps it out` : `${e.by} puts it wide`, t: 0, life: 1.8 };
+      } else if (e.type === 'freeKick' && e.shooting) {
+        banner = { title: 'Free kick', sub: `${e.by} lines it up`, t: 0, life: 1.4 };
+      } else if (e.type === 'shootout') {
+        banner = { title: 'Penalties!', sub: 'Five each, then sudden death', t: 0, life: 2 };
+        onProgress(world, 'match:shootout');
+      } else if (e.type === 'shootoutEnd') {
+        banner = { title: `${(e.winner === 0 ? world.setup.home : world.setup.away).name} win on penalties`, sub: `${e.pens[0]} – ${e.pens[1]}`, t: 0, life: 2.6, color: '#FFD84A', team: e.winner };
       } else if (e.type === 'post') {
         banner = { title: 'OFF THE POST!', sub: `${e.keeper}’s lucky bounce`, t: 0, life: 1.8, color: '#E8B923' }; // (M20b) Jinx
       } else if (e.type === 'half') {
@@ -687,7 +838,7 @@ export function createMatchScreen({ renderer, layout, assets, bus = null, input 
     // 'camera', 'tac:<key>:<value>', 'pick:<watch|manage|play|km|close>', 'km:play', 'km:skip').
     rectOf(id) {
       const lv = live();
-      const fixed = { panel: panelRect(), band: controls.band(), stickZone: controls.stickZone() }[id];
+      const fixed = { panel: panelRect(), band: controls.band(), stickZone: controls.stickZone(), penGoal: penRects().goal, penMeter: penRects().meter, skipShootout: skipRect() }[id];
       const m = lv?.director ? ui.rects(lv.director, ballY())[id] : { menu: menuRect(), score: scoreRect() }[id];
       return m ?? fixed ?? controls.buttonRect(id) ?? resultButtons().find((b) => b.id === id)?.r ?? null;
     },
@@ -749,6 +900,7 @@ export function createMatchScreen({ renderer, layout, assets, bus = null, input 
         }
       }
       syncMode();
+      meterT += dt; // (M25) the penalty meter
       ui.update(dt);
       if (scroll || scrollX) follow(Math.min(1, dt * 4));
       readEvents(world);
@@ -767,6 +919,7 @@ export function createMatchScreen({ renderer, layout, assets, bus = null, input 
     onDown(p) {
       const lv = live();
       const w = lv?.world;
+      if (w && penaltyPrompt(w)) return; // (M25) the penalty prompt takes the tap, not the stick
       if (w?.control && !w.done && !ui.pickerOpen && !lv.director?.paused) controls.onDown(p);
     },
     onUp(p) {
@@ -780,6 +933,14 @@ export function createMatchScreen({ renderer, layout, assets, bus = null, input 
         if (b?.id === 'continue') onContinue(lv.world);
         else if (b?.id === 'replay') onReplay?.();
         else if (b?.id === 'menu') onMenu();
+        return;
+      }
+      // (M25) the penalty prompt (Play) and the shoot-out's Skip
+      const kind = penaltyPrompt(lv.world);
+      if (kind && tapPenalty(p, lv.world, kind)) return;
+      if (lv.world.pens && !lv.world.done && hitRect(p, skipRect())) {
+        lv.world.run(200000);
+        onProgress(lv.world, 'match:shootout:skip');
         return;
       }
       if (controls.owns(p.id)) return; // (a finger still down on a control)
@@ -831,9 +992,11 @@ export function createMatchScreen({ renderer, layout, assets, bus = null, input 
       drawGoal(ctx, 1);
       drawFlags(ctx, 1);
       if (clip) ctx.restore();
-      if (world.control && !world.done) controls.render(ctx, world);
+      const penKind = !world.done ? penaltyPrompt(world) : null;
+      if (world.control && !world.done && !penKind) controls.render(ctx, world);
       drawHud(ctx, world);
-      drawBanner(ctx);
+      if (penKind) drawPenaltyPrompt(ctx, world, penKind);
+      else drawBanner(ctx); // (M25: no banner over the penalty prompt)
       vfx.render(ctx, 'screen');
       if (world.done) drawResult(ctx, world);
       else ui.render(ctx, world, lv.director, ballY());

@@ -68,7 +68,8 @@ export const FATIGUE = {
   restExtra: 12, // … and this much more on a Rest / Recovery day or the day off
   match: 26, // a match played (the XI)
   weekOff: 7, // every 7th club day is a day off (no training)
-  // injury risk (injuries arrive in M25): stored only — 0 until riskFrom fatigue, then up to riskMax at 100
+  // injury risk shown on the squad (0 until riskFrom fatigue, then up to riskMax at 100); since M25 the match reads fatigue
+  // itself (src/systems/medical.js matchRisk: above 70 at kickoff the risk climbs)
   riskFrom: 70,
   riskMax: 0.3,
 };

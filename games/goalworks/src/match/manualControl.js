@@ -145,6 +145,11 @@ export function createControl(world, { team = 0, log = [] } = {}) {
     serialize() {
       return { team, inputs: log.map((e) => e.slice()) };
     },
+    // (M25) the controlled player has just left the pitch (sent off / injured): another of ours at once
+    reselect() {
+      ctl.player = null;
+      choose(0);
+    },
     detach() {
       if (ctl.player) ctl.player.manual = false;
       ctl.player = null;
@@ -173,7 +178,7 @@ export function createControl(world, { team = 0, log = [] } = {}) {
       const at = list.indexOf(p);
       p = list[(at + 1) % list.length];
     }
-    if (!p || p.role === 'GK') p = byBall()[0];
+    if (!p || p.role === 'GK' || p.off) p = byBall()[0]; // (M25: a sent-off / injured player has left the pitch)
     lastOwner = o;
     if (p !== ctl.player) {
       if (ctl.player) ctl.player.manual = false;

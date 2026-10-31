@@ -51,7 +51,7 @@ export const RETIRE = {
   fit: { phy: 65, mult: 0.85 }, // still strong
   traits: { Leader: 0.8, 'Engine Room': 0.9 },
   freeAgent: 1.5, // nobody wants him: more likely
-  // injury history: stored until injuries arrive (M25)
+  // (M25: the injury history is p.injuries, kept by src/systems/medical.js — it adds to the injury risk)
   announceDays: 28,
 };
 

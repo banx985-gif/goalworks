@@ -212,7 +212,9 @@ export function pensFor(data, ref) {
 }
 // Your tie's result (the 90 minutes; a draw goes to penalties). (M21) The round's other ties are played today too. → { won,
 // pens, final, champion, prize, roundName, out, events }
-export function recordOurTie(data, ref, score, day) {
+// (M25) pens: the match's own shoot-out [ours, theirs] (src/match/setPieces.js); without one (a test, the auto player's
+// older harness) the seeded coin toss as before.
+export function recordOurTie(data, ref, score, day, shootout = null) {
   const cup = cupById(ref.id);
   const C = normaliseCups(data)[ref.id];
   const cur = C.current;
@@ -222,7 +224,7 @@ export function recordOurTie(data, ref, score, day) {
   const usA = t.a === US;
   let won = score[0] > score[1];
   let pens = null;
-  if (score[0] === score[1]) ({ won, pens } = pensFor(data, ref));
+  if (score[0] === score[1]) ({ won, pens } = shootout ? { won: shootout[0] > shootout[1], pens: [...shootout] } : pensFor(data, ref));
   t.day = day;
   t.score = usA ? [score[0], score[1]] : [score[1], score[0]];
   t.pens = pens ? (usA ? pens : [pens[1], pens[0]]) : null;

@@ -168,7 +168,7 @@ export const FX_BASE = { line: 0, runs: 1, push: 1, shot: 0, progress: 1, press:
 // Key Moments (Milestone 5, bible §17): in Watch / Manage the match pauses and offers a short jump into Play. A moment
 // lasts at least minSec of play (unless the half ends) and at most maxSec, and after minSec it hands back at the next dead
 // ball or once the ball has clearly changed hands (settleSec). Offers are spaced by cooldownSec, at most maxPerMatch.
-// penalty / freeKick are hooks only: fouls and set pieces arrive in Milestone 25 (keyMoments.js offerFromEvent()).
+// (M25) penalty / freeKick: offered from the set piece being set up (keyMoments.js detectKeyMoment).
 export const KEY_MOMENTS = {
   minSec: 20,
   maxSec: 60,
@@ -184,8 +184,8 @@ export const KEY_MOMENTS = {
     cornerDef: { title: 'Dangerous corner', line: 'A corner against us. Defend it yourself?', attack: false },
     defence: { title: 'Last-minute defence', line: 'They are pressing for a late goal. Hold them off?', attack: false },
     lateAttack: { title: 'Stoppage-time attack', line: 'One last push. Lead it yourself?', attack: true },
-    penalty: { title: 'Penalty!', line: 'Take it yourself?', attack: true, hook: true },
-    freeKick: { title: 'Free kick', line: 'In shooting range. Take it yourself?', attack: true, hook: true },
+    penalty: { title: 'Penalty!', line: 'Take it yourself? Aim and power by hand.', attack: true }, // (M25: live)
+    freeKick: { title: 'Free kick', line: 'In shooting range. Take it yourself?', attack: true }, // (M25: live)
   },
 };
 

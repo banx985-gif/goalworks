@@ -17,7 +17,9 @@
 import { TACTICS } from '../../data/match.js';
 import { FORMATIONS, formationById, DEFAULT_FORMATION, rolesForSlot, FAMILIARITY, pairKey, CLUB_TACTICS } from '../../data/tactics.js';
 import { tacticsOf } from '../match/matchWorld.js';
-import { xiForMatch } from './squad.js';
+import { xiForMatch, benchFor } from './squad.js';
+import { matchStats } from './players.js';
+import { matchRisk } from './medical.js'; // (M25)
 import { effect as bonus } from './effects.js';
 import { counterFor } from './rivals.js';
 
@@ -37,6 +39,28 @@ export function normaliseTactics(data) {
     familiarity: { [FAMILIARITY.start.pair]: FAMILIARITY.start.value },
   };
   return data.tactics;
+}
+// (M25) Set pieces: the takers you picked (null: the game's suggestion — the best on the pitch by the stats) and the
+// routine for corners and wide free kicks. An older save: all suggested, Mixed.
+export function setPieces(data) {
+  const t = normaliseTactics(data);
+  t.setPieces ??= { pen: null, fk: null, cornerL: null, cornerR: null, routine: 'mixed' };
+  return t.setPieces;
+}
+const TAKER_SCORE = { pen: (s) => s.shooting * 0.7 + s.passing * 0.3, fk: (s) => s.shooting * 0.55 + s.passing * 0.45, cornerL: (s) => s.passing, cornerR: (s) => s.passing };
+// The suggestion: the best available outfield player for each (pen by shooting / technique, free kicks shooting + passing,
+// corners passing — bible: "the game suggests the best by TEC / ATK").
+export function suggestTakers(data, players = data.squad?.players ?? []) {
+  const pool = players.filter((p) => p.position !== 'GK' && !p.injury && !(p.ban?.matches > 0));
+  const best = (k) => pool.slice().sort((a, b) => TAKER_SCORE[k](matchStats(b)) - TAKER_SCORE[k](matchStats(a)))[0]?.id ?? null;
+  return { pen: best('pen'), fk: best('fk'), cornerL: best('cornerL'), cornerR: best('cornerR') };
+}
+// The takers for a match: yours if he is fit, else the suggestion (the engine falls back again if he isn't on the pitch).
+export function takersFor(data) {
+  const sp = setPieces(data);
+  const s = suggestTakers(data);
+  const ok = (id) => id && data.squad?.players.some((p) => p.id === id && !p.injury && !(p.ban?.matches > 0));
+  return Object.fromEntries(['pen', 'fk', 'cornerL', 'cornerR'].map((k) => [k, ok(sp[k]) ? sp[k] : s[k]]));
 }
 
 export const pair = (data) => {
@@ -115,12 +139,24 @@ export function xiIds(data) {
 
 export function teamSide(data) {
   const t = normaliseTactics(data);
+  const players = xiForMatch(data.squad.players, { formation: t.formation, lineup: lineupOf(data) });
+  const risk = (id) => {
+    const p = data.squad.players.find((x) => x.id === id);
+    return p ? matchRisk(data, p) : 1;
+  };
+  for (const pl of players) pl.risk = risk(pl.id); // (M25) the injury risk he carries into the match
+  const bench = benchFor(data.squad.players, players.map((p) => p.id));
+  for (const pl of bench) pl.risk = risk(pl.id);
   return {
     formation: t.formation,
     tactics: { ...t.instr },
     roles: rolesOf(data),
-    players: xiForMatch(data.squad.players, { formation: t.formation, lineup: lineupOf(data) }),
+    players,
     familiarity: { ...t.familiarity },
+    bench, // (M25) seven on the bench
+    takers: takersFor(data), // (M25) set-piece takers and the routine
+    routine: setPieces(data).routine,
+    setPiece: bonus(data, 'setPiecePct'),
   };
 }
 

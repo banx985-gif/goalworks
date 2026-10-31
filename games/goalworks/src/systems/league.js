@@ -391,7 +391,8 @@ export function previewReward(data, clubId, score, promo = false, friendly = fal
   return { res, credits, history, momentum, rep: round1(history + momentum) };
 }
 
-export function recordResult(data, fixture, score, day) {
+// (M25) opts.pens: the match's own shoot-out [ours, theirs] for a cup tie level at full time.
+export function recordResult(data, fixture, score, day, opts = {}) {
   const L = normaliseLeague(data);
   const club = clubById(fixture.opponent.id);
   if (!club) return null;
@@ -434,7 +435,7 @@ export function recordResult(data, fixture, score, day) {
   // (M17) a cup tie: the bracket moves on; a round won earns Credits, the cup itself its prize and flags
   let cup = null;
   if (fixture.cup) {
-    cup = CUP.recordOurTie(data, fixture.cup, score, day);
+    cup = CUP.recordOurTie(data, fixture.cup, score, day, opts.pens ?? null);
     const pz = cup?.prize;
     if (pz) {
       const k = cupById(cup.cup)?.tierScale ? leagueOf(data).tier : 1; // (M21b) the Showcase's prize grows with your league

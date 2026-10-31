@@ -4,6 +4,9 @@
 // drag a player (from the bench below, or another slot) onto a slot to put him there, tap a slot to set its role (or,
 // with a bench player selected by a tap, to put him there); the bench (the rest of the squad) with Auto-pick XI; then the
 // seven team instructions. Everything is saved in the run (src/systems/tactics.js) and used at the next kickoff.
+// Milestone 25: Set pieces at the bottom — the penalty, free-kick and left / right corner takers (tap → pick from the
+// squad, the game's suggestion first: the best by the stats; an injured or banned taker is covered by the next best on
+// the day) and the routine for corners and wide free kicks (Near Post, Far Post, Edge, Short, Mixed).
 //   createTacticsScreen({ layout, assets, sheet, club, onBack, onPlayer })   club() → the open campaign or null
 import { THEME, font } from '../../../../core/Theme.js';
 import { ScrollPanel } from '../../../../core/ui/ScrollPanel.js';
@@ -14,7 +17,9 @@ import { TACTICS } from '../../data/match.js';
 import { FORMATIONS, formationById, ROLES, rolesForSlot, FAMILIARITY } from '../../data/tactics.js';
 import { POSITION_ORDER } from '../../data/players.js';
 import { overall } from '../systems/players.js';
-import { normaliseTactics, familiarity, rolesOf, xiIds, setFormation, setInstruction, setRole, placePlayer, clearLineup } from '../systems/tactics.js';
+import { normaliseTactics, familiarity, rolesOf, xiIds, setFormation, setInstruction, setRole, placePlayer, clearLineup, setPieces, suggestTakers } from '../systems/tactics.js';
+import { ROUTINES, routineById } from '../../data/matchRules.js'; // (M25)
+import { matchStats } from '../systems/players.js';
 import { formationLock } from '../systems/research.js';
 
 const C = THEME.color;
@@ -24,6 +29,8 @@ const GAP = 14;
 const BH = THEME.button.minH;
 const DISC = 58;
 
+const TAKERS = [['pen', 'Penalties'], ['fk', 'Free kicks'], ['cornerL', 'Corners (left)'], ['cornerR', 'Corners (right)']];
+const TAKER_SCORE = { pen: (s) => s.shooting * 0.7 + s.passing * 0.3, fk: (s) => s.shooting * 0.55 + s.passing * 0.45, cornerL: (s) => s.passing, cornerR: (s) => s.passing };
 export function createTacticsScreen({ layout, assets, sheet, club, onBack, onPlayer = () => {} }) {
   const headerRect = () => {
     const sr = layout.safeRect;
@@ -216,6 +223,34 @@ export function createTacticsScreen({ layout, assets, sheet, club, onBack, onPla
       });
       y += BH + 16;
     }
+    // --- (M25) set pieces ---
+    y += 24;
+    if (ctx) text(ctx, 'Set pieces', PAD, y, { size: S.heading, bold: true });
+    y += 66;
+    const sp = setPieces(d);
+    const sug = suggestTakers(d);
+    const nameOf = (id) => d.squad.players.find((p) => p.id === id)?.name ?? '—';
+    const tw2 = (cw - GAP) / 2;
+    TAKERS.forEach(([key, label], i) => {
+      const r = { x: PAD + (i % 2) * (tw2 + GAP), y: y + Math.floor(i / 2) * (BH + 40 + GAP), w: tw2, h: BH };
+      box(`taker:${key}`, { ...r, y: r.y + 40 });
+      if (!ctx) return;
+      text(ctx, label, r.x, r.y + 16, { size: S.small, bold: true, color: C.textMuted, baseline: 'middle' });
+      drawButton(ctx, { ...r, y: r.y + 40 }, sp[key] ? nameOf(sp[key]) : `Auto: ${nameOf(sug[key])}`, { accent: C.gold, font: font(S.small, true) });
+    });
+    y += 2 * (BH + 40 + GAP) + 10;
+    if (ctx) {
+      text(ctx, 'Corner and wide free-kick routine', PAD, y + 16, { size: S.small, bold: true, color: C.textMuted, baseline: 'middle' });
+      text(ctx, routineById(sp.routine).line, PAD, y + 56, { size: S.small, color: C.text, baseline: 'middle', maxWidth: cw });
+    }
+    y += 84;
+    const rw = (cw - GAP * (ROUTINES.length - 1)) / ROUTINES.length;
+    ROUTINES.forEach((ro, i) => {
+      const r = { x: PAD + i * (rw + GAP), y, w: rw, h: BH };
+      box(`routine:${ro.id}`, r);
+      if (ctx) drawButton(ctx, r, ro.name, { accent: C.purple, selected: sp.routine === ro.id, font: font(S.small, true) });
+    });
+    y += BH + 16;
     return { height: y + PAD, rects };
   }
 
@@ -235,6 +270,28 @@ export function createTacticsScreen({ layout, assets, sheet, club, onBack, onPla
     return Object.keys(rs).find((k) => k.startsWith(prefix) && hitRect(c, rs[k])) ?? null;
   };
 
+  // (M25) A taker: the game's suggestion (Auto), or anyone fit in the squad, the best for the job first.
+  function pickTaker(key) {
+    const d = data();
+    if (!d) return;
+    const label = TAKERS.find(([k]) => k === key)[1];
+    const score = TAKER_SCORE[key];
+    const sp = setPieces(d);
+    const list = d.squad.players.filter((p) => p.position !== 'GK').sort((a, b) => score(matchStats(b)) - score(matchStats(a)));
+    const sug = suggestTakers(d)[key];
+    sheet.open(() => ({
+      title: label,
+      subtitle: 'Who takes it (an injured or banned taker: the next best on the day)',
+      accent: C.gold,
+      sections: [{
+        columns: 1,
+        buttons: [
+          { id: 'taker:auto', label: `${sp[key] ? '' : '✓ '}Auto (the best on the day)`, sub: `Now: ${d.squad.players.find((p) => p.id === sug)?.name ?? '—'}`, selected: !sp[key], accent: C.progress, onTap: () => { sp[key] = null; sheet.close(); } },
+          ...list.slice(0, 12).map((p) => ({ id: `taker:${p.id}`, label: `${sp[key] === p.id ? '✓ ' : ''}${p.name}`, sub: `${p.position} · ${key === 'pen' ? 'shooting' : key === 'fk' ? 'shooting + passing' : 'passing'} ${Math.round(score(matchStats(p)))}${p.injury ? ' · injured' : p.ban?.matches > 0 ? ' · banned' : ''}`, selected: sp[key] === p.id, accent: C.gold, onTap: () => { sp[key] = p.id; sheet.close(); } })),
+        ],
+      }],
+    }));
+  }
   function pickRole(slot) {
     const d = data();
     const f = formationById(normaliseTactics(d).formation);
@@ -354,6 +411,8 @@ export function createTacticsScreen({ layout, assets, sheet, club, onBack, onPla
         setFormation(d, a);
         selected = null;
       } else if (kind === 'instr') setInstruction(d, a, b);
+      else if (kind === 'taker') pickTaker(a); // (M25)
+      else if (kind === 'routine') setPieces(d).routine = a;
       else if (kind === 'auto') {
         clearLineup(d);
         selected = null;

@@ -8,6 +8,8 @@
 //     wears; badge (the club's code-drawn badge) and crest (an opponent's crest art) ride along for the screens. Every
 //     team gets kit = { shirt, shorts, keeper, change } (hexes; from colour alone when there are no palette colours).
 //     None of this touches the seeded draws, so the same seed still gives the same match.
+//   Milestone 25: a side may carry bench (up to 7, the same shape as players); a player may carry trait and risk.
+//   matchExtras(setup, { fixture, ours, theirBench }) adds the shoot-out flag, takers, routine and set-piece bonus.
 //   Milestone 7: a side may carry players: its XI from the squad (11, in the 4-4-2's slot order, stats = the engine's six
 //     numbers from the players' ratings) — then no test players are made for it.
 import { Rng } from '../../../../core/Rng.js';
@@ -32,10 +34,12 @@ function bodyFor(hex, not = null) {
   return list.reduce((best, k) => (colourGap(MATCH_ART.kitHex[k], hex) < colourGap(MATCH_ART.kitHex[best], hex) ? k : best), list[0]);
 }
 
+// (M25) what a squad player carries into the match beyond his numbers: his set-piece trait and injury risk
+const extra = (pl) => ({ ...(pl.trait ? { trait: pl.trait } : {}), ...(pl.risk != null && pl.risk !== 1 ? { risk: pl.risk } : {}) });
 function makeTeam(rng, side, used) {
   // Milestone 7: a real XI (src/systems/squad.js xiForMatch — 11 in slot order, keeper first) plays as it is; otherwise
   // test players with plain generated names and flat stats (Milestone 3)
-  const players = side.players?.length === 11 ? side.players.map((pl, i) => ({ shirt: pl.shirt ?? i + 1, name: pl.name, role: FORMATION_442[i].role, stats: { ...pl.stats }, ...(pl.id ? { id: pl.id } : {}), ...(pl.position ? { position: pl.position } : {}), ...(pl.god ? { god: pl.god } : {}) })) : FORMATION_442.map((slot, i) => {
+  const players = side.players?.length === 11 ? side.players.map((pl, i) => ({ shirt: pl.shirt ?? i + 1, name: pl.name, role: FORMATION_442[i].role, stats: { ...pl.stats }, ...(pl.id ? { id: pl.id } : {}), ...(pl.position ? { position: pl.position } : {}), ...(pl.god ? { god: pl.god } : {}), ...extra(pl) })) : FORMATION_442.map((slot, i) => {
     let name;
     do name = `${rng.pick(FIRST_NAMES)} ${rng.pick(SURNAMES)}`;
     while (used.has(name));
@@ -47,6 +51,8 @@ function makeTeam(rng, side, used) {
   if (side.colours) t.colours = { primary: side.colours.primary, secondary: side.colours.secondary };
   if (side.badge) t.badge = { ...side.badge };
   if (side.crest) t.crest = side.crest;
+  // (M25) the bench (Match Setup's seven): the same shape as the XI's players
+  if (side.bench?.length) t.bench = side.bench.map((pl, i) => ({ shirt: pl.shirt ?? 12 + i, name: pl.name, stats: { ...pl.stats }, ...(pl.id ? { id: pl.id } : {}), ...(pl.position ? { position: pl.position } : {}), ...(pl.god ? { god: pl.god } : {}), ...extra(pl) }));
   return t;
 }
 
@@ -74,4 +80,14 @@ export function createMatchSetup({ seed, home, away }) {
   h.keeper = MATCH_ART.keepers[0];
   a.keeper = MATCH_ART.keepers[1];
   return { seed: String(seed), home: h, away: a };
+}
+
+// (M25) The match extras for a fixture: a cup tie can go to a shoot-out; our takers, routine and set-piece bonus (theirs:
+// the engine's suggestion and Mixed). ours: tactics.js teamSide(data).
+export function matchExtras(setup, { fixture, ours }) {
+  setup.shootout = !!fixture?.cup;
+  setup.takers = [ours?.takers ?? null, null];
+  setup.routine = [ours?.routine ?? 'mixed', 'mixed'];
+  setup.setPiece = [ours?.setPiece ?? 0, 0];
+  return setup;
 }

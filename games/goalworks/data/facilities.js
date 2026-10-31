@@ -100,8 +100,8 @@ export const EFFECT_KEYS = {
   scoutCandidates: { live: true, where: '+{v} player in every scout report' },
   rpDay: { live: true, where: 'Research: +{v} RP a day' }, // (Milestone 13: the Thinker rooms feed research)
   storeSize: { live: true, where: 'The Club Store holds {v} more items' }, // (Milestone 12c)
-  injuryRecoveryPct: { waits: 'M25', what: 'injuries' },
-  injuryPreventionPct: { waits: 'M25', what: 'injuries' },
+  injuryRecoveryPct: { live: true, where: 'Injuries heal {v}% faster' }, // (Milestone 25)
+  injuryPreventionPct: { live: true, where: 'Injury risk −{v}%' }, // (Milestone 25)
   kitCare: { live: true, where: 'Kit and equipment cared for: stadium upkeep −10%' }, // (Milestone 23)
   // (Milestone 15) the academy (src/systems/academy.js): the trials need a Youth Corner; the Academy Building is the full
   // youth system, the Elite Academy higher potential rolls

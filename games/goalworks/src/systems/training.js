@@ -29,6 +29,7 @@ import { FOCUSES, focusById, DEFAULT_FOCUS, INTENSITY, DEFAULT_INTENSITY, XP, FA
 import { overall, statCap } from './players.js';
 import { effect as bonus } from './effects.js';
 import { staffBonus } from './staff.js';
+import { medicalDay } from './medical.js'; // (M25)
 
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const round1 = (v) => Math.round(v * 10) / 10;
@@ -181,6 +182,7 @@ const riskOf = (f) => (f <= FATIGUE.riskFrom ? 0 : Math.round((1000 * FATIGUE.ri
 // recovery, form and morale drift back. The weekly day off and match days don't train.
 export function trainDay(data, { day, matchDay = false }) {
   const training = normaliseTraining(data);
+  const medical = medicalDay(data, day); // (M25) the injured heal a day (and sit training out)
   const squad = data.squad;
   const founderId = data.club?.founder?.id ?? null;
   const dayOff = !matchDay && day % FATIGUE.weekOff === 0;
@@ -194,6 +196,12 @@ export function trainDay(data, { day, matchDay = false }) {
   const loadCut = Math.max(0, 1 + bonus(data, 'trainingLoadPct') / 100) * fatigueGain(data); // (M13) research: sessions tire players less; (M14) the Physio's Load Manager
   const out = [];
   for (const p of squad.players) {
+    if (p.injury) {
+      // (M25) injured: no session (medicalDay heals him and he loses a little sharpness)
+      p.today = { xp: 0, kind: 'injured', gains: {} };
+      out.push({ id: p.id, xp: 0, gains: {} });
+      continue;
+    }
     let xp = 0;
     const gains = {};
     let restShare = kind === 'dayoff' ? 1 : 0;
@@ -228,7 +236,7 @@ export function trainDay(data, { day, matchDay = false }) {
   }
   training.lastDay = day;
   training.log = [...(training.log ?? []), { day, kind, focus: training.focus, intensity: training.intensity, xp: round1(out.reduce((a, x) => a + x.xp, 0)) }].slice(-28);
-  return { kind, players: out };
+  return { kind, players: out, medical }; // (M25) the medical events of the day (back from injury)
 }
 
 // After a match (our side = the home side of the fixture): the XI tire, form follows the result and goals, morale the

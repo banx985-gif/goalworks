@@ -248,7 +248,7 @@ export function voiceParts(data, day) {
     const fam = familiarity(data) ?? 0;
     const fat = S.fatN ? S.fatSum / S.fatN : 0;
     out.coach = {
-      parts: { youth: v.parts.youth * Math.min(1, share / v.youthFull), growth: v.parts.growth * clamp(gain / v.growthFull, 0, 1), familiarity: v.parts.familiarity * clamp(fam / 100, 0, 1), fitness: v.parts.fitness * clamp(1 - fat / v.fitnessZero, 0, 1) },
+      parts: { youth: v.parts.youth * Math.min(1, share / v.youthFull), growth: v.parts.growth * clamp(gain / v.growthFull, 0, 1), familiarity: v.parts.familiarity * clamp(fam / 100, 0, 1), fitness: fitnessPart(data, v, fat) },
       words: { youth: `${Math.round(share * 100)}% of the minutes went to players ${v.youthAge} or under`, growth: `The squad gained ${r1(Math.max(0, gain))} overall a player` },
       gain,
     };
@@ -256,6 +256,15 @@ export function voiceParts(data, day) {
   return out;
 }
 const fill = (tpl, words) => tpl.replace(/\{(\w+)\}/g, (_, k) => words[k] ?? '').replace(/\s+/g, ' ').replace(/\s\./g, '.').trim();
+// (M25) the coach's "few injuries": half the fitness part from fatigue, half from the season's injuries (an older save
+// with no injury record yet: fatigue alone, as before)
+function fitnessPart(data, v, fat) {
+  const fresh = clamp(1 - fat / v.fitnessZero, 0, 1);
+  const M = data.medical;
+  if (!M?.season) return v.parts.fitness * fresh;
+  const inj = clamp(1 - (M.season.injuries ?? 0) / v.injuryZero, 0, 1);
+  return v.parts.fitness * (fresh * 0.5 + inj * 0.5);
+}
 // The four voices, each /10 (a whole number, 1–10), and the total /40.
 export function review(data, day) {
   const parts = voiceParts(data, day);

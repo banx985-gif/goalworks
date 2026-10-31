@@ -4,8 +4,8 @@
 //     team: the human's side. seen: { restart } — the last restart already looked at (a corner is offered once; saved
 //     with the match, so it is a plain number: the step that restart ends on).
 //   momentSettled(world, km) → true once the moment is over (a dead ball, or the ball clearly with the other side)
-//   offerFromEvent(e) → a type for a match event, or null — the hook for penalties and free kicks (fouls and set pieces
-//   arrive in Milestone 25; until then no event maps to them).
+//   offerFromEvent(e) → a type for a match event, or null. (M25) detectKeyMoment offers our penalty / direct free kick and
+//   corners straight from the set piece being set up (world.special).
 import { KEY_MOMENTS, MATCH_TIME } from '../../data/match.js';
 import { pressureOn } from './matchAI.js';
 
@@ -15,6 +15,15 @@ const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
 export function detectKeyMoment(world, team, seen = {}) {
   const them = 1 - team;
   const diff = world.score[team] - world.score[them];
+  // (M25) a set piece being set up: our penalty or direct free kick, a corner either way (each offered once)
+  const sp = world.special;
+  if (sp && sp.phase === 'setpiece' && !sp.shootout && sp.start != null && seen.sp !== sp.start) {
+    seen.sp = sp.start;
+    if (sp.kind === 'pen') return sp.team === team ? 'penalty' : null;
+    if (sp.kind === 'direct') return sp.team === team ? 'freeKick' : null;
+    if (sp.kind === 'corner') return sp.team === team ? 'corner' : 'cornerDef';
+    return null;
+  }
   // A corner: offered the moment it is given (either way).
   const restartKey = world.phase === 'restart' && world.restart ? world.steps + Math.round(world.phaseLeft / MATCH_TIME.step) : null;
   if (restartKey !== null && restartKey !== seen.restart) {

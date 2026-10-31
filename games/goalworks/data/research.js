@@ -110,10 +110,10 @@ export const RESEARCH_EFFECTS = {
   mentorPct: { live: true, system: 'academy' },
   youthPotential: { live: true, system: 'academy' },
   goldenGeneration: { live: true, system: 'academy' },
-  injuryPreventionPct: { waits: 'M25', what: 'injuries' },
-  injuryRecoveryPct: { waits: 'M25', what: 'injuries' },
-  reinjuryPct: { waits: 'M25', what: 'injuries' },
-  setPiecePct: { waits: 'M25', what: 'set pieces' },
+  injuryPreventionPct: { live: true, system: 'injuries' }, // (M25)
+  injuryRecoveryPct: { live: true, system: 'injuries' }, // (M25)
+  reinjuryPct: { live: true, system: 'injuries' }, // (M25: a past injury adds less risk)
+  setPiecePct: { live: true, system: 'set pieces' }, // (M25)
   tacticalPrepPct: { live: true, system: 'match preparation (with an Analyst, M14)' },
   fanGrowthPct: { live: true, system: 'Fan Trust (M23)' },
   sponsorPct: { live: true, system: 'sponsor stipends (M23)' },

@@ -5,6 +5,8 @@
 //   bestXI(players, formation = '442', fixed) → 11 players in the formation's slot order (keeper first): the best of each slot's own position,
 //                     playing someone out of position only when that position has nobody left
 //   xiForMatch(players) → the 11 as match set-up players { name, shirt, stats } (stats: the engine's six numbers)
+//     (M25) an injured or banned player is never picked; if fewer than 11 are fit, the least-hurt injured play (never a
+//     banned one) · benchFor(players, xi, n) → the next n fit players (a keeper first if there is one)
 //   opponentSquad({ seed, clubId }) → a generated 18 at that club's level (names from the club's area)
 //   toClubLevel(p, clubId) → a generated player raised to his club's strength (M17: County potential rises too)
 //   ensureSquad(data) → true when it had to generate one (a Milestone 0–6 save: once, from its stored Founder)
@@ -58,13 +60,29 @@ export function bestXI(players, formation = '442', fixed = null) {
 
 // Milestone 8: each player's six numbers × his condition (fatigue, form, morale — exactly 1 at neutral).
 // Milestone 9: in the club's formation, with any hand-picked players: xiForMatch(players, { formation, lineup }).
-export const xiForMatch = (players, { formation = '442', lineup = null } = {}) =>
-  bestXI(players, formation, lineup).map((p) => {
-    const k = conditionFactor(p);
-    const stats = matchStats(p);
-    for (const key of Object.keys(stats)) stats[key] = Math.round(stats[key] * k);
-    return { id: p.id, name: p.name, shirt: p.shirt, position: p.position, stats, ...(p.god ? { god: p.god } : {}) }; // (M20b) a god's blessing plays in the match
-  });
+const fit = (p) => !p.injury && !(p.ban?.matches > 0);
+export function pickable(players) {
+  const ok = players.filter(fit);
+  if (ok.length >= 11) return ok;
+  // an injury crisis: the least-hurt injured make up the numbers (never a banned player)
+  const hurt = players.filter((p) => p.injury && !(p.ban?.matches > 0)).sort((a, b) => a.injury.days - b.injury.days);
+  return [...ok, ...hurt.slice(0, 11 - ok.length)];
+}
+export function matchPlayer(p) {
+  const k = conditionFactor(p);
+  const stats = matchStats(p);
+  for (const key of Object.keys(stats)) stats[key] = Math.round(stats[key] * k);
+  return { id: p.id, name: p.name, shirt: p.shirt, position: p.position, stats, ...(p.god ? { god: p.god } : {}), ...(p.trait ? { trait: p.trait } : {}) }; // (M20b) a god's blessing plays in the match; (M25) his trait (set pieces)
+}
+export const xiForMatch = (players, { formation = '442', lineup = null } = {}) => bestXI(pickable(players), formation, lineup).filter(Boolean).map(matchPlayer);
+// (M25) the bench: the next best fit players who are not in the XI, a keeper among them when there is one
+export function benchFor(players, xiIds, n = 7) {
+  const rest = players.filter((p) => fit(p) && !xiIds.includes(p.id) && !p.loan);
+  const score = (p) => matchStats(p).pace + matchStats(p).passing + matchStats(p).shooting + matchStats(p).tackling + matchStats(p).dribbling;
+  const gk = rest.filter((p) => p.position === 'GK').sort((a, b) => matchStats(b).keeping - matchStats(a).keeping)[0];
+  const out = rest.filter((p) => p !== gk).sort((a, b) => score(b) - score(a)).slice(0, gk ? n - 1 : n);
+  return (gk ? [gk, ...out] : out).map(matchPlayer);
+}
 
 // (Milestone 11: exported — what a player's wages are for a role, and a fresh contract — for transfers and renewals)
 export function salaryFor(p, role) {

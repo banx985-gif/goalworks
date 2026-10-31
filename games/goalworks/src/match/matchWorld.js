@@ -29,6 +29,16 @@
 // older saves don't): a formation or team-instruction change for that side then carries an extra familiarity penalty
 // that starts at SETTLE.pen and fades to nothing over sec (the Analyst's Live Read shortens sec). Without settle a change
 // applies in full at once, as before.
+// Milestone 25 (bible §19 / §20; src/match/setPieces.js): fouls (free kicks, penalties), yellow and red cards, injuries
+// (the INJURED stoppage), substitutes (setup.home.bench / setup.away.bench, SUBS.max changes: an injured player is
+// replaced at once while a change is left; a sent-off player never), corners and wide free kicks by routine
+// (setup.routine[team]), direct free kicks, penalties (Play: the human's aim + power or dive + timing, as timeline
+// commands ['pen', ax, ay, power] / ['dive', dir, timing]) and, when setup.shootout is set and the score is level at full
+// time, a shoot-out (five each, then sudden death). Set-piece takers: setup.takers[team] { pen, fk, cornerL, cornerR }
+// (player ids; the next best on the pitch when one is missing). Per player: risk (the injury risk multiplier the club
+// worked out: fatigue at kickoff, injury history, the medical staff) and trait. world.players is who is on the pitch now;
+// world.all everyone who started; world.incidents the cards, injuries and changes (the club reads them); world.pens the
+// shoot-out ({ score, kicks, winner }).
 import { Rng } from '../../../../core/Rng.js';
 import { PITCH, MATCH_TIME, FORMATION_442, TUNING, TACTICS, TACTIC_FX, FX_BASE, TACTIC_ALIASES, ASSIST } from '../../data/match.js';
 import { formationById, FORMATIONS, ROLES, rolesForSlot, FAMILIARITY, pairKey } from '../../data/tactics.js';
@@ -39,6 +49,9 @@ const GOD_BLESSING = GODS.GOD2.blessing; // (M20b) Jinx's lucky post
 import { createBall, stopBall, stepBall, crossing } from './ballPhysics.js';
 import { think, moveOwner, movePlayers, keeperStep, tryControl } from './matchAI.js';
 import { createControl } from './manualControl.js';
+import { stepSpecial, overuseMinute, awardRestart, penaltyInput, startShootout, setPieceLevel } from './setPieces.js';
+import { shoot as aiShoot, clear as aiClear, pressureOn } from './matchAI.js';
+import { SUBS, SET_PIECES } from '../../data/matchRules.js';
 
 const W = PITCH.w;
 const SETTLE_EVERY = Math.max(1, Math.round(SETTLE.refreshSec / MATCH_TIME.step));
@@ -149,6 +162,11 @@ export function createMatchWorld(setup, { play = null, start = play ? 'play' : '
         shirt: pl.shirt,
         stats: pl.stats,
         god: pl.god ?? null, // (M20b) a Works God (Jinx: the lucky post; Zip: lightning feet)
+        id: pl.id ?? null, // (M25) the squad player (cards, injuries)
+        trait: pl.trait ?? null,
+        risk: pl.risk ?? 1,
+        yellow: false,
+        hurt: false,
         x: 0,
         y: 0,
         vx: 0,
@@ -186,7 +204,16 @@ export function createMatchWorld(setup, { play = null, start = play ? 'play' : '
     restart: null, // { type: 'kickoff'|'throw'|'goalkick'|'corner', team, taker }
     score: [0, 0],
     scorers: [], // [{ team, name, minute }]
-    stats: [0, 1].map(() => ({ shots: 0, onTarget: 0, saves: 0, passes: 0, passesDone: 0, tackles: 0, tacklesWon: 0, possessionSteps: 0 })),
+    stats: [0, 1].map(() => ({ shots: 0, onTarget: 0, saves: 0, passes: 0, passesDone: 0, tackles: 0, tacklesWon: 0, possessionSteps: 0, fouls: 0 })),
+    all: players.slice(), // (M25) everyone who started
+    bench: [setup.home, setup.away].map((s) => (s.bench ?? []).slice(0, SUBS.bench).map((b) => ({ ...b, stats: { ...b.stats } }))),
+    subsLeft: [SUBS.max, SUBS.max],
+    incidents: [], // [{ type: 'yellow' | 'red' | 'injury' | 'sub', team, by, id, minute, … }]
+    pendingOff: [], // injured players who leave at the next stoppage
+    special: null, // a stoppage / set piece in hand (setPieces.js)
+    pens: null, // the shoot-out
+    shotKind: null,
+    lastMinute: 0,
     events: [], // goals, saves, shots, half/full time (for the screen's banners and the tests)
     chasers: [[], []],
     settling: [null, null], // (M14) { from, until } steps of a change still settling, per side
@@ -227,7 +254,7 @@ export function createMatchWorld(setup, { play = null, start = play ? 'play' : '
       return { x: W / 2, y: world.dir(team) < 0 ? H : 0 };
     },
     keeperOf(team) {
-      return players[team * 11];
+      return players.find((p) => p.team === team && p.role === 'GK') ?? players.find((p) => p.team === team) ?? world.all[team * 11]; // (M25: the keeper on the pitch now)
     },
     get minute() {
       return Math.min(45, Math.floor((world.t / MATCH_TIME.halfSec) * 45)) + (world.half - 1) * 45;
@@ -247,6 +274,11 @@ export function createMatchWorld(setup, { play = null, start = play ? 'play' : '
       applyDue();
       const dt = MATCH_TIME.step;
       world.steps++;
+      // (M25) a stoppage, a set piece or the shoot-out: the clock is held while it is dealt with
+      if (world.special) {
+        if (world.control) world.control.pre(); // (Play: the controlled player stays one of ours on the pitch)
+        if (stepSpecial(world, dt, (d) => movePlayers(world, d))) return;
+      }
       for (const t of [0, 1]) if (world.settling[t] && (world.steps - world.settling[t].from) % SETTLE_EVERY === 0) refreshFx(t); // (M14) the settle penalty fades
       if (world.phase === 'halftime') {
         world.phaseLeft -= dt;
@@ -259,6 +291,11 @@ export function createMatchWorld(setup, { play = null, start = play ? 'play' : '
       }
       world.t += dt;
       if (world.owner) world.stats[world.owner.team].possessionSteps++;
+      // (M25) once a match minute: a knock for a player who started tired
+      if (world.minute !== world.lastMinute) {
+        world.lastMinute = world.minute;
+        if (world.phase === 'play') overuseMinute(world);
+      }
       for (const p of players) if (p.cool > 0) p.cool -= dt;
       if (world.control) world.control.pre();
 
@@ -285,7 +322,7 @@ export function createMatchWorld(setup, { play = null, start = play ? 'play' : '
         const out = world.owner ? null : crossing(prev, world.ball, PITCH);
         if (out) ballOut(out);
       }
-      if (world.t >= MATCH_TIME.halfSec && world.phase !== 'goal') endHalf();
+      if (world.t >= MATCH_TIME.halfSec && world.phase !== 'goal' && !world.special) endHalf();
     },
     run(n) {
       for (let k = 0; k < n && !world.done; k++) world.step();
@@ -345,6 +382,27 @@ export function createMatchWorld(setup, { play = null, start = play ? 'play' : '
     event(e) {
       world.events.push({ ...e, minute: world.minute, step: world.steps });
     },
+    // (M25) internal hooks (setPieces.js, matchAI.js)
+    _setRestart: (type, team, x, y) => setRestart(type, team, x, y),
+    _goal: (team, o) => goal(team, o),
+    _shoot: (p, press) => aiShoot(world, p, press ?? pressureOn(world, p)),
+    _clear: (p) => aiClear(world, p),
+    _corner(team, x) {
+      const endY = world.goalOf(team).y;
+      awardRestart(world, 'corner', team, x < W / 2 ? 0.5 : W - 0.5, endY === 0 ? 0.5 : H - 0.5);
+      world.phase = 'stoppage';
+    },
+    _remove(p) {
+      const at = players.indexOf(p);
+      if (at < 0) return;
+      players.splice(at, 1);
+      if (world.owner === p) world.release(p);
+      if (world.lastToucher === p) world.lastToucher = null;
+      p.manual = false;
+      p.off = true;
+      world.chasers = world.chasers.map((list) => list.filter((q) => q !== p));
+      if (world.control?.player === p) world.control.reselect();
+    },
   };
 
   function placeAll() {
@@ -363,7 +421,8 @@ export function createMatchWorld(setup, { play = null, start = play ? 'play' : '
   function kickoff(team) {
     placeAll();
     stopBall(world.ball, W / 2, H / 2);
-    const taker = players[team * 11 + 9]; // a forward
+    const side = players.filter((p) => p.team === team && p.role !== 'GK');
+    const taker = side.find((p) => p.role === 'FW') ?? side[side.length - 1] ?? players.find((p) => p.team === team); // a forward (M25: whoever is on the pitch)
     taker.x = W / 2 + 0.6 * -world.dir(team);
     taker.y = H / 2 - world.dir(team) * 0.8;
     world.give(taker);
@@ -412,13 +471,17 @@ export function createMatchWorld(setup, { play = null, start = play ? 'play' : '
         return;
       }
       const defenders = 1 - attackers;
-      if (world.shot && !world.shot.resolved) world.event({ type: 'miss', team: world.shot.team, by: world.shot.by.name });
-      if (last === attackers) {
+      const missed = world.shot && !world.shot.resolved;
+      if (missed) world.event({ type: 'miss', team: world.shot.team, by: world.shot.by.name });
+      // (M25) a shot going wide now and then takes a defender's touch on the way: a corner
+      const deflected = missed && last === attackers && world.rng.next() < SET_PIECES.corner.fromMiss * setPieceLevel(world, defenders);
+      if (last === attackers && !deflected) {
         const inY = endY === 0 ? PITCH.sixD : H - PITCH.sixD;
         setRestart('goalkick', defenders, W / 2 + (o.x < W / 2 ? -5 : 5), inY);
       } else {
         const cx = o.x < W / 2 ? 0.5 : W - 0.5;
-        setRestart('corner', attackers, cx, endY === 0 ? 0.5 : H - 0.5);
+        awardRestart(world, 'corner', attackers, cx, endY === 0 ? 0.5 : H - 0.5); // (M25) a corner is a set piece now
+        world.phase = 'stoppage';
       }
       return;
     }
@@ -454,9 +517,10 @@ export function createMatchWorld(setup, { play = null, start = play ? 'play' : '
     const quick = lp && (shotStep - lp.step) * MATCH_TIME.step <= ASSIST.withinSec && lp.touches <= ASSIST.maxTouches;
     const assist = !own && by && lp && quick && lp.to === by && lp.from.team === team && lp.from !== by ? lp.from.name : null;
     world.lastPass = null;
-    const entry = { team, name: by ? by.name : 'Unknown', minute: world.minute + 1, own, assist };
+    const setPiece = world.shot?.setPiece ?? null; // (M25) a corner / free kick / penalty goal
+    const entry = { team, name: by ? by.name : 'Unknown', minute: world.minute + 1, own, assist, ...(setPiece ? { setPiece } : {}) };
     world.scorers.push(entry);
-    world.event({ type: 'goal', team, by: entry.name, own, score: [...world.score] });
+    world.event({ type: 'goal', team, by: entry.name, own, score: [...world.score], setPiece });
     // the ball rests in the net
     world.ball.x = o.x;
     world.ball.y = o.y < 1 ? -1.2 : H + 1.2;
@@ -481,10 +545,15 @@ export function createMatchWorld(setup, { play = null, start = play ? 'play' : '
       stopBall(world.ball, W / 2, H / 2);
       world.t = MATCH_TIME.halfSec;
     } else {
-      world.event({ type: 'full', score: [...world.score] });
-      world.phase = 'fulltime';
       world.t = MATCH_TIME.halfSec;
       world.owner = null;
+      // (M25) a cup tie level at full time: a shoot-out (the 'full' event comes at its end, with the pens)
+      if (setup.shootout && world.score[0] === world.score[1] && world.players.some((p) => p.team === 0) && world.players.some((p) => p.team === 1)) {
+        startShootout(world);
+        return;
+      }
+      world.event({ type: 'full', score: [...world.score] });
+      world.phase = 'fulltime';
     }
   }
 
@@ -497,6 +566,8 @@ export function createMatchWorld(setup, { play = null, start = play ? 'play' : '
       return (e[2] === 0 || e[2] === 1) && !!TACTICS[k]?.options.includes(v);
     }
     if (e[1] === 'formation') return (e[2] === 0 || e[2] === 1) && FORMATIONS.some((x) => x.id === e[3]);
+    if (e[1] === 'pen') return e.length === 5 && [e[2], e[3], e[4]].every(Number.isFinite); // (M25) the human's penalty: aim x, aim y, power
+    if (e[1] === 'dive') return e.length === 4 && [e[2], e[3]].every(Number.isFinite); // … the human keeper's dive and timing
     if (e[1] === 'role') {
       if (!(e[2] === 0 || e[2] === 1) || !Number.isInteger(e[3])) return false;
       const sl = formationById(world.formation[e[2]]).slots[e[3]];
@@ -526,6 +597,8 @@ export function createMatchWorld(setup, { play = null, start = play ? 'play' : '
       setFormation(e[2], e[3]);
       startSettling(e[2]);
       refreshFx(e[2]);
+    } else if (e[1] === 'pen' || e[1] === 'dive') {
+      penaltyInput(world, e.slice(1));
     } else if (e[1] === 'role') {
       const p = players.find((q) => q.team === e[2] && q.slot === e[3]);
       if (p) {
@@ -596,5 +669,8 @@ export function matchResult(world) {
     scorers: world.scorers.map((s) => ({ ...s })),
     outcome: h > a ? 'won' : h < a ? 'lost' : 'drew',
     stats: world.stats.map((s) => ({ ...s })),
+    // (M25) the shoot-out [home, away] (a cup tie level at full time), the cards / injuries / changes
+    pens: world.pens?.done ? [...world.pens.score] : null,
+    incidents: world.incidents.map((e) => ({ ...e })),
   };
 }

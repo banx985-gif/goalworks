@@ -13,7 +13,7 @@
 //   press  — goals a match, Stars in the squad + big signings (new this season, at least the XI's average), giant-killings
 //            (a win against a side 3+ overall stronger or from a higher league), secret cups found this season
 //   coach  — youth minutes (XI appearances by players 21 or under), overall gained by the squad, familiarity of the
-//            formation / style in use, freshness (the squad's average fatigue this season; injuries arrive in M25)
+//            formation / style in use, freshness (the squad's average fatigue this season and, since M25, few injuries)
 
 export const AWARDS_DAY = 335; // the last day of Month 12 (club days 0–335 of each season; the season's end is day 336)
 
@@ -48,6 +48,7 @@ export const VOICES = [
     youthAge: 21,
     growthFull: 2.5, // overall points gained per squad player who played
     fitnessZero: 50, // average fatigue at which the part is 0 (0 fatigue: the whole part)
+    injuryZero: 10, // (M25) injuries in a season at which the injury half of the part is 0 (fitness = half fatigue, half few injuries)
     standIn: 'Assistant Coach (no Head Coach hired)',
   },
 ];

@@ -103,6 +103,17 @@ function addHire(data, def, day, text) {
   note(data, text);
   return m;
 }
+// (M25, tests / ?debug=1 only) put someone in the role now: no eligibility check, no fee — the measured tests of the
+// Physio's and Bolt's effects use it. Normal play always goes through hire().
+export function forceHire(data, id, day = 0) {
+  normaliseStaff(data, day);
+  const def = staffById(id);
+  if (!def) return false;
+  const cur = inRole(data, def.role);
+  if (cur) removeHire(data, cur.id);
+  addHire(data, def, day, `${def.name} joined (debug).`);
+  return true;
+}
 function removeHire(data, id) {
   data.staff.hired = data.staff.hired.filter((s) => s.id !== id);
   data.staff.rev = (data.staff.rev ?? 0) + 1;

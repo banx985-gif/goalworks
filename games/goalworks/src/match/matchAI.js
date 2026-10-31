@@ -16,11 +16,17 @@
 // where in his zone he stands, his runs, his choices on the ball, how often he presses, how far out a keeper stands); and
 // tactical familiarity (fx.famPen: extra positioning drift and execution error for an unfamiliar formation / style).
 // All guarded the same way: a 4-4-2 on the defaults with its default roles is still the Milestone 3 match.
+// Milestone 25: a tackle can be a foul (src/match/setPieces.js foulOnTackle — the same for the AI and a manual tackle) or a
+// knock; a parried save or a block now and then goes behind for a corner (world._corner); a header / volley / free kick
+// is a shot with its own pace (world.shotKind). world.players is the players on the pitch now (sent off / injured with no
+// change left: gone), so every loop here reads the side as it stands.
 import { PITCH, MATCH_TIME } from '../../data/match.js';
 import { FAMILIARITY } from '../../data/tactics.js';
 import { GODS } from '../../data/gods.js';
 import { STAR } from '../../data/players.js';
 import { predictBall, rollDistance, ballSpeed } from './ballPhysics.js';
+import { foulOnTackle, tackleKnock, setPieceLevel } from './setPieces.js';
+import { SET_PIECES } from '../../data/matchRules.js';
 
 const W = PITCH.w;
 const H = PITCH.h;
@@ -542,7 +548,7 @@ export function pass(world, p, q, press, lofted, aim = null) {
 }
 
 // Nobody on: hoof it up the pitch.
-function clear(world, p) {
+export function clear(world, p) {
   const T = world.T;
   const g = world.goalOf(p.team);
   world.stats[p.team].passes++;
@@ -564,7 +570,8 @@ export function shoot(world, p, press, aim = null) {
   // aim for a spot inside the posts, low or high
   const tx = aim ? aim.x : g.x + rng.range(-PITCH.goalW / 2 + 0.5, PITCH.goalW / 2 - 0.5);
   const h = aim ? aim.h : rng.range(0.1, PITCH.goalH - 0.3);
-  const speed = S.speed * rng.range(0.85, 1.12);
+  const kind = world.shotKind; // (M25) a header / volley / free kick: its own pace
+  const speed = (kind === 'header' ? SET_PIECES.header.power : kind === 'volley' ? SET_PIECES.volley.power : kind === 'freeKick' ? SET_PIECES.freeKick.power : S.speed) * rng.range(0.85, 1.12);
   const se = world.fx[p.team].shotErr; // width: a crowded box (narrow) or a stretched defence (wide)
   const err = aimError(world, se === 1 ? S.errDeg + d * S.errPerM : (S.errDeg + d * S.errPerM) * se, p.stats.shooting, press);
   const t = d / speed;
@@ -590,8 +597,14 @@ export function tackle(world, p, owner) {
   let chance = T.tackle.base + (p.stats.tackling - owner.stats.dribbling) / 200;
   const shield = world.fx[owner.team].shield; // tempo: a patient side keeps the ball closer
   if (shield) chance -= shield;
-  if (rng.next() < chance) {
+  const won = rng.next() < chance;
+  if (foulOnTackle(world, p, owner, won)) {
+    p.cool = T.tackle.cooldown;
+    return false; // (M25) the referee's whistle: a free kick (or a penalty) to the carrier's side
+  }
+  if (won) {
     world.stats[p.team].tacklesWon++;
+    tackleKnock(world, owner); // (M25) a heavy, fair challenge now and then hurts
     // the ball squirts loose; the tackler usually comes away with it
     world.release(owner);
     owner.cool = 0.6;
@@ -640,6 +653,8 @@ export function keeperStep(world, dt) {
       world.event({ type: 'save', team: k.team, by: k.name });
       if (world.rng.next() < K.hold) {
         world.give(k);
+      } else if (world.rng.next() < SET_PIECES.corner.fromParry * setPieceLevel(world, k.team)) {
+        world._corner(shot.team, b.x); // (M25) tipped round the post: a corner
       } else {
         // parried away
         b.vx = world.rng.range(-7, 7);
@@ -687,6 +702,13 @@ export function tryControl(world) {
     if (world.shot) world.shot.resolved = true;
     return;
   }
-  if (world.shot && !world.shot.resolved && best.role !== 'GK') world.event({ type: 'block', team: best.team, by: best.name });
+  if (world.shot && !world.shot.resolved && best.role !== 'GK') {
+    world.event({ type: 'block', team: best.team, by: best.name });
+    if (world.rng.next() < SET_PIECES.corner.fromBlock * setPieceLevel(world, best.team)) {
+      const atk = world.shot.team;
+      world.shot.resolved = true;
+      return world._corner(atk, b.x); // (M25) deflected behind: a corner
+    }
+  }
   world.give(best);
 }

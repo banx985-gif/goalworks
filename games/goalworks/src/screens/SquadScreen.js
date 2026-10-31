@@ -10,6 +10,9 @@
 // Condition section (fatigue, form, morale, injury risk stored for later) and the player's training.
 // Milestone 16: a player who has announced his retirement says "last season" on his row and wears a LAST SEASON tag;
 // Player Detail gains "At the club" (appearances, goals, assists, clean sheets since M16).
+// Milestone 25: an injured player's row wears a red cross with his days left, a banned one a BAN tag; "Injuries and bans"
+// heads the list while anyone is out (the medical room's list); Player Detail's Fitness section says what, how long, his
+// injury history and his yellow cards per competition. No paid cure, no paid way to lift a ban.
 //   createSquadScreen({ layout, assets, sheet, club, onBack, onTraining })   club() → the open campaign { data } or null
 import { THEME } from '../../../../core/Theme.js';
 import { ScrollPanel } from '../../../../core/ui/ScrollPanel.js';
@@ -24,6 +27,8 @@ import { drawSilhouette } from '../ui/clubArt.js';
 import { silhouetteKey } from '../ui/kitArt.js';
 import { CAREER_TEXT } from '../../data/careers.js';
 import { DIVINE } from '../../data/gods.js';
+import { severityById } from '../../data/matchRules.js';
+import * as MED from '../systems/medical.js';
 
 const C = THEME.color;
 const S = THEME.size;
@@ -115,7 +120,7 @@ export function createSquadScreen({ layout, assets, sheet, club, onBack, onTrain
     ctx.restore();
     text(ctx, chipText(p), tx + 38, r.y + 101, { size: S.small, bold: true, color: '#FFFFFF', align: 'center', baseline: 'middle', maxWidth: 70 });
     const role = p.founder ? `Founder · ${p.contract.role}` : p.loan ? `On loan · ${p.contract.role}` : p.contract.role;
-    const tired = p.fatigue > FATIGUE.riskFrom ? ' · tired' : '';
+    const tired = p.injury ? ` · injured ${Math.ceil(p.injury.days)}d` : p.ban?.matches > 0 ? ` · banned ${p.ban.matches}` : p.fatigue > FATIGUE.riskFrom ? ' · tired' : ''; // (M25)
     const last = p.retiring ? ' · last season' : ''; // (M16) he retires at the season's end
     text(ctx, `${p.god ? 'Divine · Ageless' : `Age ${p.age}`} · ${role}${last}${tired}`, tx + 92, r.y + 101, { size: S.small, color: tired || last ? C.bad : C.textMuted, baseline: 'middle', maxWidth: tw - 92 });
     // the overall
@@ -131,6 +136,31 @@ export function createSquadScreen({ layout, assets, sheet, club, onBack, onTrain
     ctx.stroke();
     ctx.restore();
     text(ctx, String(overall(p)), o.x + o.w / 2, o.y + o.h / 2 - 10, { size: S.title, bold: true, align: 'center', baseline: 'middle', maxWidth: o.w - 12 });
+    // (M25) a red cross with the days left; a BAN tag (over the portrait's corner)
+    if (p.injury || p.ban?.matches > 0) {
+      const bx = r.x + r.h - 34;
+      const by = r.y + 12;
+      ctx.save();
+      if (p.injury) {
+        ctx.fillStyle = '#FFFFFF';
+        ctx.strokeStyle = '#C0392B';
+        ctx.lineWidth = 4;
+        ctx.beginPath();
+        ctx.arc(bx, by + 22, 24, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+        ctx.fillStyle = '#C0392B';
+        ctx.fillRect(bx - 5, by + 7, 10, 30);
+        ctx.fillRect(bx - 15, by + 17, 30, 10);
+      } else {
+        ctx.fillStyle = '#C0392B';
+        ctx.beginPath();
+        ctx.roundRect(bx - 38, by + 4, 76, 36, 18);
+        ctx.fill();
+      }
+      ctx.restore();
+      if (!p.injury) text(ctx, 'BAN', bx, by + 23, { size: 24, bold: true, color: '#FFFFFF', align: 'center', baseline: 'middle' });
+    }
     text(ctx, p.god ? 'DIVINE' : p.star ? 'STAR' : 'OVR', o.x + o.w / 2, o.y + o.h - 20, { size: S.small, bold: true, color: p.star ? C.text : C.textMuted, align: 'center', baseline: 'middle', maxWidth: o.w - 8 });
   }
 
@@ -157,6 +187,9 @@ export function createSquadScreen({ layout, assets, sheet, club, onBack, onTrain
       }
       y += 20;
     };
+    // (M25) the medical room's list: who is out and for how long, at the top while anyone is
+    const out = sq.players.filter((p) => p.injury || p.ban?.matches > 0);
+    if (out.length) section('Injuries and bans', `${out.length} out`, out);
     section('Senior squad', `${sq.players.length} players`, sq.players);
     if (sq.watch?.length) section('Watch list', 'reserve / youth · the first academy trials', sq.watch); // (M15: they go to the first trials)
     return { height: y + PAD, hit };
@@ -183,6 +216,7 @@ export function createSquadScreen({ layout, assets, sheet, club, onBack, onTrain
         { title: 'Trait', lines: [p.trait, ...(p.founder ? [`Founder Perk: ${founderById(p.featuredId).perk.name} — ${founderById(p.featuredId).perk.text}`] : [])] },
         ...careerSection(p), // (M16) at the club: appearances, goals, assists, clean sheets; retiring
         ...detailExtra(p), // (M12c) Items: "Loves: …", items received, Give an item
+        ...fitnessSection(p), // (M25) injured / banned, history, yellow cards
         {
           title: 'Condition',
           bars: [
@@ -190,7 +224,7 @@ export function createSquadScreen({ layout, assets, sheet, club, onBack, onTrain
             { label: 'Form', value: (p.form ?? 0) - FORM.min, max: FORM.max - FORM.min, color: (p.form ?? 0) >= 0 ? C.good : C.bad, text: `${(p.form ?? 0) > 0 ? '+' : ''}${(p.form ?? 0).toFixed(1)}` },
             { label: 'Morale', value: Math.round(p.morale ?? 50), max: 100, color: C.progress },
           ],
-          lines: p.watch ? ['On the watch list: not training with the squad (the first academy trials take him).'] : [trainingLine(p), ...(p.retrain ? [`Retraining as a ${POSITIONS[p.retrain.to].name}: ${Math.round(p.retrain.progress * 100)}% (fastest in Position Learning)`] : []), ...((p.risk ?? 0) > 0 ? [`Injury risk: ${Math.round(p.risk * 100)}% (injuries arrive later)`] : [])],
+          lines: p.watch ? ['On the watch list: not training with the squad (the first academy trials take him).'] : [trainingLine(p), ...(p.retrain ? [`Retraining as a ${POSITIONS[p.retrain.to].name}: ${Math.round(p.retrain.progress * 100)}% (fastest in Position Learning)`] : []), ...((p.risk ?? 0) > 0 ? [`Tired: a higher injury risk in his next match (rest him to bring it down)`] : [])],
         },
         {
           title: 'Contract',
@@ -208,6 +242,19 @@ export function createSquadScreen({ layout, assets, sheet, club, onBack, onTrain
     };
   }
   // (M16) His career at the club (counted from Milestone 16 on) and, once announced, his retirement.
+  // (M25) Fitness: injured (what, how long, how long he has been out) / banned (how many, why); history; yellows.
+  function fitnessSection(p) {
+    const d = club()?.data;
+    const lines = [];
+    if (p.injury) lines.push({ text: `Injured: ${severityById(p.injury.sev).name.toLowerCase()} (${p.injury.cause}). Back in ${Math.ceil(p.injury.days)} day${Math.ceil(p.injury.days) === 1 ? '' : 's'}.`, color: C.bad });
+    if (p.ban?.matches > 0) lines.push({ text: `Banned for ${p.ban.matches} match${p.ban.matches === 1 ? '' : 'es'} (${p.ban.why}).`, color: C.bad });
+    if (p.injuries) lines.push(`${p.injuries} injur${p.injuries === 1 ? 'y' : 'ies'} at the club (each adds a little to his injury risk).`);
+    const y = d ? MED.yellowsOf(d, p.id) : [];
+    if (y.length) lines.push(`Yellow cards this season: ${y.map((x) => `${x.n} in the ${x.comp === 'league' ? 'league' : 'cup'}`).join(', ')} (5 in one competition is a ban).`);
+    if (!lines.length) return [];
+    const bars = p.injury ? [{ label: 'Recovery', value: Math.max(0, p.injury.total - p.injury.days), max: p.injury.total, color: C.good, text: `${Math.ceil(p.injury.days)} days left` }] : [];
+    return [{ title: 'Fitness', lines, bars }];
+  }
   function careerSection(p) {
     if (p.watch || !p.career) return [];
     const c = p.career;
