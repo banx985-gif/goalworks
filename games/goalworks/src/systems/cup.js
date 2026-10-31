@@ -17,7 +17,7 @@
 //   status(data, cupId) → what the sheets show (the edition now or the last one, your next tie, queued, wins so far)
 //   simTie(data, cup, tie, rng) / strength(data, id) / pensFor(data, ref)   (the AI-vs-AI sim and your shoot-out)
 import { Rng } from '../../../../core/Rng.js';
-import { CUPS, cupById, US } from '../../data/cups.js';
+import { ALL_CUPS, cupById, US } from '../../data/cups.js';
 import { leagueById, LEAGUES } from '../../data/league.js';
 import { clubById, ALL_CLUBS } from '../../data/fixtures.js';
 import { bestXI, opponentSquad } from './squad.js';
@@ -28,11 +28,16 @@ const YEAR = 336;
 const GAP = 7; // (bible §3: one match per seven days)
 const yearOf = (day) => Math.floor((Math.max(1, day) - 1) / YEAR) + 1;
 const yearStart = (y) => (y - 1) * YEAR + 1;
+// (M21b) the club calendar's own month (club day 0 = Year 1 · Month 1 · Day 1), for the Summer Showcase's window
+const clockMonth = (day) => Math.floor((day % YEAR) / 28) + 1;
+const clockYear = (day) => Math.floor(day / YEAR);
+// (M21b) when a cup's next edition may open: a windowed cup (the Showcase) next year's window, the rest next season's start
+const nextOpen = (cup, cur, fallback) => (cup.window ? (clockYear(cur.startDay) + 1) * YEAR + (cup.window.month - 1) * 28 : fallback);
 const avg = (a) => a.reduce((s, x) => s + x, 0) / Math.max(1, a.length);
 
 export function normaliseCups(data) {
   data.cups ??= { v: 17 };
-  for (const id of Object.keys(CUPS)) data.cups[id] ??= { editions: 0, current: null, last: null, nextStart: 0, wins: 0, history: [] };
+  for (const id of Object.keys(ALL_CUPS)) data.cups[id] ??= { editions: 0, current: null, last: null, nextStart: 0, wins: 0, history: [] };
   data.cups.v = 21;
   return data.cups;
 }
@@ -53,6 +58,13 @@ function tierMix(data, rng, n) {
   if (above.length) return [...mine.slice(0, n - 3), ...above.slice(0, 3)];
   return [...mine.slice(0, n - 1), ...rng.shuffle(at(tier - 1).slice()).slice(0, 1)];
 }
+// (M21b) The Summer Showcase's three: two from your league and one from the league above (at the top, one from below).
+function around(data, rng) {
+  const tier = leagueById(data.league?.tier ?? 'regional')?.tier ?? 1;
+  const at = (t) => LEAGUES.find((l) => l.tier === t)?.clubs ?? [];
+  const other = at(tier + 1).length ? at(tier + 1) : at(tier - 1);
+  return [...rng.shuffle(at(tier).slice()).slice(0, 2), ...rng.shuffle(other.slice()).slice(0, 1)];
+}
 
 function startEdition(data, cup, day) {
   const C = data.cups[cup.id];
@@ -63,6 +75,7 @@ function startEdition(data, cup, day) {
   if (cup.teams.strongest) others = byStrength(ALL_CLUBS.map((c) => c.id)).slice(0, cup.teams.strongest); // (M18 C04)
   else if (cup.teams.pick) others = cup.teams.pick.flatMap((x) => byStrength(leagueById(x.league).clubs).slice(0, x.count)); // (M20 C07; M21 C01, C08)
   else if (cup.teams.tierMix) others = tierMix(data, rng, n); // (M21 C09–C14)
+  else if (cup.teams.around) others = around(data, rng); // (M21b the Summer Showcase)
   else {
     const inv = cup.teams.invite;
     others = [...leagueById(cup.teams.league).clubs, ...(inv ? byStrength(leagueById(inv.league).clubs).slice(0, inv.count) : [])];
@@ -120,7 +133,7 @@ function advance(data, cup, day, events) {
     }
     C.last = cur;
     C.current = null;
-    C.nextStart = Math.max(day + 1, yearStart(cur.year + 1));
+    C.nextStart = nextOpen(cup, cur, Math.max(day + 1, yearStart(cur.year + 1)));
     events.push({ kind: 'champion', cup: cup.id, champion: cur.champion, edition: cur.edition });
     return;
   }
@@ -146,21 +159,25 @@ export const waitingFor = (cur) => !!cur && !cur.done && !cur.out && !!ourTieIn(
 
 // One club day of a cup: open an edition (once a season), issue your tie when it is this cup's turn, play the AI rounds
 // once you are out, move the bracket on; an edition still waiting for its first tie when its season has ended is skipped.
-export function cupDay(data, cupId, day, { issueTie, hasTie = () => true, startNew = true, canIssue = () => true } = {}) {
+export function cupDay(data, cupId, day, { issueTie, hasTie = () => true, startNew = true, canIssue = () => true, force = false } = {}) {
   const cup = cupById(cupId);
   const C = normaliseCups(data)[cupId];
   const events = [];
-  if (C.current && !started(C.current) && yearOf(day) > C.current.year) {
+  // (M21b) a cup with a window (the Summer Showcase, Month 7) is skipped once its month is over
+  const pastWindow = (cur) => !!cup.window && !cur.forced && (clockYear(day) > clockYear(cur.startDay) || clockMonth(day) > cup.window.month);
+  if (C.current && !started(C.current) && (yearOf(day) > C.current.year || pastWindow(C.current))) {
     // (M21) its season ran out while it waited in the queue: skipped until next season
     const cur = C.current;
     C.history = [...C.history, { edition: cur.edition, year: cur.year, champion: null, reached: 'skipped' }].slice(-20);
     C.last = { ...cur, skipped: true };
     C.current = null;
-    C.nextStart = Math.max(day, yearStart(cur.year + 1)); // (the new season's edition opens today)
+    C.nextStart = nextOpen(cup, cur, Math.max(day, yearStart(cur.year + 1))); // (the new season's edition opens today)
     events.push({ kind: 'skipped', cup: cupId, edition: cur.edition, year: cur.year });
   }
-  if (!C.current && startNew && day >= C.nextStart) {
+  // (M21b) force: ?debug=1 draws a windowed cup (the Showcase) today, outside its month
+  if (!C.current && startNew && (force || (day >= C.nextStart && (!cup.window || clockMonth(day) === cup.window.month)))) {
     startEdition(data, cup, day);
+    if (force) C.current.forced = true;
     events.push({ kind: 'start', cup: cupId, edition: C.current.edition });
   }
   const cur = C.current;
@@ -239,6 +256,7 @@ export function status(data, cupId) {
     opened: data.league?.cupsOpen?.[cupId] != null || (!!cup.opens.league && !cup.opens.wins && !cup.opens.seasonBeaten && data.league?.tier === cup.opens.league), // (M21)
     nextStart: C.current ? null : C.nextStart,
     history: C.history,
+    prizeK: cup.tierScale ? leagueById(data.league?.tier ?? 'regional')?.tier ?? 1 : 1, // (M21b) the Showcase's prize × your league's tier
   };
 }
 export const teamName = (data, id) => (id === US ? data.club?.name ?? 'Your club' : clubById(id)?.name ?? id);

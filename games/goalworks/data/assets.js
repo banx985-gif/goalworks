@@ -33,6 +33,10 @@ export const ASSETS = {
   ...Object.fromEntries(['trophy_17', 'trophy_18'].map((k) => art('trophies', k))),
   // Milestone 20: the premier crown trophy (the Crown Champions sheet).
   ...Object.fromEntries(['trophy_07'].map((k) => art('trophies', k))),
+  // Milestone 21b: Awards Night — the four award trophies and the Fans' voice (the Board, the Press and the stand-in coach
+  // use ui_05 / ui_19 / ui_08, already loaded; the Showcase's gold cup is made in code from tournament_c01).
+  ...Object.fromEntries(['trophy_10', 'trophy_11', 'trophy_12', 'trophy_13'].map((k) => art('trophies', k))),
+  ui_23: 'assets/images/ui/ui_23.png',
   // Milestone 17: the cups' pictures (C02 County Shield).
   ...Object.fromEntries(Object.values(CUPS).map((c) => art('tournaments', c.art))),
   // Milestone 20b: the Works Gods (stand-ins from the base pictures; Cowork swaps in the GOALWORKS outfits under the same names).

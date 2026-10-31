@@ -183,8 +183,9 @@ function newCandidate(data, rng, used, year, golden, regen = null) {
     p.cap = STAR.cap;
     p.tier = 'Elite';
   }
+  if (regen?.heir && regen.trait) p.trait = regen.trait; // (M21b) a legend's heir keeps his trait
   proj = Math.min(p.star ? STAR.cap : POTENTIAL.cap, Math.max(proj, overall(p) + POTENTIAL.room));
-  return youthBits(p, proj, year, regen ? { regenOf: regen.of, ...(regen.star ? { star: true } : {}) } : {});
+  return youthBits(p, proj, year, regen ? { regenOf: regen.of, ...(regen.heir ? { heirOf: regen.of } : {}), ...(regen.star ? { star: true } : {}) } : {});
 }
 // The trial players for this year's intake (seeded by the run and the year). The first intake takes the M7 watch list
 // (they leave the watch list now) and still has at least one new face.
@@ -204,7 +205,9 @@ export function generateIntake(data, year) {
     data.squad.watch = [];
   }
   // (M16) the regens of your retired players come to these trials first (they take the places of new faces)
-  for (const r of takeAcademyRegens(data, Math.min(n, INTAKE.max) - out.length)) out.push(newCandidate(data, rng, used, year, false, r));
+  // (M21b) a Hall of Famer's heir always gets a place, even when the watch list has filled the trials
+  const heirs = data.careers?.academyRegens?.filter((r) => r.heir).length ?? 0;
+  for (const r of takeAcademyRegens(data, Math.max(Math.min(n, INTAKE.max) - out.length, Math.min(heirs, INTAKE.max - out.length)))) out.push(newCandidate(data, rng, used, year, false, r));
   const fresh = Math.max(INTAKE.newFromWatch * (out.length ? 1 : 0), n - out.length);
   for (let i = 0; i < fresh && out.length < INTAKE.max; i++) out.push(newCandidate(data, rng, used, year, golden));
   return { candidates: out, golden };

@@ -186,7 +186,31 @@ export const CUPS = {
   }),
 };
 export const CUP_ORDER = Object.keys(CUPS);
-export const cupById = (id) => CUPS[id] ?? null;
+// (M21b) The Summer Showcase: a fixed yearly pre-season event on the same engine — a 4-team friendly mini-cup each Month 7
+// (window: it starts on the first club day of that month; if it has not got its first tie by the month's end it is
+// skipped). You + three clubs from your league and the league around it (teams.around: two of yours + one from the league
+// above; at the top, one from below). friendly: it never counts as a competitive match — no league record, no promotion
+// wins, no secret / god tallies, no career or season stats, no match reward, items or Research Points (docs/DECISIONS.md).
+// Its prize is scaled by your league's tier (tierScale: × 1 Regional … × 5 Premier). Not one of the 16 tournaments: it
+// lives beside them (ALL_CUPS) and the Tournaments screen shows it in its own row.
+export const FRIENDLIES = {
+  SHOW: cup({
+    // (art: made in code from baseArt with the gold tint, src/ui/kitArt.js registerTintedArt)
+    id: 'SHOW', name: 'Summer Showcase', art: 'showcase_gold', baseArt: 'tournament_c01', tint: '#E0A800', visibility: 'friendly', friendly: true, level: 'Pre-season', trigger: 'Every Month 7',
+    opens: { month: 7 }, window: { month: 7 }, league: null,
+    size: 4,
+    rounds: ['Semi-final', 'Final'],
+    teams: { around: true },
+    prize: { credits: 500, history: 0, momentum: 25, flags: [] },
+    roundWin: { credits: 150 },
+    tierScale: true,
+    short: 'Pre-season friendly',
+    blurb: 'you and three clubs from your league and the league around it',
+  }),
+};
+export const ALL_CUPS = { ...CUPS, ...FRIENDLIES };
+export const cupById = (id) => ALL_CUPS[id] ?? null;
+export const isFriendlyCup = (id) => !!FRIENDLIES[id];
 export const US = 'us'; // your club in a bracket
 export const isSecretCup = (c) => c.visibility === 'secret' || c.visibility === 'secretPrestige';
 
@@ -199,4 +223,4 @@ export const CUP_FLAGS = {
   trueTrophy: { name: 'True prestige trophy', line: 'The rarest trophy in the game.' },
 };
 // The Tournaments screen's status words.
-export const CUP_STATUS = { locked: 'Locked', open: 'Open', queued: 'Queued', running: 'In progress', missed: 'Missed', found: 'Found' };
+export const CUP_STATUS = { friendly: 'Every Month 7', locked: 'Locked', open: 'Open', queued: 'Queued', running: 'In progress', missed: 'Missed', found: 'Found' };

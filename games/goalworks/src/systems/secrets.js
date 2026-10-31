@@ -108,7 +108,9 @@ export function progress(data, secret, account = null) {
 }
 
 // After one of your matches (league or cup). cup: league.recordResult's cup summary ({ won, pens, final, champion, cup }).
+// (M21b) A Summer Showcase friendly counts for none of them (it neither builds nor breaks a streak).
 export function afterMatch(data, { fixture, score, scorers = [], cup = null, xiIds = [] }, day) {
+  if (fixture?.cup && cupById(fixture.cup.id)?.friendly) return;
   const T = normaliseSecrets(data).track;
   const year = yearOf(day);
   if (T.season.year !== year) T.season = { year, cleanSheets: 0, goals: {} };

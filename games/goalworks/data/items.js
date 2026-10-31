@@ -63,6 +63,7 @@ export const ITEM_SOURCES = {
   potm: { live: true, name: 'Player of the match' },
   training: { live: true, name: 'Great training session' },
   wellwisher: { live: true, name: 'Well-wisher' },
+  award: { live: true, name: 'Season award' }, // (M21b) Awards Night: one item per award
   sponsor: { live: false, name: 'Sponsor gift', waits: 'M23' },
   fans: { live: false, name: 'Fan gift', waits: 'M23 / M24' },
   tournament: { live: false, name: 'Tournament prize', waits: 'M24' },

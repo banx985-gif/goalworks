@@ -6,7 +6,7 @@
 //   createTournamentSheets({ sheet, assets, run, calendar, dateText, onOpenCup(id), onForce(id), debug })
 //     → { openTournaments(), tournamentsMenu(), statusOf(data, id) }
 import { THEME } from '../../../../core/Theme.js';
-import { CUPS, CUP_ORDER, isSecretCup } from '../../data/cups.js';
+import { CUPS, CUP_ORDER, isSecretCup, FRIENDLIES } from '../../data/cups.js';
 import * as LG from '../systems/league.js';
 import * as CUP from '../systems/cup.js';
 
@@ -37,7 +37,7 @@ function silhouette(assets, art) {
 // Where a tournament stands for this club. → { state: 'secret' | 'locked' | 'missed' | 'open' | 'queued' | 'running' |
 // 'out', line, found }
 export function statusOf(data, id, dateText = (d) => `day ${d}`, calendar = null) {
-  const cup = CUPS[id];
+  const cup = CUPS[id] ?? FRIENDLIES[id];
   const C = CUP.normaliseCups(data)[id];
   const L = LG.normaliseLeague(data);
   const secretFound = L.cupsOpen?.[id] != null || (cup.opens.secret ? data.secrets?.state?.[cup.opens.secret]?.found != null : !cup.opens.debug);
@@ -60,6 +60,22 @@ export function statusOf(data, id, dateText = (d) => `day ${d}`, calendar = null
   return { state: 'running', line: st.next ? `In progress · ${st.next.round} v ${CUP.teamName(data, st.next.opponent)}, ${dateText(day)}${wins}` : `In progress${wins}`, found: true };
 }
 
+// (M21b) The Summer Showcase's row: running / queued / out, or when the next one is (every Month 7).
+export function showcaseStatus(data, today = 0, dateText = (d) => `day ${d}`, calendar = null) {
+  const cup = FRIENDLIES.SHOW;
+  const C = CUP.normaliseCups(data).SHOW;
+  const wins = C.wins ? ` · won ${C.wins}×` : '';
+  if (C.current) {
+    const st = statusOf(data, 'SHOW', dateText, calendar);
+    return { ...st, line: `${st.line} · a friendly` };
+  }
+  const y = Math.floor(today / 336);
+  const thisYear = y * 336 + (cup.window.month - 1) * 28;
+  const done = C.last && Math.floor(C.last.startDay / 336) === y;
+  const next = !done && today <= thisYear + 27 ? thisYear : thisYear + 336;
+  return { state: 'open', line: `Every Month ${cup.window.month} · next ${dateText(next)}${wins} · a friendly: never counts as competitive`, found: true };
+}
+
 export function createTournamentSheets({ sheet, assets, run, calendar = () => null, dateText = (d) => `day ${d}`, onOpenCup = () => {}, onForce = null, debug = false }) {
   const ACCENT = { secret: '#4B4540', locked: C.line, missed: C.bad, open: C.good, queued: C.purple, running: C.gold, out: C.progress };
   function tournamentsMenu() {
@@ -80,7 +96,11 @@ export function createTournamentSheets({ sheet, assets, run, calendar = () => nu
       return list.length ? { title, ...(line ? { lines: [line] } : {}), columns: 1, buttons: list.map(button) } : null;
     };
     const live = rows.filter((r) => ['running', 'queued'].includes(r.st.state)).length;
+    // (M21b) the Summer Showcase: the yearly pre-season friendly, on top
+    const show = showcaseStatus(d, calendar()?.today ?? 0, dateText, calendar());
+    const showRow = { title: 'Pre-season', lines: ['The Summer Showcase: you and three clubs from your league and the league around it, every Month 7. A semi-final and a final, 7 days apart.'], columns: 1, buttons: [{ id: 'cup:SHOW', label: FRIENDLIES.SHOW.name, sub: show.line, icon: FRIENDLIES.SHOW.art, accent: ACCENT[show.state] ?? C.gold, onTap: () => onOpenCup('SHOW') }] };
     const sections = [
+      showRow,
       group('League cups and open cups', ['C01', 'C02', 'C03', 'C04', 'C05', 'C06', 'C07'], 'One match every 7 days: a cup round is booked 7 days ahead, and a win books the next round 7 days after the result. A cup that opens while another is running waits its turn.'),
       group('Prestige', ['C08']),
       group('Secret tournaments', ['C09', 'C10', 'C11', 'C12', 'C13', 'C14', 'C15', 'C16'], 'Found by doing something special. Each runs once when found, then once a season.'),

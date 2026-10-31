@@ -57,7 +57,7 @@ export function createAcademySheets({ sheet, dialog, assets, run, today = () => 
         title: `Trials · Year ${I.year}${I.golden ? ' · a golden generation!' : ''}`,
         lines: [`${I.candidates.length} young player${I.candidates.length === 1 ? '' : 's'} at the trials · sign up to ${left} more · closes in ${days(I.closes - day + 1)}`, `Academy places: ${AC.academyCount(d)} of ${places} used`],
         columns: 1,
-        buttons: I.candidates.map((p) => ({ id: `cand:${p.id}`, label: `${p.name}${p.youth.fromWatch ? ' · watch list' : ''}`, sub: playerSub(d, p), icon: icon(), accent: POSITIONS[p.position].colour, onTap: () => openCandidate(p.id) })),
+        buttons: I.candidates.map((p) => ({ id: `cand:${p.id}`, label: `${p.name}${p.youth.fromWatch ? ' · watch list' : ''}${p.youth.heirOf ? ` · the heir to ${p.youth.heirOf}` : ''}`, sub: playerSub(d, p), icon: icon(), accent: POSITIONS[p.position].colour, onTap: () => openCandidate(p.id) })),
       });
     } else if (I && !I.candidates) sections.push({ title: `Trials · Year ${I.year}`, lines: [`The trials are on until ${dateText(I.closes)}, but there is no Youth Corner to hold them.`, ACADEMY_TEXT.noCorner] });
     else {
@@ -121,7 +121,7 @@ export function createAcademySheets({ sheet, dialog, assets, run, today = () => 
       tag: { text: 'AT THE TRIALS', color: C.good },
       sections: [
         ...msgSection(),
-        { title: 'Potential', lines: [`${r.low}–${r.high} · ${r.label}`, `Read to about ±${Math.ceil(r.width / 2)}: the exact number stays hidden.`, ...(p.youth.fromWatch ? ['On your youth watch list since the club began.'] : []), ...(p.youth.regenOf ? [`A new face in the mould of ${p.youth.regenOf}, who retired from your club.`] : [])] }, // (M16) a regen
+        { title: 'Potential', lines: [`${r.low}–${r.high} · ${r.label}`, `Read to about ±${Math.ceil(r.width / 2)}: the exact number stays hidden.`, ...(p.youth.fromWatch ? ['On your youth watch list since the club began.'] : []), ...(p.youth.heirOf ? [`The heir to ${p.youth.heirOf}, a Hall of Famer of your club: a head start, and his trait (${p.trait}).`] : p.youth.regenOf ? [`A new face in the mould of ${p.youth.regenOf}, who retired from your club.`] : [])] }, // (M16) a regen; (M21b) a legend's heir
         { title: 'Core stats', bars: CORE.map((k) => ({ label: `${k} · ${CORE_NAMES[k]}`, value: p.stats[k], max: 99, color: POSITIONS[p.position].colour, star: 140 })) },
         { title: 'Trait', lines: [p.trait] },
         { columns: 1, buttons: [

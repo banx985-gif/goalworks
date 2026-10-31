@@ -205,6 +205,10 @@ import { createGodSheets } from './screens/godSheets.js';
 import { GODS, DIVINE } from '../data/gods.js';
 import { STAFF, staffById, roleById, STAFF_TIERS } from '../data/staff.js';
 import { preparedFamiliarity, settleSec, weaknessClue, tacticalPrep } from './systems/effects.js';
+import * as VD from './systems/verdicts.js'; // (M21b) Awards Night, the Season Review, Great Teams
+import { createAwardsNight } from './ui/awardsNight.js';
+import { registerTintedArt } from './ui/kitArt.js';
+import { FRIENDLIES } from '../data/cups.js';
 const COL = THEME.color;
 const C_GOLD = COL.gold;
 
@@ -228,6 +232,8 @@ watchCanvasLoss(renderer.canvas ?? document.getElementById('game')); // (M12b) a
 const router = new ScreenRouter(bus, { roots: ['menu', 'test', 'club', 'match'] });
 const dialog = new Dialog({ layout, assets }); // confirm boxes (delete / replace a slot)
 const researchBanner = createResearchBanner({ layout, assets }); // (M13) "Research complete!"
+const awardsNight = createAwardsNight({ layout, assets }); // (M21b) the full-screen ceremony
+for (const c of Object.values(FRIENDLIES)) if (c.baseArt) registerTintedArt(assets, c.art, c.baseArt, c.tint); // (M21b) the Showcase's gold cup
 const sheet = new BottomSheet({ layout, assets });
 const textPrompt = new TextPrompt({ renderer });
 bus.on('screen:change', () => textPrompt.close());
@@ -266,12 +272,15 @@ const loop = new FixedStepLoop({
     dialog.update(dt);
     sheet.update(dt);
     researchBanner.update(dt);
+    awardsNight.update(dt);
+    if (open?.data.verdicts?.pending != null && !awardsNight.active) pumpArrivals(); // (M21b) Awards Night waits for a free club screen
   },
   render: (alpha) => {
     const ctx = renderer.begin(COL.bg);
     router.render(ctx, alpha);
     sheet.render(ctx);
     researchBanner.render(ctx);
+    awardsNight.render(ctx); // (M21b) over the club, under a dialog
     dialog.render(ctx);
     if (onTestScreen()) drawButton(ctx, pauseButton(), loop.paused ? 'RESUME' : 'PAUSE', { selected: loop.paused });
     if (loop.paused) drawPaused(ctx);
@@ -316,12 +325,12 @@ bus.on('assets:canvasLost', ({ reason, dropped }) => debug.log(`canvas loss (${r
 const pauseButton = () => layout.anchor('top-right', 240, THEME.button.minH, 80);
 router.modal = {
   get active() {
-    return loop.paused || dialog.active;
+    return loop.paused || dialog.active || awardsNight.active;
   },
-  onTap: (p) => (loop.paused ? loop.resume('tap') : dialog.onTap(p)),
+  onTap: (p) => (loop.paused ? loop.resume('tap') : dialog.active ? dialog.onTap(p) : awardsNight.onTap(p)),
   onDown: (p) => dialog.active && dialog.onDown?.(p),
   onUp: (p) => dialog.active && dialog.onUp?.(p),
-  onBack: () => (loop.paused ? loop.resume('back') : dialog.onBack()),
+  onBack: () => (loop.paused ? loop.resume('back') : dialog.active ? dialog.onBack() : awardsNight.onBack()),
 };
 window.addEventListener('keydown', (e) => {
   if (e.key !== 'p' && e.key !== 'P' && e.key !== ' ') return;
@@ -409,6 +418,11 @@ function openRun(n, data) {
   if (!data.careers) setTimeout(() => autosave.request('careers:start'), 0);
   CA.normaliseCareers(data, data.calendar?.clock?.totalDays ?? 0);
   syncHallOfFame(data);
+  // (an M21 save: the Season Review's tally starts today — no past season is invented; the first Awards Night is the next
+  // Month 12)
+  if (!data.verdicts) setTimeout(() => autosave.request('verdicts:start'), 0);
+  VD.normaliseVerdicts(data, data.calendar?.clock?.totalDays ?? 0);
+  syncGreatTeams(data);
   // (an M20 save: no gods at the club, no secret found yet — nothing invented; the measures read the save as it is)
   if (!data.gods || !data.secrets) setTimeout(() => autosave.request('gods:start'), 0);
   GD.normaliseGods(data);
@@ -431,6 +445,11 @@ function syncHallOfFame(data) {
   if (!campaigns || !CA.syncAccountHof(account, data)) return;
   campaigns.slots.saveAccount(account).catch((err) => debug.log(`account save failed: ${err?.message ?? err}`));
   debug.log(`hall of fame: ${account.hallOfFame.length} in the account`);
+}
+// (M21b) Great Teams go into the account save too (like the Hall of Fame).
+function syncGreatTeams(data) {
+  if (!campaigns || !VD.syncAccountTeams(account, data)) return;
+  saveAccountNow('greatTeams');
 }
 // The run save: the calendar written into the campaign data (and the date on the slot card).
 function saveRun() {
@@ -459,6 +478,7 @@ bus.on('clock:day', () => {
   for (const e of staffDay(open.data, c.clock.totalDays)) staffLeft(e); // (M14) staff wages each week; contracts at the season's end
   TR.transfersDay(open.data, c.clock.totalDays); // (M11) scouting, bids, loans, wages, the AI clubs' moves, the season's end
   for (const e of CA.careersDay(open.data, c.clock.totalDays)) careerEvent(e); // (M16) retirements announced / done, the Hall of Fame
+  for (const e of VD.verdictsDay(open.data, c.clock.totalDays, { items: open.items })) awardsEvent(e); // (M21b) the season's tally; Awards Night
   godsDay(c.clock.totalDays); // (M20b) rumours, a god's arrival, a window that closes, a god back after the season's end
   if (open.layout.sync()) debug.log(`the ground grows: ${open.layout.stage.name} ${open.layout.stage.cols}×${open.layout.stage.rows}`); // (M12) by the Club Rank
   // (M11) contracts ending: one warning a season, from Month 9
@@ -524,14 +544,47 @@ function godsDay(day) {
   }
   pumpArrivals();
 }
-// An arrival shows when the club is free (no sheet, no dialog); the rest wait their turn.
+// An arrival shows when the club is free (no sheet, no dialog); the rest wait their turn. (M21b) Awards Night waits its
+// turn in the same queue, after them.
 function pumpArrivals() {
-  if (open && router.currentName === 'club' && !sheet.active && !dialog.active && !godUi.pump()) pumpReveals();
+  if (open && router.currentName === 'club' && !sheet.active && !dialog.active && !awardsNight.active && !godUi.pump() && !pumpReveals()) pumpAwards();
+}
+// (M21b) Awards Night: decided and saved on the day (verdicts.js); the ceremony opens when the club is free. The calendar
+// pauses for it (and runs again after, if it was running).
+let awardsResume = null;
+function awardsEvent(e) {
+  if (e.kind !== 'awards' || !open) return;
+  const c = open.calendar.clock;
+  if (!c.paused) {
+    awardsResume = c.speed;
+    open.calendar.setSpeed(0);
+  }
+  syncGreatTeams(open.data);
+  for (const a of e.record.awards) debug.log(`awards: ${a.name} ${a.player}`);
+  debug.log(`awards night: year ${e.year} review ${e.record.total} / 40`);
+  autosave.request('awards:night');
+  setTimeout(() => pumpArrivals(), 0);
+}
+function pumpAwards() {
+  if (!open || awardsNight.active || dialog.active) return false;
+  const rec = VD.pendingAwards(open.data);
+  if (!rec) return false;
+  return awardsNight.open(rec, {
+    club: open.data.club?.name ?? '',
+    onClose: ({ skipped }) => {
+      VD.clearPending(open.data);
+      autosave.request(skipped ? 'awards:skipped' : 'awards:seen');
+      if (awardsResume != null && open.calendar.clock.paused && !open.calendar.atKickoff) open.calendar.setSpeed(awardsResume);
+      awardsResume = null;
+      debug.log(`awards night closed${skipped ? ' (skipped)' : ''}`);
+      setTimeout(() => pumpArrivals(), 0);
+    },
+  });
 }
 // (M21) A secret tournament found: a one-tap pop-up reveals its name and art (several wait their turn).
 const reveals = [];
 function pumpReveals() {
-  if (!reveals.length || dialog.active) return false;
+  if (!reveals.length || dialog.active || awardsNight.active) return false;
   const cup = cupById(reveals.shift());
   dialog.confirm({
     title: 'A secret tournament!',
@@ -854,7 +907,7 @@ function cupEvent(e) {
   else if (e.kind === 'start') {
     const behind = LG.queuedBehind(open.data, e.cup);
     researchBanner.show({ id, title: `${cup.name} draw made!`, line: `Edition ${e.edition}: ${cup.size} teams, a round every 7 days`, gives: behind ? `Queued: starts after the ${behind.name}` : `See the bracket · Menu → Tournaments`, icon: cup.art, color: C_GOLD });
-  } else if (e.kind === 'skipped') researchBanner.show({ id, title: `${cup.name} skipped`, line: 'It waited in the queue until the season ended', gives: 'It opens again next season', icon: cup.art, color: COL.bad }); // (M21)
+  } else if (e.kind === 'skipped') researchBanner.show({ id, title: `${cup.name} skipped`, line: cup.window ? `Another cup run filled Month ${cup.window.month}` : 'It waited in the queue until the season ended', gives: cup.window ? `It comes back next Month ${cup.window.month}` : 'It opens again next season', icon: cup.art, color: COL.bad }); // (M21; M21b the Showcase)
   else if (e.kind === 'champion' && e.champion !== 'us') researchBanner.show({ id, title: `${cup.name} final`, line: `${CUP.teamName(open.data, e.champion)} win it`, gives: 'The next edition opens next season', icon: cup.art, color: COL.progress });
   debug.log(`cup: ${e.kind} ${e.cup}${e.round != null ? ` round ${e.round}` : ''}`);
 }
@@ -1026,19 +1079,21 @@ function matchFinished(world) {
   const r = matchResult(world);
   // (M10) the Regional League: record, reputation, Credits, promotion — before the calendar closes the fixture
   const fx = open.calendar.fixture;
+  const friendly = LG.isFriendly(fx); // (M21b) a Summer Showcase friendly: not a competitive match
   const league = fx?.source === 'league' ? LG.recordResult(open.data, fx, r.score, open.calendar.today) : null;
-  if (league) open.research.match({ clubId: fx.opponent.id, score: r.score, promotion: !!fx.promotion, league: LG.leagueOfClub(fx.opponent.id)?.id }, open.calendar.today); // (M13) RP
+  if (league && !friendly) open.research.match({ clubId: fx.opponent.id, score: r.score, promotion: !!fx.promotion, league: LG.leagueOfClub(fx.opponent.id)?.id }, open.calendar.today); // (M13) RP
   open.layout.sync(); // (M12) a new Club Rank grows the ground
   // Milestone 8: the XI tire; form and morale follow the result, minutes and roles
   const xiIds = world.setup.home.players.map((p) => p.id).filter(Boolean);
   if (open.data.squad) applyMatch(open.data, { xiIds, score: r.score, scorers: r.scorers });
-  if (open.data.squad) CA.recordMatch(open.data, { xiIds, score: r.score, scorers: r.scorers }); // (M16) career stats, club records
+  if (open.data.squad && !friendly) CA.recordMatch(open.data, { xiIds, score: r.score, scorers: r.scorers }); // (M16) career stats, club records
+  if (fx && open.data.squad) VD.afterMatch(open.data, { fixture: fx, score: r.score, scorers: r.scorers, cup: league?.cup ?? null, xiIds }, open.calendar.today); // (M21b) the season's tally (not a friendly)
   if (fx && open.data.squad) SE.afterMatch(open.data, { fixture: fx, score: r.score, scorers: r.scorers, cup: league?.cup ?? null, xiIds }, open.calendar.today); // (M20b) the secrets' tallies
   if (open.data.transfers) TR.afterMatch(open.data, xiIds); // (M11) a promised role not met: morale
   // (M9) familiarity: the formation / style the match started in
   if (world.setup.formation) familiarityMatch(open.data, pairKey(world.setup.formation[0], world.setup.tactics?.[0]?.build ?? 'balanced'));
   // (M12c) a win: maybe an item; in a big game the player of the match's item
-  const won = league && r.score[0] > r.score[1] ? open.items.afterWin({ clubId: fx.opponent.id, promotion: !!fx.promotion, xiIds, scorers: r.scorers, day: open.calendar.today }) : [];
+  const won = league && !friendly && r.score[0] > r.score[1] ? open.items.afterWin({ clubId: fx.opponent.id, promotion: !!fx.promotion, xiIds, scorers: r.scorers, day: open.calendar.today }) : [];
   open.data.match = null;
   match = null;
   open.setupShown = false;
@@ -1118,11 +1173,20 @@ const matchScreen = createMatchScreen({
     if (match?.mode !== 'fixture' || !open) return null;
     const fx = open.calendar.fixture;
     if (fx?.source !== 'league') return null;
-    const p = LG.previewReward(open.data, fx.opponent.id, world.score, fx.promotion);
+    const friendly = LG.isFriendly(fx); // (M21b)
+    const p = LG.previewReward(open.data, fx.opponent.id, world.score, fx.promotion, friendly);
     const rep = p.history + p.momentum;
-    const rp = open.research.previewMatch({ clubId: fx.opponent.id, score: world.score, promotion: !!fx.promotion, league: LG.leagueOfClub(fx.opponent.id)?.id }); // (M13)
+    const rp = friendly ? 0 : open.research.previewMatch({ clubId: fx.opponent.id, score: world.score, promotion: !!fx.promotion, league: LG.leagueOfClub(fx.opponent.id)?.id }); // (M13)
     const lg = LG.leagueOf(open.data);
     const promoName = lg.promotion.stepName;
+    if (friendly) {
+      const cup = cupById(fx.cup.id);
+      const [a, b] = world.score;
+      const sh = a === b ? CUP.pensFor(open.data, fx.cup) : null;
+      const through = sh ? sh.won : a > b;
+      const final = fx.cup.round === cup.rounds.length - 1;
+      return [`${cup.name} ${fx.cup.name.toLowerCase()} · a friendly: no league record, stats or reward`, `${sh ? `Penalties: ${sh.pens[0]}–${sh.pens[1]} · ` : ''}${through ? (final ? `Showcase winners! +${(cup.prize.credits * lg.tier).toLocaleString('en-GB')} Credits · fan buzz +${cup.prize.momentum * lg.tier} reputation` : `Through to the final · +${cup.roundWin.credits * lg.tier} Credits`) : `Out of the ${cup.name}`}`];
+    }
     // (M17) a cup tie: penalties after a draw, through / out / the cup won (what Continue will record)
     let cupLine = null;
     if (fx.cup) {
@@ -1147,7 +1211,7 @@ function playPlaceholder() {
   open.setupShown = false;
   sheet.close();
 }
-const squadScreen = createSquadScreen({ layout, assets, sheet, club: () => open, onBack: () => router.go('club'), onTraining: () => openTraining('squad'), onTactics: () => openTactics('squad'), onLeague: () => openLeague(), onTransfers: () => transfersUi.openTransfers('market'), onContract: (id) => transfersUi.openOwn(id), detailExtra: (p) => [...godPlayerSection(p), ...playerItemsSection(p)] });
+const squadScreen = createSquadScreen({ layout, assets, sheet, club: () => open, onBack: () => router.go('club'), onTraining: () => openTraining('squad'), onTactics: () => openTactics('squad'), onLeague: () => openLeague(), onTransfers: () => transfersUi.openTransfers('market'), onContract: (id) => transfersUi.openOwn(id), detailExtra: (p) => [...godPlayerSection(p), ...honoursSection(p), ...playerItemsSection(p)] });
 // Milestone 11: the Transfers sheets (every finished deal saves at once, bible §36).
 const transfersUi = createTransferSheets({
   sheet,
@@ -1464,7 +1528,31 @@ const academyUi = createAcademySheets({
   onYouthCoach: () => openStaffRole('YC'),
 });
 // Milestone 16: the Hall of Fame sheets (the account's legends; this club's records and retirements).
-const hofUi = createHallOfFameSheets({ sheet, assets, entries: () => account.hallOfFame ?? [], run: () => open?.data ?? null, secrets: () => SE.foundRecipes(open?.data ?? null, account) }); // (M20b) the secrets found
+const hofUi = createHallOfFameSheets({ sheet, assets, entries: () => account.hallOfFame ?? [], run: () => open?.data ?? null, secrets: () => SE.foundRecipes(open?.data ?? null, account), teams: () => account.greatTeams ?? [] }); // (M20b) the secrets found; (M21b) Great Teams
+// (M21b) Player Detail's Honours: his season awards ("Golden Boot · Year 3").
+function honoursSection(p) {
+  if (!p.honours?.length) return [];
+  return [{ title: 'Honours', lines: p.honours.map((h) => `${h.name} · Year ${h.year}`) }];
+}
+// (M21b) ?debug=1: Awards Night today (the season so far), and the Summer Showcase drawn today.
+function debugAwardsNight() {
+  if (!open) return null;
+  const rec = VD.awardsNight(open.data, open.calendar.today, { items: open.items });
+  awardsEvent({ kind: 'awards', year: rec.year, record: rec });
+  return rec;
+}
+function debugShowcase() {
+  if (!open) return null;
+  const C = CUP.normaliseCups(open.data).SHOW;
+  if (C.current) return C.current;
+  const t = open.calendar.today;
+  const ev = CUP.cupDay(open.data, 'SHOW', t, { startNew: true, force: true, canIssue: () => false });
+  for (const e of LG.cupsDay(open.data, t)) cupEvent(e);
+  for (const e of ev) cupEvent(e);
+  commitCupTie();
+  autosave.request('showcase:debug');
+  return C.current;
+}
 // Player Detail's Items section: what they love, what they've had, Give an item.
 function playerItemsSection(p) {
   const I = open?.items;
@@ -1569,7 +1657,7 @@ function addFeaturedStar(fid) {
 }
 // ?debug=1: a test hook for automated checks.
 if (debug.enabled) {
-  window.__gw = { tournamentsUi, pumpArrivals, godUi, GD, SE, signGod, releaseGod, renderer, layout, input, loop, router, assets, sheet, dialog, systemBack, textPrompt, splashScreen, menuScreen, slotsScreen, setupScreen, clubScreen, squadScreen, trainingScreen, openTraining, tacticsScreen, openTactics, openMatchTactics, playSlot, startClub, deleteSlot, openShop, setRank, facilityBonus, researchUi, researchBanner, get research() { return open?.research ?? null; }, newGame, openLeague, openCountyOffer, openPromotionOffer, openCrownChampions, addFeaturedStar, overall, openShield, commitCupTie, LG, CUP, acceptChallenge, issueChallenge, transfers: transfersUi, TR, openMatchSetup, playPlaceholder, kickOff, startTestMatch, matchScreen, restoreMatchWorld, get match() { return match; }, toggleSpeedFlag, autosave, saveRun, canvasLost, canvasLossCount, itemsUi, staffUi, normaliseStaff, academyUi, AC, openStaffRole, hofUi, CA, syncHallOfFame, facilityLevel: (id) => (open ? facilityLevel(open.data, id) : 0), get items() { return open?.items ?? null; }, settings, governor, lowFx, haptics, hintLine, openNavMenu, MENU_OPEN, menuState, openSettings, get account() { return account; }, taps: [], get campaigns() { return campaigns; }, get open() { return open; } };
+  window.__gw = { VD, awardsNight, debugAwardsNight, debugShowcase, pumpAwards, syncGreatTeams, tournamentsUi, pumpArrivals, godUi, GD, SE, signGod, releaseGod, renderer, layout, input, loop, router, assets, sheet, dialog, systemBack, textPrompt, splashScreen, menuScreen, slotsScreen, setupScreen, clubScreen, squadScreen, trainingScreen, openTraining, tacticsScreen, openTactics, openMatchTactics, playSlot, startClub, deleteSlot, openShop, setRank, facilityBonus, researchUi, researchBanner, get research() { return open?.research ?? null; }, newGame, openLeague, openCountyOffer, openPromotionOffer, openCrownChampions, addFeaturedStar, overall, openShield, commitCupTie, LG, CUP, acceptChallenge, issueChallenge, transfers: transfersUi, TR, openMatchSetup, playPlaceholder, kickOff, startTestMatch, matchScreen, restoreMatchWorld, get match() { return match; }, toggleSpeedFlag, autosave, saveRun, canvasLost, canvasLossCount, itemsUi, staffUi, normaliseStaff, academyUi, AC, openStaffRole, hofUi, CA, syncHallOfFame, facilityLevel: (id) => (open ? facilityLevel(open.data, id) : 0), get items() { return open?.items ?? null; }, settings, governor, lowFx, haptics, hintLine, openNavMenu, MENU_OPEN, menuState, openSettings, get account() { return account; }, taps: [], get campaigns() { return campaigns; }, get open() { return open; } };
 }
 
 router.go('boot');

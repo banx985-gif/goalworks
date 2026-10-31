@@ -116,12 +116,13 @@ export function createItems(data, { bus = null } = {}) {
     },
     received: (id) => sys.received[id] ?? [],
     pointsLeft: (id) => sys.pointsLeft(id),
-    // An item from a source (live ones only). opts: { type, group, rarity, weights, note }. → the item, or { refused }
+    // An item from a source (live ones only). opts: { type, group, rarity, weights, note, overflow }. → the item, or { refused }
+    // (M21b) overflow: one place more than the store holds — for an award item given straight to its winner
     grant(source, opts = {}, day = 0) {
       const src = ITEM_SOURCES[source];
       if (!src) return { refused: 'Unknown source' };
       if (!src.live && !opts.debug) return { refused: `${src.name}: not yet (${src.waits})` };
-      sys.rules.inventoryMax = maxNow();
+      sys.rules.inventoryMax = maxNow() + (opts.overflow ? 1 : 0);
       const type = opts.type ?? sys.rollType(opts.group ? (t) => t.group === opts.group : null);
       const rarity = opts.rarity ?? pickWeighted(opts.weights ?? Object.fromEntries(RARITY_ORDER.map((k) => [k, ITEM_RARITIES[k].weight])));
       const it = sys.add(type, rarity, source, day);

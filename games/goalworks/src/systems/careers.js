@@ -32,6 +32,7 @@ import { inRole } from './staff.js';
 import { facilityLevel } from './facilities.js';
 import { LEVELS } from '../../data/facilities.js';
 import { take, purgeTactics, log as transferLog } from './transfers.js';
+import { HEIR } from '../../data/verdicts.js';
 
 const YEAR = 336;
 export const seasonOf = (day) => Math.floor(day / YEAR);
@@ -315,8 +316,10 @@ function retire(data, { p, owner, parent }, day, season, rng) {
   if (T.scouting?.knowledge) delete T.scouting.knowledge[p.id];
   if (data.training?.group2?.ids) data.training.group2.ids = data.training.group2.ids.filter((x) => x !== p.id);
   K.counts.retired++;
+  let heir = false;
   if (parent === 'us') {
     const entry = retiredEntry(data, p, season);
+    heir = entry.hof; // (M21b) a Hall of Famer's regen is his heir
     K.retired = [...K.retired, entry].slice(-300);
     if (data.transfers) transferLog(data, day, `${p.name} has retired${entry.hof ? ': into the Hall of Fame' : ''}.`);
     K.events.push({ kind: 'retired', id: p.id, name: p.name, age: p.age, hof: entry.hof });
@@ -325,7 +328,7 @@ function retire(data, { p, owner, parent }, day, season, rng) {
       K.events.push({ kind: 'hof', id: p.id, uid: entry.uid, name: p.name, reasons: entry.reasons });
     }
   }
-  makeRegen(data, rng, p, parent, season, day);
+  makeRegen(data, rng, p, parent, season, day, heir);
 }
 
 // --- regens -----------------------------------------------------------------------------------------------------------------
@@ -337,10 +340,10 @@ function usedNames(data) {
   const T = data.transfers;
   return new Set([...FEATURED_NAMES, ...data.squad.players, ...(data.squad.watch ?? []), ...(data.academy?.players ?? []), ...(data.academy?.intake?.candidates ?? []), ...Object.values(T.clubs).flatMap((c) => c.players), ...T.free, ...T.market].map((x) => x.name ?? x));
 }
-function makeRegen(data, rng, from, parent, season, day) {
+function makeRegen(data, rng, from, parent, season, day, heir = false) {
   const T = data.transfers;
   const K = data.careers;
-  const pot = regenPotential(rng, from);
+  let pot = regenPotential(rng, from);
   // (M20) a Star's regen may be a Star too (STAR.regenChance), when his regen's club is in a Star league (Championship /
   // Premier: the club he goes to, or yours when he is yours). Only a Star's retirement rolls this, so nobody else's dice move.
   const club = T.clubs[parent];
@@ -350,6 +353,17 @@ function makeRegen(data, rng, from, parent, season, day) {
   const premierIdx = PREMIER_CLUBS.findIndex((c) => c.id === parent);
   const room = premierIdx < 0 || (club?.players.filter((p) => p.star).length ?? 0) < STAR.premier.count[premierIdx];
   const star = !!from.star && rng.next() < STAR.regenChance && STAR.regenLeagues.includes(regenLeague) && room;
+  // (M21b) a Hall of Famer's heir: +5 potential (never past 99 unless a Star; the academy's own cap still applies there),
+  // always your next academy trials (even with no Youth Corner yet or a full queue: he waits for the first trials), "the
+  // heir to …", and he keeps the legend's trait
+  if (heir) {
+    pot = Math.min(star ? STAR.cap : STAR.normalCap, pot + HEIR.potential);
+    K.academyRegens.push({ position: from.position, potential: pot, of: from.name, year: season + 1, heir: true, trait: from.trait, ...(star ? { star: true } : {}) });
+    K.counts.regens++;
+    K.counts.heirs = (K.counts.heirs ?? 0) + 1;
+    if (star) K.counts.starRegens = (K.counts.starRegens ?? 0) + 1;
+    return;
+  }
   // yours → the next academy trials (with a Youth Corner and room in the queue)
   if (parent === 'us' && data.facilities?.placement?.some((x) => x.def === 'F09' || x.def === 'F14' || x.def === 'F26') && K.academyRegens.length < REGEN.pendingMax) {
     K.academyRegens.push({ position: from.position, potential: pot, of: from.name, year: season + 1, ...(star ? { star: true } : {}) });
@@ -395,10 +409,13 @@ function makeRegen(data, rng, from, parent, season, day) {
   K.counts.regens++;
 }
 // (academy.js) the regens waiting for these trials, oldest first, at most n.
+// (M21b) A Hall of Famer's heir comes first.
 export function takeAcademyRegens(data, n) {
   const K = data.careers;
   if (!K?.academyRegens?.length || n <= 0) return [];
-  return K.academyRegens.splice(0, n);
+  const order = [...K.academyRegens.filter((r) => r.heir), ...K.academyRegens.filter((r) => !r.heir)];
+  K.academyRegens = order.slice(n);
+  return order.slice(0, n);
 }
 
 // --- the Hall of Fame -------------------------------------------------------------------------------------------------------
@@ -437,6 +454,7 @@ function retiredEntry(data, p, season) {
     cleanSheets: c.cleanSheets,
     peak: Math.max(p.peak ?? 0, overall(p)),
     stats: { ...p.stats },
+    honours: (p.honours ?? []).map((h) => ({ ...h })), // (M21b) his season awards
     hof,
     reasons,
     staffEligible: hof || c.apps >= STAFF_ELIGIBLE.apps, // (bible §10: the conversion event itself is M28)

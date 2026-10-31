@@ -259,11 +259,12 @@ export function shieldSheet({ calendar, status, name, onBack = null, queuedBehin
     const head = [];
     const behind = queuedBehind();
     const booked = cal.fixture?.cup?.id === st.cup.id ? cal.fixture.matchDay : null; // (the day it is actually played)
-    if (!ed) head.push(st.opened ? `Open: its first edition starts ${dateText(cal, st.nextStart)} (the draw, then your first tie when it is its turn).` : `Not opened yet: ${st.cup.trigger}.`);
+    if (!ed && st.cup.window) head.push(`Every Month ${st.cup.window.month}: drawn on its first day, your semi-final 7 days later. A friendly: it never counts as a competitive match.`); // (M21b the Showcase)
+    else if (!ed) head.push(st.opened ? `Open: its first edition starts ${dateText(cal, st.nextStart)} (the draw, then your first tie when it is its turn).` : `Not opened yet: ${st.cup.trigger}.`);
     else if (st.running) head.push(st.out ? 'You are out: the other ties are played out without you, a round every 7 days.' : st.queued || (st.next && st.next.day == null) ? `Queued: starts after the ${behind?.name ?? 'match already booked'}. Your ${st.next.round.toLowerCase()} against ${name(st.next.opponent)} is booked 7 days after that.` : st.next ? `Your ${st.next.round.toLowerCase()}: ${name(st.next.opponent)}, ${dateText(cal, booked ?? st.next.day)}.` : `${st.roundName}: through! The next round is booked 7 days after the result.`);
-    else if (ed.skipped) head.push(`Season ${ed.year}: skipped — it waited in the queue until the season ended.${st.nextStart != null ? ` The next opens ${dateText(cal, st.nextStart)}.` : ''}`);
+    else if (ed.skipped) head.push(`Season ${ed.year}: skipped — it waited in the queue until ${st.cup.window ? `Month ${st.cup.window.month}` : 'the season'} ended.${st.nextStart != null ? ` The next opens ${dateText(cal, st.nextStart)}.` : ''}`);
     else head.push(`Season ${ed.year} edition finished — winner: ${name(ed.champion)}${ed.champion === 'us' ? '!' : '.'}${st.nextStart != null ? ` The next opens ${dateText(cal, st.nextStart)}.` : ''}`);
-    head.push(`${st.cup.size} teams: ${st.cup.blurb}. A round every 7 days: a win books the next one 7 days after the result; a draw goes to penalties. Win it: ${st.cup.prize.credits.toLocaleString('en-GB')} Credits + ${prizeWords(st.cup)}.`);
+    head.push(`${st.cup.size} teams: ${st.cup.blurb}. A round every 7 days: a win books the next one 7 days after the result; a draw goes to penalties. Win it: ${(st.cup.prize.credits * (st.prizeK ?? 1)).toLocaleString('en-GB')} Credits + ${prizeWords(st.cup)}.`);
     sections.push({ title: ed ? `Season ${ed.year} · edition ${ed.edition}` : st.cup.name, lines: head });
     if (ed) {
       st.cup.rounds.forEach((rn, r) => {
@@ -286,7 +287,7 @@ export function shieldSheet({ calendar, status, name, onBack = null, queuedBehin
     }
     if (st.history.length) sections.push({ title: 'Past winners', lines: st.history.slice(-5).reverse().map((h) => (h.reached === 'skipped' ? `Season ${h.year}: skipped (queued all season)` : `Season ${h.year}: ${name(h.champion)}${h.reached && h.reached !== 'won' ? ` · you went out in the ${h.reached.toLowerCase()}` : ''}`)) });
     if (onBack) sections.push({ columns: 1, buttons: [{ id: 'back', label: backLabel, accent: C.progress, onTap: () => onBack() }] });
-    const tag = st.cup.visibility === 'secret' || st.cup.visibility === 'secretPrestige' ? 'SECRET' : st.cup.visibility === 'prestige' ? 'PRESTIGE' : 'CUP';
+    const tag = st.cup.friendly ? 'FRIENDLY' : st.cup.visibility === 'secret' || st.cup.visibility === 'secretPrestige' ? 'SECRET' : st.cup.visibility === 'prestige' ? 'PRESTIGE' : 'CUP';
     return { title: st.cup.name, subtitle: `${st.cup.id} · ${st.cup.short} · ${st.wins ? `won ${st.wins}×` : 'not won yet'}`, art: st.cup.art, accent: C.gold, tag: { text: tag, color: C.gold }, sections };
   };
 }

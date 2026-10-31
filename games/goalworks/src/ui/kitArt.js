@@ -84,3 +84,26 @@ export function silhouetteKey(assets, primary, secondary) {
   assets.images.set(key, c);
   return key;
 }
+
+// (M21b) A picture recoloured in code under its own key (the Summer Showcase: the Regional Cup's art with a gold tint). The
+// first time the key is drawn after its base picture has loaded, the tinted copy is made and kept as a real image (made
+// again after a canvas loss); until then nothing is drawn.
+export function registerTintedArt(assets, key, base, colour, strength = 0.5) {
+  assets.setFallback(key, (ctx, x, y, w, h) => {
+    const img = assets.images.get(base);
+    if (!img || typeof document === 'undefined') return;
+    const c = document.createElement('canvas');
+    c.width = img.naturalWidth || img.width;
+    c.height = img.naturalHeight || img.height;
+    const g = c.getContext('2d');
+    g.drawImage(img, 0, 0);
+    g.globalCompositeOperation = 'source-atop';
+    g.globalAlpha = strength;
+    g.fillStyle = colour;
+    g.fillRect(0, 0, c.width, c.height);
+    c.naturalWidth = c.width;
+    c.naturalHeight = c.height;
+    assets.images.set(key, c);
+    ctx.drawImage(c, x, y, w, h);
+  });
+}

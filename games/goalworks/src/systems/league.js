@@ -26,7 +26,7 @@
 import { Rng } from '../../../../core/Rng.js';
 import { REGIONAL_CLUBS, clubById } from '../../data/fixtures.js';
 import { ISSUE, RANKS, REPUTATION, CREDITS, LEAGUES, leagueById, COMING, ACHIEVEMENTS, STADIUM_FLAGS, AFTER_TITLE } from '../../data/league.js';
-import { cupById, CUPS, CUP_ORDER } from '../../data/cups.js';
+import { cupById, CUPS, CUP_ORDER, ALL_CUPS } from '../../data/cups.js';
 import * as CUP from './cup.js';
 import { incomeMult } from './gods.js';
 
@@ -84,7 +84,11 @@ export function addHistory(data, day, text) {
 export function activeCups(data) {
   const L = normaliseLeague(data);
   const out = [];
-  for (const cup of Object.values(CUPS)) {
+  for (const cup of Object.values(ALL_CUPS)) {
+    if (cup.opens.month) { // (M21b) the Summer Showcase: always on; its edition starts in its month (cup.js)
+      out.push({ id: cup.id, startNew: true });
+      continue;
+    }
     // (a Rank cup, or (M20) a cup unlocked by a season's results: open for good once unlocked)
     // (M21) C01: in its league once it has opened there (2 wins); C08 (wonAll), a found secret cup, a debug cup: for good
     const forGood = cup.opens.rank || cup.opens.seasonBeaten || cup.opens.wonAll || cup.opens.secret || cup.opens.debug;
@@ -298,7 +302,11 @@ export function leagueDay(data, day) {
     events.push({ kind: 'opened', cup: cup.id });
   }
   events.push(...cupsDay(data, day));
-  for (const e of events.filter((x) => x.kind === 'skipped')) news(data, day, `${cupById(e.cup).name} skipped this season: it waited in the queue until the season ended. It opens again next season.`);
+  for (const e of events.filter((x) => x.kind === 'skipped')) {
+    const cup = cupById(e.cup);
+    if (cup.window) news(data, day, `${cup.name} skipped this year: another cup run filled Month ${cup.window.month}. It comes back next Month ${cup.window.month}.`); // (M21b)
+    else news(data, day, `${cup.name} skipped this season: it waited in the queue until the season ended. It opens again next season.`);
+  }
   checkPromotion(data); // (M17) the County conditions include a Club Rank, which can move any day
   // the promotion step, once unlocked (it stays open until played; after a loss it comes back after a short wait)
   const P = progressOf(data, lg.id);
@@ -351,11 +359,14 @@ export function decline(data, offerId, day) {
   return true;
 }
 
+// (M21b) A Summer Showcase tie: a friendly — never a competitive match (no league record, no promotion wins, no reward).
+export const isFriendly = (fixture) => !!fixture?.cup && !!cupById(fixture.cup.id)?.friendly;
 const resultOf = ([us, them]) => (us > them ? 'win' : us < them ? 'loss' : 'draw');
 
-export function previewReward(data, clubId, score, promo = false) {
+export function previewReward(data, clubId, score, promo = false, friendly = false) {
   const tier = clubById(clubId)?.reward ?? 1;
   const res = resultOf(score);
+  if (friendly) return { res, credits: 0, history: 0, momentum: 0, rep: 0 }; // (M21b) the Showcase pays only its prize
   let credits = CREDITS[res][tier];
   let history = res === 'loss' ? 0 : REPUTATION[res][tier].history;
   let momentum = res === 'loss' ? -Math.min(normaliseLeague(data).rep.momentum, REPUTATION.loss[tier]) : REPUTATION[res][tier].momentum;
@@ -375,12 +386,15 @@ export function recordResult(data, fixture, score, day) {
   if (!club) return null;
   const before = rank(data);
   const promo = !!fixture.promotion;
-  const reward = previewReward(data, club.id, score, promo);
+  const friendly = isFriendly(fixture); // (M21b)
+  const reward = previewReward(data, club.id, score, promo, friendly);
   const promotionFinal = isPromotionFinal(data, fixture); // (M19: the conditions as they stood at kickoff)
-  const c = (L.clubs[club.id] ??= blankClub());
-  c[reward.res === 'win' ? 'w' : reward.res === 'draw' ? 'd' : 'l']++;
-  c.meetings++;
-  if (!fixture.cup) c.cooldownUntil = day + club.cooldown; // (a cup tie leaves the league's rematch cooldown alone)
+  if (!friendly) { // (M21b) a friendly leaves the league record alone: no wins toward promotion
+    const c = (L.clubs[club.id] ??= blankClub());
+    c[reward.res === 'win' ? 'w' : reward.res === 'draw' ? 'd' : 'l']++;
+    c.meetings++;
+    if (!fixture.cup) c.cooldownUntil = day + club.cooldown; // (a cup tie leaves the league's rematch cooldown alone)
+  }
   L.rep.history = round1(L.rep.history + reward.history);
   L.rep.momentum = round1(Math.max(0, L.rep.momentum + reward.momentum));
   L.credits += reward.credits;
@@ -391,9 +405,10 @@ export function recordResult(data, fixture, score, day) {
     cup = CUP.recordOurTie(data, fixture.cup, score, day);
     const pz = cup?.prize;
     if (pz) {
-      L.credits += Math.round((pz.credits ?? 0) * incomeMult(data)); // (M20b) Kaching: +20% prize money
-      L.rep.history = round1(L.rep.history + (pz.history ?? 0));
-      L.rep.momentum = round1(L.rep.momentum + (pz.momentum ?? 0));
+      const k = cupById(cup.cup)?.tierScale ? leagueOf(data).tier : 1; // (M21b) the Showcase's prize grows with your league
+      L.credits += Math.round((pz.credits ?? 0) * k * incomeMult(data)); // (M20b) Kaching: +20% prize money
+      L.rep.history = round1(L.rep.history + (pz.history ?? 0) * k);
+      L.rep.momentum = round1(L.rep.momentum + (pz.momentum ?? 0) * k);
       for (const f of pz.flags ?? []) (data.unlocks ??= {})[f] ??= day;
       if (pz.rumour) { // (M21) a clue line in the Rumours list (the clue chains are M28)
         data.secrets ??= { v: 1, track: {}, state: {}, rumours: [] };
@@ -406,7 +421,7 @@ export function recordResult(data, fixture, score, day) {
   }
   const lg = leagueOf(data);
   const P = progressOf(data, lg.id);
-  if (reward.res === 'win') noteSeasonWin(data, club.id, day); // (M20) C07's door: different league clubs beaten this season
+  if (reward.res === 'win' && !friendly) noteSeasonWin(data, club.id, day); // (M20) C07's door: different league clubs beaten this season
   let unlockedNow = false;
   let offerNow = null;
   let crownTitle = false;
@@ -440,7 +455,7 @@ export function recordResult(data, fixture, score, day) {
       L.offers = L.offers.filter((o) => !(o.promotion && o.state === 'open'));
       offerNow = lg.id;
     } else P.retryAt = day + lg.promotion.retryCooldown;
-  } else {
+  } else if (!friendly) {
     const ch = checkPromotion(data);
     if (ch === 'unlocked') unlockedNow = true;
     if (ch === 'offered') offerNow = lg.id;
