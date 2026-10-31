@@ -52,6 +52,11 @@ export const castById = (id) => CAST.find((c) => c.id === id) ?? null;
 // Every chibi number GOALWORKS uses (none outside these lists).
 export const CAST_NUMBERS = [...new Set([...CAST.map((c) => c.chibi), ...FANS.base, ...FANS.family, ...TRIAL_HOPEFULS])].sort((a, b) => a - b);
 
+// (M24) The chibis that walk the complex (their walking sheets are loaded): the workers, the fans and families, the trial
+// hopefuls, and the three named faces seen at the club (Edith on board days, Celeste with an offer, Sam by the office).
+export const WALKING_FACES = ['edith_marlow', 'celeste_moore', 'sam_okafor'];
+export const WALKING_CHIBIS = [...new Set([...CAST.filter((c) => c.group === 'worker').map((c) => c.chibi), ...FANS.base, ...FANS.family, ...TRIAL_HOPEFULS, ...WALKING_FACES.map((id) => castById(id).chibi)])].sort((a, b) => a - b);
+
 // Who speaks for each Awards Night voice (bible voices: data/verdicts.js), and the host.
 export const VOICE_FACES = { board: 'edith_marlow', fans: 'del_price', press: 'priya_shah', coach: 'sam_okafor' };
 export const HOST = 'rex_lamar';
@@ -89,6 +94,24 @@ export const CAST_MASKS = {
     27: clothes([55, 115], [0.12, 1]), // sage shirt
     25: clothes([330, 15], [0.3, 1]), // rose blazer (family days)
     26: clothes([15, 35], [0.3, 0.7], [0.15, 0.5]), // brown cardigan (family days)
+  },
+};
+// (M24) The same masks on a walking-sheet frame (u, v: share of one frame; the chibis' big heads fill the top half): the
+// clothes on the torso, the hair over the head (seen from behind it covers the whole head), the skin anywhere.
+const SPRITE_TORSO = { x0: 0.18, x1: 0.86, y0: 0.5, y1: 0.8 };
+const spriteClothes = Object.fromEntries(Object.entries(CAST_MASKS.clothes).map(([n, m]) => [n, { ...m, ...SPRITE_TORSO }]));
+export const CAST_SPRITE_MASKS = {
+  front: {
+    clothes: spriteClothes,
+    hair: { ...CAST_MASKS.hair, x0: 0.1, x1: 0.92, y0: 0, y1: 0.33 },
+    hairSides: { ...CAST_MASKS.hairSides, x0: 0.1, x1: 0.92, y0: 0.33, y1: 0.52, eyes: [0.3, 0.68] },
+    skin: CAST_MASKS.skin,
+  },
+  back: {
+    clothes: spriteClothes,
+    hair: { ...CAST_MASKS.hair, x0: 0.08, x1: 0.94, y0: 0, y1: 0.56 },
+    hairSides: { ...CAST_MASKS.hairSides, x0: 0, x1: 0, y0: 0, y1: 0, eyes: [0, 0] },
+    skin: CAST_MASKS.skin,
   },
 };
 // The palettes a fan can get: hair (a colour and a lightness shift), skin (a lightness shift and a warmth), and plain

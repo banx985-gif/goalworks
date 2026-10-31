@@ -33,6 +33,11 @@
 //     extraSections(defId, station) → more Facility Detail sections (Training, League …)
 //     onShop() opens the Shop sheet          detailSheet(station, api) → the Facility Detail sheet menu
 //     confirm({ title, body, yes, danger, onYes })    onLayoutChanged(reason) → save
+// Milestone 24: the stadium beside the ground (its stage picture and the expansion pieces of that stage, on a lot past the
+// right-hand fence; tap it → onStadium(), the Stadium screen; a badge while a stage is being built) and the walking people
+// (src/systems/walkers.js; drawn by src/ui/complexExtras.js): the club workers, fans walking in up the road on a home
+// match day, families, trial hopefuls, the signed gods (Bolt's staff figure walks on his own sheet), the named faces.
+//     onStadium() opens the Stadium screen     walkerScene() → the day's people (main.js: the match, trials, board …)
 import { THEME, font } from '../../../../core/Theme.js';
 import { IsoProjection } from '../../../../core/IsoProjection.js';
 import { Camera } from '../../../../core/Camera.js';
@@ -57,6 +62,11 @@ import { createComplexWorld } from '../systems/complexWorld.js';
 import { roleById } from '../../data/staff.js';
 import { createDrawAudit } from '../ui/drawAudit.js';
 import { flagKey } from '../ui/kitArt.js';
+import { createComplexExtras } from '../ui/complexExtras.js'; // (M24) the stadium lot, the walking people
+import { createWalkers, WALK } from '../systems/walkers.js';
+import * as STAD from '../systems/stadium.js';
+import { LOT } from '../../data/stadium.js';
+import { sheetKey } from '../ui/castArt.js';
 
 const C = THEME.color;
 const S = THEME.size;
@@ -68,7 +78,7 @@ const TOP_OVERHANG = 420; // room above the grid's back corner for a building's 
 const fmt = (n) => Math.round(n).toLocaleString('en-GB');
 const figureNo = (id) => [...String(id)].reduce((n, ch) => n + ch.charCodeAt(0), 0); // a steady body for a player without a shirt
 
-export function createClubScreen({ renderer, layout, assets, bus, sheet, club, onMenu, debug = null, calendar = () => null, onMatchSetup = () => {}, extraSections = () => [], onTeam = () => {}, onResearch = () => {}, onShop = () => {}, detailSheet = null, confirm = null, onLayoutChanged = () => {}, showMenu = () => false, onNavMenu = () => {}, menuIcon = null, hint = null, lowFx = () => false, staffSheet = null }) {
+export function createClubScreen({ renderer, layout, assets, bus, sheet, club, onMenu, debug = null, calendar = () => null, onMatchSetup = () => {}, extraSections = () => [], onTeam = () => {}, onResearch = () => {}, onShop = () => {}, detailSheet = null, confirm = null, onLayoutChanged = () => {}, showMenu = () => false, onNavMenu = () => {}, menuIcon = null, hint = null, lowFx = () => false, staffSheet = null, onStadium = () => {}, walkerScene = () => null }) {
   const W = renderer.width;
   const { cellSize: CELL, margin, fenceH } = COMPLEX;
   const { halfW: HW, halfH: HH } = COMPLEX.view;
@@ -76,6 +86,10 @@ export function createClubScreen({ renderer, layout, assets, bus, sheet, club, o
   let cols = 11;
   let rows = 12;
   let iso = null;
+  // (M24) room beyond the ground: the stadium lot past the right-hand fence (its stage's size) and the road in front
+  let lotSize = 4.5;
+  const extraCols = () => LOT.gap + lotSize * 1.25 + 1.5;
+  const extraRows = () => WALK.roadOut + 1.4;
   let worldW = 0;
   let worldH = 0;
   const camera = new Camera({ viewW: W, viewH: renderer.height, worldW: 100, worldH: 100 });
@@ -88,9 +102,9 @@ export function createClubScreen({ renderer, layout, assets, bus, sheet, club, o
     const mid = iso ? iso.toPlan(camera.x + camera.visibleW / 2, camera.y + camera.visibleH / 2) : null;
     cols = c;
     rows = r;
-    iso = new IsoProjection({ tileSize: CELL, halfW: HW, halfH: HH, originX: margin + rows * HW, originY: margin + TOP_OVERHANG });
-    worldW = (cols + rows) * HW + margin * 2;
-    worldH = (cols + rows) * HH + TOP_OVERHANG + margin * 2;
+    iso = new IsoProjection({ tileSize: CELL, halfW: HW, halfH: HH, originX: margin + (rows + extraRows()) * HW, originY: margin + TOP_OVERHANG });
+    worldW = (cols + extraCols() + rows + extraRows()) * HW + margin * 2;
+    worldH = (cols + extraCols() + rows + extraRows()) * HH + TOP_OVERHANG + margin * 2;
     camera.minZoom = Math.min(COMPLEX.zoom.min, (W / worldW) * 1.05); // (pinch out far enough to see the whole ground)
     camera.setWorld(worldW, worldH);
     groundLayer.resize(worldW, worldH);
@@ -104,6 +118,9 @@ export function createClubScreen({ renderer, layout, assets, bus, sheet, club, o
 
   let world = null;
   let slotN = null;
+  const extras = createComplexExtras({ assets, view: () => ({ iso, HW, HH, CELL }) }); // (M24)
+  const walkers = createWalkers();
+  let lotNow = null; // the stadium lot this frame
   let founder = null;
   let layoutSeen = -1; // the layout version the ground picture and the tap list were made for
 
@@ -143,6 +160,8 @@ export function createClubScreen({ renderer, layout, assets, bus, sheet, club, o
     if (it.kind === 'player' || it.kind === 'walker' || it.kind === 'staff') return it.agent.x + it.agent.y;
     if (it.kind === 'tree' || it.kind === 'prop') return (it.col + it.row) * CELL;
     if (it.kind === 'drill') return it.depth;
+    if (it.who != null) return (it.x + it.y) * CELL; // (M24) a walking person (tiles)
+    if (it.kind === 'stadium' || it.kind === 'piece') return ((it.col ?? it.lot.c0 + it.lot.size) + (it.row ?? it.lot.r0 + it.lot.size)) * CELL;
     return (it.fp.col + it.fp.w / 2 + it.fp.row + it.fp.h / 2) * CELL;
   };
   const selection = new Selection(bus, { boundsOf: tapRect, depthOf: (it) => depthOf(it) + (it.kind === 'player' ? 100000 : it.kind === 'staff' ? 50000 : 0), minHitSize: 90 });
@@ -576,6 +595,40 @@ export function createClubScreen({ renderer, layout, assets, bus, sheet, club, o
     },
     // Tests: centre the camera on a block of tiles.
     centerOnCells,
+    // (M24) tests: the walking people now; the stadium's middle on screen; centre the camera on the stadium / the road
+    get walkers() {
+      return walkers.list;
+    },
+    walkerCount: (kind) => walkers.count(kind),
+    recolourPending: () => extras.pending(),
+    stadiumPoint() {
+      if (!lotNow) return null;
+      const r = extras.stadiumRect(lotNow);
+      return camera.worldToScreen(r.x + r.w / 2, r.y + r.h * 0.55);
+    },
+    // the road in front of the club gate (u: 0 at the gate … 1 at the stadium)
+    centerOnRoad(u = 0, zoom = null) {
+      if (!world || !lotNow) return;
+      if (zoom) camera.zoom = zoom;
+      const g = world.layout.gate.col + 0.5;
+      const c = iso.corner(g + (lotNow.c0 + lotNow.size * 0.45 - g) * u, rows + WALK.roadOut - 0.6);
+      camera.centerOn(c.x, c.y);
+    },
+    // the first walking person of a kind ('god', 'trial' …)
+    centerOnWalker(kind, zoom = null) {
+      const w = walkers.list.find((x) => x.kind === kind);
+      if (!w) return false;
+      if (zoom) camera.zoom = zoom;
+      const c = iso.toWorld(w.x * CELL, w.y * CELL);
+      camera.centerOn(c.x, c.y - 60);
+      return true;
+    },
+    centerOnStadium(zoom = null) {
+      if (!lotNow) return;
+      if (zoom) camera.zoom = zoom;
+      const c = iso.corner(lotNow.c0 + lotNow.size * 0.3, lotNow.r0 + lotNow.size * 0.85);
+      camera.centerOn(c.x, c.y);
+    },
     inView(sx, sy) {
       return sx >= 0 && sx <= W && sy >= camera.viewY && sy <= camera.viewY + camera.viewH;
     },
@@ -605,6 +658,7 @@ export function createClubScreen({ renderer, layout, assets, bus, sheet, club, o
         const st = o.layout.stage;
         if (st.cols !== cols || st.rows !== rows || !world) setGround(st.cols, st.rows);
         world = createComplexWorld({ founder: f, layout: o.layout, run: () => club()?.data ?? null });
+        walkers.reset(); // (M24)
         syncSelection();
         slotN = o.n;
         if (!sameSlot) screen.viewSet = false;
@@ -646,6 +700,7 @@ export function createClubScreen({ renderer, layout, assets, bus, sheet, club, o
       }
       time += dt;
       drillTime += dt * speed; // the drill runs with the calendar
+      if (world) syncWalkers(dt, speed); // (M24)
       if (note && (note.t -= dt) <= 0) note = null;
       if (B.msg && (B.msg.t -= dt) <= 0) B.msg = null;
       if (!sheet.active && selection.selected) selection.clear();
@@ -757,6 +812,10 @@ export function createClubScreen({ renderer, layout, assets, bus, sheet, club, o
         return log(`speed${s}`);
       }
       const picked = pickAt(p.x, p.y);
+      if (!picked && onStadiumArt(p)) {
+        onStadium(); // (M24)
+        return log('stadium');
+      }
       if (picked) openSheet(picked.id);
       else selection.clear();
       log(picked?.id ?? null);
@@ -791,7 +850,9 @@ export function createClubScreen({ renderer, layout, assets, bus, sheet, club, o
       if (buildMode) drawBuildGrass(ctx);
       drawSelectionMark(ctx);
       const hidden = B.ghost?.uid ?? null; // (a facility being moved is drawn as its ghost)
-      const items = [...world.stations.filter((s) => s.uid !== hidden), ...treesNow(), ...propsNow(), ...drillItems(), ...world.people].sort((a, b) => depthOf(a) - depthOf(b));
+      const outside = (w) => w.x >= cols || w.y >= rows;
+      const ws = walkers.list;
+      const items = [...world.stations.filter((s) => s.uid !== hidden), ...treesNow(), ...propsNow(), ...drillItems(), ...world.people, ...ws.filter((w) => !outside(w))].sort((a, b) => depthOf(a) - depthOf(b));
       for (const it of items) {
         if (it.kind === 'station') {
           const r = artRect(it);
@@ -800,14 +861,17 @@ export function createClubScreen({ renderer, layout, assets, bus, sheet, club, o
         } else if (it.kind === 'tree') drawTree(ctx, it);
         else if (it.kind === 'prop') drawProp(ctx, it);
         else if (it.kind === 'drill') drawDrill(ctx, it);
+        else if (it.who != null) extras.drawWalker(ctx, it, { still: lowFx() });
         else drawPlayer(ctx, it);
       }
       drawFrontFence(ctx);
+      drawOutside(ctx, ws.filter(outside)); // (M24) the stadium, its pieces and the people on the road
       if (buildMode) drawPicked(ctx);
       if (buildMode && B.ghost) drawGhost(ctx);
       assets.detail = 1;
       camera.restore(ctx);
       if (!buildMode || !B.ghost) for (const st of world.stations) drawLevelBadge(ctx, st);
+      drawStadiumBadge(ctx); // (M24) a stage or piece being built: the days left
       for (const p of world.people) drawTag(ctx, p);
       if (buildMode) drawBanner(ctx);
       else {
@@ -1024,10 +1088,114 @@ export function createClubScreen({ renderer, layout, assets, bus, sheet, club, o
     ctx.restore();
     const ps = staff ? staffPose : pose;
     const working = staff && p.phase === 'at' && !calendar()?.clock.paused;
+    // (M24) a god on the staff (Bolt) walks on his own sheet, with the gods' gold glow
+    const godSheet = staff && p.staffId === 'GOD1' ? sheetKey('bolt') : null;
+    if (godSheet && assets.get(godSheet)) {
+      const n = p.agent.path[0];
+      const dx = n ? n.x - p.agent.x : 0;
+      const dy = n ? n.y - p.agent.y : 0;
+      const sy = dx + dy;
+      const sxx = dx - dy;
+      const facing = walking && sy < 0 ? 'back' : 'front';
+      const w = { who: 'bolt', x: p.agent.x / CELL, y: p.agent.y / CELL, anim: walking ? 'walk' : working ? 'work' : 'idle', facing, mirror: walking && (facing === 'front' ? sxx > 0 : sxx < 0), t: time, glow: true, alpha: 1 };
+      extras.drawWalker(ctx, w, { still: lowFx() });
+      audit.note(`p:${p.id}`, godSheet);
+      return;
+    }
     characterPose({ state: lowFx() ? 'idle' : walking ? 'walking' : working ? 'working' : 'idle', facing: sx }, lowFx() ? 0 : time, staff ? 7 + p.staffId.charCodeAt(0) + Number(p.staffId.slice(2)) : 1, ps);
     drawCharacter(ctx, assets, p.art, r.x + r.w / 2, r.y + r.h, r.w, r.h, ps);
     audit.note(`p:${p.id}`, p.art);
   }
+  // --- Milestone 24: the stadium lot and the walking people ------------------------------------------------------------
+  // The day's people: main's walkerScene() (the match, trials, board, offer, gods, cheer …) on top of the ground as it is.
+  function syncWalkers(dt, speed) {
+    const d = club()?.data;
+    if (!d) return;
+    const L = extras.lot(cols, rows, d);
+    lotNow = L;
+    if (L.size !== lotSize) {
+      lotSize = L.size; // (a new stage: a bigger lot — the world grows round it)
+      setGround(cols, rows);
+    }
+    const c = d.club?.colours;
+    const scene = {
+      day: calendar()?.today ?? 0,
+      data: d,
+      grid: world.grid,
+      layout: world.layout,
+      cols,
+      rows,
+      stations: world.stations,
+      lot: L,
+      upgrades: world.stations.filter((s) => world.layout.levelInfo(s.uid)?.pending).map((s) => s.uid),
+      stadiumProject: !!d.stadium?.project,
+      match: null,
+      trials: false,
+      board: false,
+      offer: false,
+      gods: [],
+      cheer: false,
+      att: null,
+      level: 'all',
+      kit: c ? [colourById(c.primary).hex, colourById(c.secondary).hex] : ['#C0392B', '#FFFFFF'],
+      awayKit: null,
+      ...(walkerScene() ?? {}),
+    };
+    walkers.sync(scene);
+    walkers.update(dt, speed);
+    extras.tick();
+  }
+  // After the front fence: people inside the lot (walking into the stadium) behind it, then the stadium, then its pieces
+  // and the people on the road, back to front.
+  function drawOutside(ctx, ws) {
+    const d = club()?.data;
+    if (!d || !lotNow) return;
+    const L = lotNow;
+    const inLot = (w) => w.x >= L.c0 && w.y <= L.r0 + L.size && w.x <= L.c0 + L.size;
+    for (const w of ws.filter(inLot)) extras.drawWalker(ctx, w, { still: lowFx() });
+    const its = extras.outsideItems(d, L);
+    extras.drawStadium(ctx, its[0]);
+    audit.note('stadium', L.stage.art);
+    const rest = [...its.slice(1), ...ws.filter((w) => !inLot(w))].sort((a, b) => depthOf(a) - depthOf(b));
+    for (const it of rest) {
+      if (it.kind === 'piece') extras.drawPiece(ctx, it);
+      else extras.drawWalker(ctx, it, { still: lowFx() });
+    }
+  }
+  // The stadium picture under a tap (its body, less the empty corners of the square picture).
+  function onStadiumArt(p) {
+    if (!lotNow) return false;
+    const r = extras.stadiumRect(lotNow);
+    const w = camera.screenToWorld(p.x, p.y);
+    return w.x >= r.x + r.w * 0.1 && w.x <= r.x + r.w * 0.9 && w.y >= r.y + r.h * 0.15 && w.y <= r.y + r.h * 0.9;
+  }
+  // A stage or a piece being built: a pill over the stadium with the days left (a fixed size on screen).
+  function drawStadiumBadge(ctx) {
+    const d = club()?.data;
+    const P = d ? STAD.project(d) : null;
+    if (!P || !lotNow) return;
+    const r = extras.stadiumRect(lotNow);
+    const s = camera.worldToScreen(r.x + r.w / 2, r.y + r.h * 0.12);
+    if (s.y < camera.viewY || s.y > camera.viewY + camera.viewH || s.x < -200 || s.x > W + 200) return;
+    const left = Math.max(0, P.doneDay - (calendar()?.today ?? 0));
+    const label = `Building ${P.name} · ${left} day${left === 1 ? '' : 's'}`;
+    ctx.save();
+    ctx.font = font(26, true);
+    const w = ctx.measureText(label).width + 40;
+    ctx.fillStyle = C.action;
+    ctx.strokeStyle = C.outline;
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.roundRect(s.x - w / 2, s.y - 24, w, 48, 24);
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = '#FFFFFF';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(label, s.x, s.y + 1);
+    ctx.restore();
+  }
+
   // --- the squad: walking to their places and drilling there (Milestones 8 / 12) ----------------------------------------
   const drillKindOf = (focus) => (focus === 'rest' ? 'rest' : DRILL.kindOf[focus] ?? 'shuttle');
   // The figures now: every walker (on the way, or at his place: on a pitch in the drill of his session, on another

@@ -1,0 +1,103 @@
+{
+ "frameSize": 128,
+ "columns": 8,
+ "order": "rows top to bottom; frames left to right",
+ "rows": [
+  {
+   "row": 0,
+   "facing": "front",
+   "anim": "idle",
+   "frames": 4,
+   "fps": 4
+  },
+  {
+   "row": 1,
+   "facing": "front",
+   "anim": "walk",
+   "frames": 8,
+   "fps": 10
+  },
+  {
+   "row": 2,
+   "facing": "front",
+   "anim": "work",
+   "frames": 6,
+   "fps": 8
+  },
+  {
+   "row": 3,
+   "facing": "front",
+   "anim": "cheer",
+   "frames": 6,
+   "fps": 8
+  },
+  {
+   "row": 4,
+   "facing": "back",
+   "anim": "idle",
+   "frames": 4,
+   "fps": 4
+  },
+  {
+   "row": 5,
+   "facing": "back",
+   "anim": "walk",
+   "frames": 8,
+   "fps": 10
+  },
+  {
+   "row": 6,
+   "facing": "back",
+   "anim": "work",
+   "frames": 6,
+   "fps": 8
+  },
+  {
+   "row": 7,
+   "facing": "back",
+   "anim": "cheer",
+   "frames": 6,
+   "fps": 8
+  }
+ ],
+ "facing_note": "front = facing down-left towards the viewer (3/4 view), back = facing up-right away from the viewer. Mirror horizontally for the other two directions.",
+ "anchor": "feet at about y=236-247 and x=130-150 in every frame (same camera for every character, so sizes compare truly); place by bottom-centre",
+ "characters": [
+  "chibi_01_curly_yellow_jumper",
+  "chibi_02_teal_hoodie",
+  "chibi_03_showman_tux",
+  "chibi_04_silver_green_suit",
+  "chibi_05_blue_top",
+  "chibi_06_red_shirt",
+  "chibi_07_moustache_polo",
+  "chibi_08_red_cardigan",
+  "chibi_09_pink_shorts",
+  "chibi_10_topknot_shorts",
+  "chibi_11_moustache_shorts",
+  "chibi_12_beach_shirt",
+  "chibi_13_beard_workwear",
+  "chibi_14_glasses_vest",
+  "chibi_15_denim_jacket",
+  "chibi_16_curly_coral_tee",
+  "chibi_17_green_hoodie",
+  "chibi_18_yellow_tee",
+  "chibi_19_sporty_red",
+  "chibi_20_athlete_blue",
+  "chibi_21_platinum_sporty",
+  "chibi_22_teal_sports_tee",
+  "chibi_23_ponytail_purple_sports",
+  "chibi_24_orange_tracksuit",
+  "chibi_25_grey_pink_blazer",
+  "chibi_26_grandad_cardigan",
+  "chibi_27_bob_green_shirt",
+  "chibi_28_plum_suit",
+  "chibi_29_navy_suit",
+  "chibi_30_teal_jumper",
+  "god_bolt",
+  "god_havoc",
+  "god_jinx",
+  "god_kaching",
+  "god_zip"
+ ],
+ "note": "web copies (tools/gw_sprite_web.mjs) of the 256 px masters in _source/"
+}

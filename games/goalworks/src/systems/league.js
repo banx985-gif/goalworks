@@ -30,7 +30,8 @@ import { cupById, CUPS, CUP_ORDER, ALL_CUPS } from '../../data/cups.js';
 import * as CUP from './cup.js';
 import { incomeMult } from './gods.js';
 import * as RIV from './rivals.js'; // (M22) the rivalry meter: rewards, cooldowns, results, the day's fade
-import { post, gateFor } from './finance.js'; // (M23) every Credit through the ledger; the matchday gate
+import { post, gateParts } from './finance.js'; // (M23) every Credit through the ledger; the matchday gate
+import * as STAD from './stadium.js'; // (M24) attendance
 import { effect } from './effects.js'; // (M23) Aero Travel: away and tournament reputation
 
 const round1 = (v) => Math.round(v * 10) / 10;
@@ -399,6 +400,8 @@ export function recordResult(data, fixture, score, day) {
   const friendly = isFriendly(fixture); // (M21b)
   const reward = previewReward(data, club.id, score, promo, friendly);
   const promotionFinal = isPromotionFinal(data, fixture); // (M19: the conditions as they stood at kickoff)
+  // (M24) the home crowd as it stood at kickoff (before this result moves the rank): the result line shows the same gate
+  const gp = fixture.home && !friendly ? gateParts(data, fixture, day) : null;
   if (!friendly) { // (M21b) a friendly leaves the league record alone: no wins toward promotion
     const c = (L.clubs[club.id] ??= blankClub());
     c[reward.res === 'win' ? 'w' : reward.res === 'draw' ? 'd' : 'l']++;
@@ -412,12 +415,21 @@ export function recordResult(data, fixture, score, day) {
     reward.momentum = round1(reward.momentum * (1 + awayPct / 100));
     reward.rep = round1(reward.history + reward.momentum);
   }
+  // (M24) the stadium's floodlights, tunnel, gantry, entrance: a home match earns more reputation (wins and draws)
+  const homePct = !friendly && fixture.home && reward.res !== 'loss' ? effect(data, 'homeRepPct') : 0;
+  if (homePct) {
+    reward.history = round1(reward.history * (1 + homePct / 100));
+    reward.momentum = round1(reward.momentum * (1 + homePct / 100));
+    reward.rep = round1(reward.history + reward.momentum);
+  }
   L.rep.history = round1(L.rep.history + reward.history);
   L.rep.momentum = round1(Math.max(0, L.rep.momentum + reward.momentum));
   post(data, reward.credits, 'prize', `${reward.res === 'win' ? 'Win' : reward.res === 'draw' ? 'Draw' : 'Match'} pay: ${club.name}`, day); // (M23)
-  // (M23) the matchday gate: each home match (not a Showcase friendly)
-  reward.gate = fixture.home && !friendly ? gateFor(data) : 0;
-  if (reward.gate) post(data, reward.gate, 'gate', `Home gate: ${club.name}`, day);
+  // (M23) the matchday gate: each home match (not a Showcase friendly); (M24) from the match's real attendance
+  reward.gate = gp?.n ?? 0;
+  reward.crowd = gp ? { crowd: gp.crowd, capacity: gp.att.capacity, soldOut: gp.att.soldOut } : null;
+  if (reward.gate) post(data, reward.gate, 'gate', `Home gate: ${club.name} (crowd ${gp.crowd.toLocaleString('en-GB')})`, day);
+  STAD.noteMatch(data, fixture, gp?.att ?? null, reward.res, day);
   L.offers = L.offers.filter((o) => o.state === 'open' && o.id !== fixture.offerId);
   // (M17) a cup tie: the bracket moves on; a round won earns Credits, the cup itself its prize and flags
   let cup = null;

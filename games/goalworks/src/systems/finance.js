@@ -8,7 +8,8 @@
 //   post(data, n, cat, note, day?) → n   THE way Credits change (+ in, − out). Below zero → Emergency Credit at once.
 //   check(data) → { ok, diff }     the ledger sums to the balance: startBalance + total === data.league.credits
 //   seasonTotals(data, year) / weekTotals(data, week) → { income, costs, net, byCat: { cat: { in, out } } }
-//   stadiumStage(data) → { index, name, capacity }    gateFor(data, clubId) → Credits    merchFor(data) → Credits a week
+//   stadiumStage(data) → { index, name, capacity }    gateFor(data, fixture?, day?) → Credits    merchFor(data) → Credits a week
+//   (M24) the stage is the one built (src/systems/stadium.js); the gate comes from the match's real attendance
 //   runningCosts(data) → [{ cat, n, note }]           weeklyIncomeEstimate(data) → Credits a week (the recurring part)
 //   financeDay(data, day) → events                    the club day: on each week's day, merch, sponsors, running costs,
 //                                                     the repayment, the chart point and the rescue chance
@@ -22,6 +23,8 @@ import { incomeMult } from './gods.js';
 import * as SP from './sponsors.js';
 import * as FAN from './fans.js';
 import * as BOARD from './board.js';
+import * as STAD from './stadium.js';
+import { ATTENDANCE } from '../../data/stadium.js';
 
 const YEAR = 336;
 const WEEK = 7;
@@ -119,24 +122,19 @@ export const weekTotals = (data, week) => totalsOf(normaliseFinance(data).weeks[
 
 // --- income -----------------------------------------------------------------------------------------------------------
 export function stadiumStage(data) {
-  const u = data.unlocks ?? {};
-  let index = 0;
-  STADIUM_STAGES.forEach((s, i) => {
-    if (s.flag && u[s.flag] != null) index = Math.max(index, i);
-  });
-  return { index, ...STADIUM_STAGES[index] };
+  const st = STAD.stageNow(data);
+  return { index: st.id - 1, flag: st.flag, name: st.name, capacity: STAD.capacity(data) };
 }
-// The gate for a home match today: capacity × how full × your league's ticket price (+ the matchday facilities, Kaching).
-export function gateParts(data) {
+// The gate for a home match: its attendance × your league's ticket price (a sold-out ground charges more; + the matchday
+// facilities and stadium pieces, Kaching). No fixture: an average home match today (the estimates).
+export function gateParts(data, fixture = null, day = data.finance?.today ?? 0) {
   const st = stadiumStage(data);
-  const trust = FAN.trust(data);
-  const fill = Math.min(1, GATE.fill.base + (GATE.fill.trust * trust) / 100 + (GATE.fill.rank[clubRank(data).id] ?? 0));
+  const att = STAD.attendance(data, fixture, day);
   const price = GATE.price[tierOf(data)] ?? 1;
-  const crowd = Math.round(st.capacity * fill);
-  const k = (1 + effect(data, 'matchdayIncomePct') / 100) * incomeMult(data);
-  return { stage: st, crowd, fill, price, n: roundTo(crowd * price * k, GATE.round) };
+  const k = (1 + effect(data, 'matchdayIncomePct') / 100) * incomeMult(data) * (att.soldOut ? ATTENDANCE.soldOut : 1);
+  return { stage: st, att, crowd: att.crowd, fill: att.fill, price, n: roundTo(att.crowd * price * k, GATE.round) };
 }
-export const gateFor = (data) => gateParts(data).n;
+export const gateFor = (data, fixture = null, day) => gateParts(data, fixture, day).n;
 
 // Merch and hospitality, a week: Fan Trust, the Stars and the gods in the squad.
 export function merchFor(data) {
@@ -153,7 +151,7 @@ export function runningCosts(data) {
   const t = tierOf(data);
   const st = stadiumStage(data);
   const cut = effect(data, 'stadiumOpsPct') + (effect(data, 'kitCare') > 0 ? 10 : 0); // (R33 Stadium Operations; the Kit Room)
-  const out = [{ cat: 'upkeep', n: Math.round(RUNNING.upkeep[st.index] * Math.max(0, 1 - cut / 100)), note: `${st.name} upkeep` }];
+  const out = [{ cat: 'upkeep', n: Math.round(STAD.upkeepOf(data) * Math.max(0, 1 - cut / 100)), note: `${st.name} upkeep` }]; // (M24: the stage and its pieces)
   const kids = data.academy?.players?.length ?? 0;
   if (kids) out.push({ cat: 'academy', n: kids * RUNNING.academyPerPlayer[t], note: `${kids} academy player${kids === 1 ? '' : 's'}` });
   if (data.transfers?.scouting?.task) out.push({ cat: 'scouting', n: RUNNING.scoutingWeek[t], note: 'The scout is out' });
@@ -197,6 +195,7 @@ export function financeDay(data, day) {
   F.today = day;
   const events = [...(F.events ?? [])];
   F.events = [];
+  events.push(...STAD.stadiumDay(data, day)); // (M24) a stage or piece finished; a new stage opened
   events.push(...SP.sponsorsDay(data, day));
   events.push(...BOARD.boardDay(data, day));
   events.push(...FAN.fansDay(data, day));

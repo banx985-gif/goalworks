@@ -65,7 +65,7 @@ export const SECRETS = [
     name: 'The gold coins',
     reward: { god: 'GOD4' },
     conditions: [
-      { key: 'creditsHeld', need: 2000000, text: 'Hold 2,000,000 Credits at once' }, // (M23: tuned on the 25-year soak — was 250,000 (M21), 1,000,000 (M20b))
+      { key: 'creditsHeld', need: 1500000, text: 'Hold 1,500,000 Credits at once' }, // (M24: the stadium spends the top club's money — 3 of 5 soak Founders pass it; was 2,000,000 (M23), 250,000 (M21), 1,000,000 (M20b))
       { key: 'crownCupWon', need: 1, text: 'Win the Crown Cup (C04)' },
       { key: 'premier', need: 1, text: 'Be in the Crown Premier League' },
     ],

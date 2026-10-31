@@ -18,6 +18,7 @@ export const FIN_CATS = [
   { id: 'staff', name: 'Staff wages', kind: 'out', colour: '#7D3C98' },
   { id: 'signing', name: 'Transfer and signing fees', kind: 'out', colour: '#A04000' },
   { id: 'facilities', name: 'Facilities', kind: 'out', colour: '#6B7B8C' },
+  { id: 'stadium', name: 'Stadium building', kind: 'out', colour: '#34495E' }, // (M24: the stages and expansion pieces)
   { id: 'upkeep', name: 'Stadium upkeep', kind: 'out', colour: '#566573' },
   { id: 'scouting', name: 'Scouting', kind: 'out', colour: '#B9770E' },
   { id: 'research', name: 'Research', kind: 'out', colour: '#1F618D' },
@@ -33,22 +34,16 @@ export const WAGE_CATS = ['wages', 'staff'];
 // chart, each week's totals for the last 60 weeks, and the last 40 seasons' totals by category (small rows).
 export const LEDGER = { keepLines: 60, chartWeeks: 12, keepWeeks: 60, keepSeasons: 40 };
 
-// The stadium stage today (bible §26; the stages themselves and attendance growth are M24): the league flags already set
-// when you first enter each league. Capacity is stylised.
-export const STADIUM_STAGES = [
-  { flag: null, name: 'Regional Ground', capacity: 1500 },
-  { flag: 'countyStand', name: 'County Stand', capacity: 4000 },
-  { flag: 'nationalStand', name: 'National Stadium', capacity: 10000 },
-  { flag: 'championshipArena', name: 'Championship Arena', capacity: 22000 },
-  { flag: 'crownStadium', name: 'Crown Stadium', capacity: 45000 },
-];
+// The stadium stages (bible §26): since Milestone 24 they are built (data/stadium.js STAGES — the costs, weeks, upkeep and
+// art live there); this short list stays for the older readers.
+import { STAGES } from './stadium.js';
+export const STADIUM_STAGES = STAGES.map(({ flag, name, capacity }) => ({ flag, name, capacity }));
 
-// The matchday gate (each home match, not a Showcase friendly): capacity × how full × the ticket price for your league.
-//   full = base + Fan Trust share + the Club Rank's pull, at most 1
-//   × (1 + matchdayIncomePct / 100) (Fan Kiosk, Hospitality Suite) × Kaching's +20%
+// The matchday gate (each home match, not a Showcase friendly): the crowd × the ticket price for your league.
+//   (M24) the crowd is the match's attendance (src/systems/stadium.js: demand, never more than the capacity); a sold-out
+//   ground × ATTENDANCE.soldOut; × (1 + matchdayIncomePct / 100) (Fan Kiosk, Hospitality Suite, stadium pieces) × Kaching's +20%
 export const GATE = {
-  price: { 1: 0.6, 2: 0.8, 3: 0.8, 4: 0.6, 5: 0.4 }, // Credits a seat, by league tier (the big grounds are cheaper a seat)
-  fill: { base: 0.3, trust: 0.35, rank: { E: 0, D: 0.04, C: 0.08, B: 0.12, A: 0.16, S: 0.2 } },
+  price: { 1: 0.6, 2: 0.7, 3: 0.5, 4: 0.4, 5: 0.3 }, // Credits a seat, by league tier (M24: the real crowds are bigger — the big grounds sell out — so a seat goes for less up top)
   round: 10,
 };
 
@@ -64,7 +59,7 @@ export const MERCH = {
 // Weekly running costs (bible §25): stadium upkeep by stage (− stadiumOpsPct, Stadium Operations research), the academy
 // by its places filled, scouting while the scout is out, research while a node is being worked on.
 export const RUNNING = {
-  upkeep: [40, 150, 450, 1100, 2400], // by stadium stage
+  // (stadium upkeep: data/stadium.js — each stage's own, plus each expansion piece's)
   academyPerPlayer: { 1: 10, 2: 15, 3: 25, 4: 40, 5: 60 }, // by league tier
   scoutingWeek: { 1: 30, 2: 50, 3: 90, 4: 150, 5: 240 }, // a report or closer look under way
   researchWeek: { 1: 20, 2: 40, 3: 80, 4: 140, 5: 220 }, // a node in the slot

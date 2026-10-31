@@ -16,6 +16,9 @@
 // built; otherwise the Clubhouse). They are in world.people (drawn and tapped like the Founder) and count in the walker cap.
 // Milestone 15: up to FIGURES academy players (run().academy) train at the Academy Building (else the Youth Corner) as walkers
 // (w.youth), and with a Second Training Pitch, group 2 trains on it (training.group2) — all inside the walker cap.
+// Milestone 24: a god in the squad is left out of the drill figures — he walks the complex on his own sheet
+// (src/systems/walkers.js).
+// Milestone 24: a god in the squad is not among the drill figures: he walks the complex on his own sheet (src/systems/walkers.js).
 import { Grid } from '../../../../core/Grid.js';
 import { Agent } from '../../../../core/Agent.js';
 import { COMPLEX, ROUTE, BUSY, PERSON, PEOPLE, DRILL } from '../../data/complex.js';
@@ -91,7 +94,7 @@ export function createComplexWorld({ founder, layout = null, run = () => null })
   function planToday() {
     const d = run();
     const youth = academyShown(d);
-    const players = (d?.squad?.players ?? []).filter((p) => !p.founder).slice().sort((a, b) => (a.shirt ?? 99) - (b.shirt ?? 99)).slice(0, Math.max(0, PEOPLE.max - 1 - staffFigs.size - youth.length));
+    const players = (d?.squad?.players ?? []).filter((p) => !p.founder && !p.god).slice().sort((a, b) => (a.shirt ?? 99) - (b.shirt ?? 99)).slice(0, Math.max(0, PEOPLE.max - 1 - staffFigs.size - youth.length));
     const group2 = secondGroupOpen(d) && stations.some((s) => s.def.id === 'F11') ? new Set(d.training?.group2?.ids ?? []) : new Set();
     const today = players[0]?.today?.kind;
     const team = d?.training?.focus ?? 'technique';

@@ -41,7 +41,7 @@ function promoFrac(data) {
 function facilityScore(data) {
   const F = data.facilities;
   if (!F?.placement) return 0;
-  return F.placement.length + F.placement.reduce((s, p) => s + Math.max(0, (F.levels?.[p.uid]?.level ?? 1) - 1), 0);
+  return F.placement.length + F.placement.reduce((s, p) => s + Math.max(0, (F.levels?.[p.uid]?.level ?? 1) - 1), 0) + (data.stadium?.builds ?? 0); // (M24: a stadium stage or piece counts too)
 }
 function context(data) {
   const lg = leagueById(data.league?.tier ?? 'regional');

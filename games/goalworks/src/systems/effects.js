@@ -12,6 +12,7 @@
 //   (M20b) the Works Gods add to the same query (src/systems/gods.js godBonus: Zip's recovery, Kaching's income; Bolt is
 //   a hired staff member) · upgradeDays(data, days) → a facility upgrade's days with Bolt's upgradeFasterPct (at least 1)
 //   (M23) the active sponsors' benefits add to the same query (src/systems/sponsors.js sponsorBonus)
+//   (M24) and the stadium's expansion pieces (src/systems/stadium.js stadiumBonus)
 import { bonus as facilityBonus } from './facilities.js';
 import { nodeById } from '../../data/research.js';
 import { staffBonus, scoutName, inRole } from './staff.js';
@@ -19,6 +20,7 @@ import { SETTLE, WEAKNESS_CLUES } from '../../data/staff.js';
 import { CLUB_TACTICS } from '../../data/tactics.js';
 import { godBonus } from './gods.js';
 import { sponsorBonus } from './sponsors.js';
+import { stadiumBonus } from './stadium.js';
 
 export function researchBonus(data, key) {
   const done = data?.research?.sys?.done;
@@ -28,7 +30,7 @@ export function researchBonus(data, key) {
   return v;
 }
 
-export const effect = (data, key) => facilityBonus(data, key) + researchBonus(data, key) + staffBonus(data, key) + godBonus(data, key) + sponsorBonus(data, key);
+export const effect = (data, key) => facilityBonus(data, key) + researchBonus(data, key) + staffBonus(data, key) + godBonus(data, key) + sponsorBonus(data, key) + stadiumBonus(data, key); // (M24: the stadium's expansion pieces)
 export const upgradeDays = (data, days) => (days > 0 ? Math.max(1, Math.round(days * Math.max(0, 1 - effect(data, 'upgradeFasterPct') / 100))) : days);
 
 // Scouting (src/systems/scouting.js): the Video Room / research knowledge %, extra report players (Recruitment Office,

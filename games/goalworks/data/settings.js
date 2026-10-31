@@ -14,9 +14,11 @@ export const SETTINGS = seriesSettings({
     { id: 'matchCamera', label: 'Match camera', group: 'In the match', options: [{ id: 'full', label: 'Full pitch' }, { id: 'follow', label: 'Follow' }, { id: 'close', label: 'Close' }], line: 'The camera a new match starts with (Watch and Manage). You can still change it during the match.' },
     { id: 'keyMoments', label: 'Key Moment prompts', group: 'In the match', options: onOff, line: 'In Watch and Manage, offer a short jump into Play at the big chances.' },
     { id: 'leftHanded', label: 'Left-hand controls', group: 'In the match', options: onOff, line: 'Play mode: the buttons on the left and the stick on the right.' },
+    // (M24) the walking people on the club complex (Graphics: Low also means fewer)
+    { id: 'walkers', label: 'Walking people', group: 'At the club', options: [{ id: 'all', label: 'All' }, { id: 'fewer', label: 'Fewer' }, { id: 'off', label: 'Off' }], line: 'The workers, fans and visitors walking round the club. Fewer or Off keeps an older phone smooth (Graphics: Low also means fewer).' },
   ],
 });
-export const SETTINGS_DEFAULTS = { ...SERIES_SETTINGS_DEFAULTS, matchCamera: 'full', keyMoments: true, leftHanded: false };
+export const SETTINGS_DEFAULTS = { ...SERIES_SETTINGS_DEFAULTS, matchCamera: 'full', keyMoments: true, leftHanded: false, walkers: 'all' };
 export const SETTINGS_KEY = 'goalworks:settings';
 export { TEXT_SCALE };
 export const SETTINGS_TEXT = {

@@ -6,6 +6,7 @@ import { CUPS } from './cups.js';
 import { FACILITIES } from './facilities.js';
 import { GODS } from './gods.js';
 import { CAST } from './cast.js';
+import { STAGES, PIECES } from './stadium.js';
 
 const art = (folder, key) => [key, `assets/images/${folder}/${key}.png`];
 
@@ -48,6 +49,10 @@ export const ASSETS = {
   // OPTIONAL_ASSETS below, loaded quietly if Aaron's files are there; until then a text badge drawn in code.)
   ...Object.fromEntries(['ui_22', 'ui_24'].map((k) => [k, `assets/images/ui/${k}.png`])),
   ...Object.fromEntries(['sponsor_secret_01', 'sponsor_secret_02'].map((k) => art('sponsors', k))),
+  // Milestone 24: the five stadium stages (the stadium beside the ground) and the 15 expansion pieces. (The chibi walking
+  // sheets are not here: main.js reads their sprites.json and loads them behind the first screen.)
+  ...Object.fromEntries(STAGES.map((s) => art('stages', s.art))),
+  ...Object.fromEntries(PIECES.map((p) => art('stadium', p.art))),
   // Milestone 0 loader test (?screen=test): the placeholder PWA icon as a real image, and one deliberately missing file.
   m0Real: 'assets/branding/pwa/icon-192.png',
   m0Missing: 'assets/m0-missing-test.png',

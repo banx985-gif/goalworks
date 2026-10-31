@@ -28,6 +28,7 @@ export const MENU_GROUPS = [
   ] },
   { title: 'Club', rows: [
     row('finances', 'Finances', 'Every Credit in and out, sponsors, Fan Trust and the board', 'ui_24'), // (Milestone 23)
+    row('stadium', 'Stadium', 'Build the next stage and its pieces; the matchday crowd', 'club_stage_01'), // (Milestone 24)
     row('build', 'Build / Facilities', 'Build, move, sell and upgrade facilities on your ground', 'ui_03'),
     row('research', 'Research', 'Spend Research Points on better training, scouting and tactics', 'ui_26'),
     row('rumours', 'Rumours', 'Whispers around the club: strange clues, and who is waiting at the gates', 'ui_28'), // (Milestone 20b)
@@ -55,5 +56,6 @@ export const NEXT_HINTS = {
   trials: (n, left) => `${n} young player${n === 1 ? ' is' : 's are'} at the academy trials: tap to sign up to ${left}`, // (M15)
   upgrade: (name) => `The ${name} can be upgraded: tap to see it`,
   promotion: (name) => `The ${name} offer is waiting: tap to answer it`, // (M17)
+  stadium: (name) => `The ${name} can be built now: tap to see the stadium`, // (M24)
   cupTie: (cup, round, opp) => `${cup} ${round.toLowerCase()} against ${opp} is coming: tap for the bracket`, // (M17)
 };
