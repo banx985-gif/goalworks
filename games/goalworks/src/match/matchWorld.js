@@ -52,6 +52,8 @@ import { createControl } from './manualControl.js';
 import { stepSpecial, overuseMinute, awardRestart, penaltyInput, startShootout, setPieceLevel } from './setPieces.js';
 import { shoot as aiShoot, clear as aiClear, pressureOn } from './matchAI.js';
 import { SUBS, SET_PIECES } from '../../data/matchRules.js';
+import { initAbilities } from './abilityFx.js';
+import { makeChange, aiChanges } from './changes.js';
 
 const W = PITCH.w;
 const SETTLE_EVERY = Math.max(1, Math.round(SETTLE.refreshSec / MATCH_TIME.step));
@@ -164,6 +166,9 @@ export function createMatchWorld(setup, { play = null, start = play ? 'play' : '
         god: pl.god ?? null, // (M20b) a Works God (Jinx: the lucky post; Zip: lightning feet)
         id: pl.id ?? null, // (M25) the squad player (cards, injuries)
         trait: pl.trait ?? null,
+        abl: pl.abl ?? null, // (M26) his abilities (abilityFx.js turns them into p.ax)
+        fat: pl.fat ?? null, // (M26) his fatigue at kickoff (the AI's changes)
+        captain: !!pl.captain,
         risk: pl.risk ?? 1,
         yellow: false,
         hurt: false,
@@ -295,6 +300,7 @@ export function createMatchWorld(setup, { play = null, start = play ? 'play' : '
       if (world.minute !== world.lastMinute) {
         world.lastMinute = world.minute;
         if (world.phase === 'play') overuseMinute(world);
+        aiChanges(world); // (M26) the AI's changes (tired players, protecting a lead)
       }
       for (const p of players) if (p.cool > 0) p.cool -= dt;
       if (world.control) world.control.pre();
@@ -401,6 +407,7 @@ export function createMatchWorld(setup, { play = null, start = play ? 'play' : '
       p.manual = false;
       p.off = true;
       world.chasers = world.chasers.map((list) => list.filter((q) => q !== p));
+      world.taxCache = null; // (M26) the side's team-wide abilities: whoever is left
       if (world.control?.player === p) world.control.reselect();
     },
   };
@@ -518,7 +525,7 @@ export function createMatchWorld(setup, { play = null, start = play ? 'play' : '
     const assist = !own && by && lp && quick && lp.to === by && lp.from.team === team && lp.from !== by ? lp.from.name : null;
     world.lastPass = null;
     const setPiece = world.shot?.setPiece ?? null; // (M25) a corner / free kick / penalty goal
-    const entry = { team, name: by ? by.name : 'Unknown', minute: world.minute + 1, own, assist, ...(setPiece ? { setPiece } : {}) };
+    const entry = { team, name: by ? by.name : 'Unknown', minute: world.minute + 1, own, assist, ...(setPiece ? { setPiece } : {}), ...(by?.sub && !own ? { sub: true } : {}), ...(world.shot?.big && world.shot.by === by ? { big: true } : {}) }; // (M26) a sub's goal, a big chance taken
     world.scorers.push(entry);
     world.event({ type: 'goal', team, by: entry.name, own, score: [...world.score], setPiece });
     // the ball rests in the net
@@ -568,6 +575,7 @@ export function createMatchWorld(setup, { play = null, start = play ? 'play' : '
     if (e[1] === 'formation') return (e[2] === 0 || e[2] === 1) && FORMATIONS.some((x) => x.id === e[3]);
     if (e[1] === 'pen') return e.length === 5 && [e[2], e[3], e[4]].every(Number.isFinite); // (M25) the human's penalty: aim x, aim y, power
     if (e[1] === 'dive') return e.length === 4 && [e[2], e[3]].every(Number.isFinite); // … the human keeper's dive and timing
+    if (e[1] === 'sub') return e.length === 5 && (e[2] === 0 || e[2] === 1) && Number.isInteger(e[3]) && Number.isInteger(e[4]); // (M26) a change: [team, the player's index, the bench index]
     if (e[1] === 'role') {
       if (!(e[2] === 0 || e[2] === 1) || !Number.isInteger(e[3])) return false;
       const sl = formationById(world.formation[e[2]]).slots[e[3]];
@@ -597,6 +605,8 @@ export function createMatchWorld(setup, { play = null, start = play ? 'play' : '
       setFormation(e[2], e[3]);
       startSettling(e[2]);
       refreshFx(e[2]);
+    } else if (e[1] === 'sub') {
+      makeChange(world, e[2], e[3], e[4], 'tactical'); // (M26) a manual change (refused quietly when it can't be made)
     } else if (e[1] === 'pen' || e[1] === 'dive') {
       penaltyInput(world, e.slice(1));
     } else if (e[1] === 'role') {
@@ -645,6 +655,7 @@ export function createMatchWorld(setup, { play = null, start = play ? 'play' : '
     });
   }
   world.fx = [0, 1].map((t) => fxOf(world.tactics[t], famPenalty(world.famOf(t))));
+  initAbilities(world); // (M26)
 
   kickoff(0);
   if (world.start === 'play') world.control = createControl(world, { team: world.team, log: world.inputs });

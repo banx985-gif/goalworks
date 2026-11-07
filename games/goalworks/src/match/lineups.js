@@ -16,6 +16,7 @@ import { Rng } from '../../../../core/Rng.js';
 import { FORMATION_442, FIRST_NAMES, SURNAMES, TEST_STAT, MATCH_ART } from '../../data/match.js';
 import { COLOURS, colourById } from '../../data/setup.js';
 import { matchKits, kitFromColour } from './kits.js';
+import { cupById } from '../../data/cups.js';
 
 const STAT_KEYS = ['pace', 'passing', 'shooting', 'tackling', 'dribbling', 'keeping'];
 
@@ -35,7 +36,8 @@ function bodyFor(hex, not = null) {
 }
 
 // (M25) what a squad player carries into the match beyond his numbers: his set-piece trait and injury risk
-const extra = (pl) => ({ ...(pl.trait ? { trait: pl.trait } : {}), ...(pl.risk != null && pl.risk !== 1 ? { risk: pl.risk } : {}) });
+// (M26) … his abilities (ids), his fatigue at kickoff (the AI's changes) and the captain's armband
+const extra = (pl) => ({ ...(pl.trait ? { trait: pl.trait } : {}), ...(pl.risk != null && pl.risk !== 1 ? { risk: pl.risk } : {}), ...(pl.abl?.length ? { abl: pl.abl.slice() } : {}), ...(pl.fat != null ? { fat: pl.fat } : {}), ...(pl.captain ? { captain: true } : {}) });
 function makeTeam(rng, side, used) {
   // Milestone 7: a real XI (src/systems/squad.js xiForMatch — 11 in slot order, keeper first) plays as it is; otherwise
   // test players with plain generated names and flat stats (Milestone 3)
@@ -89,5 +91,8 @@ export function matchExtras(setup, { fixture, ours }) {
   setup.takers = [ours?.takers ?? null, null];
   setup.routine = [ours?.routine ?? 'mixed', 'mixed'];
   setup.setPiece = [ours?.setPiece ?? 0, 0];
+  // (M26) a big game (a cup final or a promotion game): Big Match Monster plays at +5%
+  const cup = fixture?.cup ? cupById(fixture.cup.id) : null;
+  if (fixture?.promotion || (cup && fixture.cup.round === cup.rounds.length - 1)) setup.big = true;
   return setup;
 }

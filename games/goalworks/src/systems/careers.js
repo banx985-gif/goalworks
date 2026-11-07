@@ -58,20 +58,24 @@ export function careerOf(p, day = 0) {
 // --- matches ----------------------------------------------------------------------------------------------------------------
 // After one of your matches: the XI each get an appearance; goals and assists by name (our side is team 0); a clean sheet
 // for the keeper and the defenders who played. Club records follow.
-export function recordMatch(data, { xiIds = [], score = [0, 0], scorers = [] }) {
+// (M26) subIds: the substitutes who came on — an appearance (and their goals / assists count); p.career.subApps / subGoals
+export function recordMatch(data, { xiIds = [], score = [0, 0], scorers = [], subIds = [] }) {
   const K = normaliseCareers(data);
-  const inXi = new Set(xiIds);
+  const starters = new Set(xiIds);
+  const inXi = new Set([...xiIds, ...subIds]);
   const byName = new Map(data.squad.players.map((p) => [p.name, p]));
   for (const p of data.squad.players) {
     if (!inXi.has(p.id)) continue;
     const c = careerOf(p);
     c.apps++;
+    if (!starters.has(p.id)) c.subApps = (c.subApps ?? 0) + 1;
     if (score[1] === 0 && (p.position === 'GK' || p.position === 'DF')) c.cleanSheets++;
   }
   for (const s of scorers) {
     if (s.team !== 0 || s.own) continue;
     const p = byName.get(s.name);
     if (p && inXi.has(p.id)) careerOf(p).goals++;
+    if (p && inXi.has(p.id) && s.sub) careerOf(p).subGoals = (careerOf(p).subGoals ?? 0) + 1; // (M26) a goal off the bench (SEC-ABL-05, M28)
     const a = s.assist ? byName.get(s.assist) : null;
     if (a && inXi.has(a.id)) careerOf(a).assists++;
   }

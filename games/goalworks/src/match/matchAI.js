@@ -16,6 +16,9 @@
 // where in his zone he stands, his runs, his choices on the ball, how often he presses, how far out a keeper stands); and
 // tactical familiarity (fx.famPen: extra positioning drift and execution error for an unfamiliar formation / style).
 // All guarded the same way: a 4-4-2 on the defaults with its default roles is still the Milestone 3 match.
+// Milestone 26 (bible §14): every ability effect is read through abilityFx.js ax(p, key) / tax(world, team, key) (0 for a
+// player without it — no extra dice, so a side with no abilities plays exactly as before). Where each key plugs in:
+// data/abilities.js FX_KEYS.
 // Milestone 25: a tackle can be a foul (src/match/setPieces.js foulOnTackle — the same for the AI and a manual tackle) or a
 // knock; a parried save or a block now and then goes behind for a corner (world._corner); a header / volley / free kick
 // is a shot with its own pace (world.shotKind). world.players is the players on the pitch now (sent off / injured with no
@@ -27,6 +30,7 @@ import { STAR } from '../../data/players.js';
 import { predictBall, rollDistance, ballSpeed } from './ballPhysics.js';
 import { foulOnTackle, tackleKnock, setPieceLevel } from './setPieces.js';
 import { SET_PIECES } from '../../data/matchRules.js';
+import { ax, tax, moveMult, tally } from './abilityFx.js';
 
 const W = PITCH.w;
 const H = PITCH.h;
@@ -50,10 +54,14 @@ export function pressureOn(world, p) {
   for (const o of world.players) {
     if (o.team === p.team) continue;
     const d = dist(o, p);
-    if (d < R) s += 1 - d / R;
+    if (d < R) s += o.ax?.marking ? (1 - d / R) * (1 + o.ax.marking) : 1 - d / R; // (M26) Marker: he sticks closer
   }
   const crowd = world.fx?.[p.team].crowd ?? 1;
-  return crowd === 1 ? s : s * crowd; // width / tempo: how much room the team's shape and speed buy its players
+  let out = crowd === 1 ? s : s * crowd; // width / tempo: how much room the team's shape and speed buy its players
+  if (p.ax?.pressure) out *= 1 - p.ax.pressure; // (M26) Calm Under Pressure
+  const tb = world.players ? tax(world, p.team, 'transition') : 0;
+  if (tb && world.wonAt?.[p.team] != null && world.possTeam === p.team && (world.steps - world.wonAt[p.team]) * DT < 4) out *= 1 - tb; // (M26) Time Bender
+  return out;
 }
 
 // (M9) Is the team still in the first seconds after winning the ball (a counter-attacking side breaks then)?
@@ -157,8 +165,10 @@ export function think(world) {
         if (p.nudge?.runs) run *= p.nudge.runs; // (M9) his role: a holding player barely goes, an attacking mid goes far
         if (f.counter && counterOn(world, p.team)) run *= 1.4; // a counter: everyone breaks forward
         if (f.focusX != null && Math.abs(p.fx - f.focusX) > 0.45) run *= 0.7; // the flank away from the focus is left thin
+        if (p.ax) run *= 1 + ax(p, 'boxRun') + ax(p, 'transitionRun'); // (M26) Poacher / Predator / Box to Box
         p.offA = -rng.range(0, run);
         p.offX = rng.range(-5, 5);
+        if (p.ax?.insideRun) p.offX += (0.5 - p.fx) * W * p.ax.insideRun; // (M26) Cut Inside: his runs come in off the wing
         if (f.focusX != null) p.offX += (f.focusX - p.fx) * W * 0.22; // support leans towards the focus
       } else {
         p.offA = 0;
@@ -183,8 +193,10 @@ export function think(world) {
   if (o && world.phase === 'play' && !o.manual) {
     const f = world.fx[o.team];
     const held = s - world.ownerSince;
-    const M = OWNER_STEPS(T, f);
-    if (held >= f.hold && held % M === 0) ownerDecide(world, o, null);
+    // (M26) Early Cross: he gets it away sooner (his first touch and his decision beat both shorter)
+    const M = o.ax?.release ? Math.max(1, Math.round(OWNER_STEPS(T, f) * (1 - o.ax.release))) : OWNER_STEPS(T, f);
+    const hold = o.ax?.release ? Math.round(f.hold * (1 - o.ax.release)) : f.hold;
+    if (held >= hold && held % M === 0) ownerDecide(world, o, null);
   }
 }
 
@@ -290,7 +302,8 @@ export function movePlayers(world, dt) {
   for (const p of world.players) {
     if (p === world.owner) continue;
     if (p.manual && world.control?.drive(world, p, dt, false)) continue; // the stick moves them
-    steer(p, p.tx, p.ty, speedOf(p, T) * (p.cool > 0.4 && p.mode === 'press' ? 0.5 : 1), accelOf(p, T), dt);
+    const mm = p.ax ? moveMult(world, p, dt, world.owner ? world.owner.team === p.team : world.lastTouch === p.team) : null; // (M26) Electric, Blink Run, Cover Defender, Sweeper Keeper
+    steer(p, p.tx, p.ty, speedOf(p, T) * (p.cool > 0.4 && p.mode === 'press' ? 0.5 : 1) * (mm ? mm.speed : 1), accelOf(p, T) * (mm ? mm.accel : 1), dt);
   }
   separate(world);
 }
@@ -359,7 +372,8 @@ export function moveOwner(world, dt, hold) {
     p.y = clamp(p.y, 0.6, H - 0.6);
   } else {
     if (p.dribble == null) p.dribble = dribbleTarget(world, p);
-    steer(p, p.dribble.x, p.dribble.y, speedOf(p, T) * T.dribble.speedFactor, accelOf(p, T), dt);
+    const mm = p.ax ? moveMult(world, p, dt, true) : null; // (M26) Electric's burst
+    steer(p, p.dribble.x, p.dribble.y, speedOf(p, T) * T.dribble.speedFactor * (mm ? mm.speed : 1), p.ax?.dribbleTurn ? accelOf(p, T) * (1 + p.ax.dribbleTurn) : accelOf(p, T), dt); // (M26) Quick Feet: sharper turns
     p.x = clamp(p.x, 0.6, W - 0.6);
     p.y = clamp(p.y, 0.6, H - 0.6);
   }
@@ -469,7 +483,7 @@ export function chooseOption(world, p, restartType, press, noise, chance) {
       free = Math.min(free, dist(o, q));
       lane = Math.min(lane, segDist(o, p, q));
     }
-    let sc = (prog === 1 ? 0.45 * progress : 0.45 * prog * progress) + 0.5 * (free / 8) + 0.35 * (lane / 5) - d / 90 + noise(-0.18, 0.18);
+    let sc = (prog === 1 ? 0.45 * progress : 0.45 * prog * progress) + 0.5 * (free / 8) + (p.ax?.threadNeedle ? 0.35 * (lane / 5) * (1 + p.ax.threadNeedle) : 0.35 * (lane / 5)) - d / 90 + noise(-0.18, 0.18); // (M26) Thread the Needle: a tight lane is still on
     if (f.passBias && !restartType) sc += f.passBias;
     if (n?.passBias && !restartType) sc += n.passBias;
     if (q.nudge?.target && d > 18) sc += q.nudge.target; // a long ball up to the target forward
@@ -532,7 +546,18 @@ export function pass(world, p, q, press, lofted, aim = null) {
   const ty = aim?.ty ?? q.y + q.vy * lead;
   const f = world.fx[p.team];
   const d = Math.hypot(tx - p.x, ty - p.y);
-  const err = aimError(world, f.err === 1 ? P.errDeg : P.errDeg * f.err, p.stats.passing, press);
+  // (M26) Simple Passer (short passes), Visionary (forward passes), Thread the Needle (the pressure), Tempo Setter (team)
+  let errDeg = f.err === 1 ? P.errDeg : P.errDeg * f.err;
+  let pr = press;
+  const forward = world.aOf(p.team, ty) < world.aOf(p.team, p.y) - 5;
+  if (p.ax) {
+    if (forward && p.ax.through) errDeg *= 1 - p.ax.through;
+    if (forward && p.ax.threadNeedle) pr *= 1 - p.ax.threadNeedle;
+    if (p.ax.shortPass && d < 25) errDeg *= 1 - p.ax.shortPass;
+  }
+  const ps = tax(world, p.team, 'possession');
+  if (ps) errDeg *= 1 - ps;
+  const err = aimError(world, errDeg, p.stats.passing, pr);
   world.stats[p.team].passes++;
   if (aim ? aim.loft : lofted && world.rng.next() < P.loftChance + (d > P.loftOver ? 0.3 : 0) + f.loft) {
     const flight = 0.7 + d / 28;
@@ -573,12 +598,25 @@ export function shoot(world, p, press, aim = null) {
   const kind = world.shotKind; // (M25) a header / volley / free kick: its own pace
   const speed = (kind === 'header' ? SET_PIECES.header.power : kind === 'volley' ? SET_PIECES.volley.power : kind === 'freeKick' ? SET_PIECES.freeKick.power : S.speed) * rng.range(0.85, 1.12);
   const se = world.fx[p.team].shotErr; // width: a crowded box (narrow) or a stretched defence (wide)
-  const err = aimError(world, se === 1 ? S.errDeg + d * S.errPerM : (S.errDeg + d * S.errPerM) * se, p.stats.shooting, press);
+  let errDeg = se === 1 ? S.errDeg + d * S.errPerM : (S.errDeg + d * S.errPerM) * se;
+  // (M26) a big chance: close in (14 m) and not swarmed — the club's tallies (and Impossible Finish) read it
+  const big = d < 14 && press < 0.6 && !world.special;
+  if (p.ax) {
+    const A = p.ax;
+    if (A.nearPost && d < 12) errDeg *= 1 - A.nearPost; // Near Post
+    if (A.finesse) errDeg *= 1 - A.finesse; // Cut Inside
+    if (A.finishing) errDeg *= 1 - A.finishing; // Predator
+    if (A.firstTime && world.steps - world.ownerSince <= 30) errDeg *= 1 - A.firstTime; // First Time Finish (within half a second of receiving)
+    if (A.impossible && (aim || big)) errDeg *= 1 - A.impossible; // Impossible Finish
+    if (A.pressureCap) press = Math.min(press, A.pressureCap); // Ice Cold: the pressure penalty capped
+  }
+  const err = aimError(world, errDeg, p.stats.shooting, press);
   const t = d / speed;
   const vz = Math.max(0, (h + 0.5 * T.ball.gravity * t * t) / t);
   kick(world, p, tx - p.x, g.y - p.y, speed, vz, err);
   world.stats[p.team].shots++;
-  world.shot = { team: p.team, by: p, step: world.steps, resolved: false };
+  world.shot = { team: p.team, by: p, step: world.steps, resolved: false, ...(big ? { big: true } : {}) };
+  if (big) tally(world, p, 'bigChances');
   // on target? (where it would cross the line, ignoring the keeper)
   const b = world.ball;
   const tt = (g.y - b.y) / (b.vy || 1e-6);
@@ -597,6 +635,7 @@ export function tackle(world, p, owner) {
   let chance = T.tackle.base + (p.stats.tackling - owner.stats.dribbling) / 200;
   const shield = world.fx[owner.team].shield; // tempo: a patient side keeps the ball closer
   if (shield) chance -= shield;
+  if (p.ax || owner.ax || tax(world, owner.team, 'possession')) chance = abilityTackle(world, p, owner, chance); // (M26)
   const won = rng.next() < chance;
   if (foulOnTackle(world, p, owner, won)) {
     p.cool = T.tackle.cooldown;
@@ -604,6 +643,7 @@ export function tackle(world, p, owner) {
   }
   if (won) {
     world.stats[p.team].tacklesWon++;
+    tally(world, p, 'tacklesWon'); // (M26) the club's tallies (evolution: Hard Tackler → Lockdown …)
     tackleKnock(world, owner); // (M25) a heavy, fair challenge now and then hurts
     // the ball squirts loose; the tackler usually comes away with it
     world.release(owner);
@@ -619,8 +659,28 @@ export function tackle(world, p, owner) {
     p.cool = 0;
     return true;
   }
-  p.cool = T.tackle.cooldown;
+  p.cool = owner.ax?.ghost ? T.tackle.cooldown + owner.ax.ghost : T.tackle.cooldown; // (M26) Ghost Step: the beaten man is left behind
+  tally(world, owner, 'beaten'); // (M26) he beat a tackle (Trickster, Quick Feet → One on One)
   return false;
+}
+// (M26) the tackle chance with the abilities on both men: Hard Tackler, Iron Captain, Lockdown (the lone defender) —
+// Press Resistant (his first touch), One on One (one man on him), Tempo Setter (his side keeps the ball).
+function abilityTackle(world, p, owner, chance) {
+  const R = world.T.pressure.radius;
+  let near = 0;
+  for (const q of world.players) if (q.team === p.team && q !== p && q.role !== 'GK' && dist(q, owner) < R) near++;
+  if (p.ax) {
+    if (p.ax.tackle) chance *= 1 + p.ax.tackle;
+    if (p.ax.ironCaptain && world.minute >= 75 && world.score[p.team] > world.score[1 - p.team]) chance *= 1 + p.ax.ironCaptain;
+    if (p.ax.oneVOne && near === 0) chance = 1 - (1 - chance) * (1 - p.ax.oneVOne);
+  }
+  if (owner.ax) {
+    if (owner.ax.pressLoss && world.steps - world.ownerSince <= 30) chance *= 1 - owner.ax.pressLoss;
+    if (owner.ax.loneDribble && near === 0) chance *= 1 - owner.ax.loneDribble;
+  }
+  const ps = tax(world, owner.team, 'possession');
+  if (ps) chance *= 1 - ps;
+  return chance;
 }
 
 // --- the keeper, and taking a loose ball -------------------------------------------------------------------------------
@@ -644,14 +704,17 @@ export function keeperStep(world, dt) {
     }
   }
   const d = Math.hypot(b.x - k.x, b.y - k.y);
-  if (d < K.reach && b.z < 2.6) {
+  const reach = k.ax?.reach ? K.reach * (1 + k.ax.reach) : K.reach; // (M26) Wall
+  if (d < reach && b.z < 2.6) {
     shot.resolved = true;
     const sp = ballSpeed(b);
-    const p = K.save + (k.stats.keeping - 50) / 200 - Math.max(0, (sp - 22) / 40) + (1 - d / K.reach) * 0.2 - (b.z > 1.8 ? 0.12 : 0);
+    let p = K.save + (k.stats.keeping - 50) / 200 - Math.max(0, (sp - 22) / 40) + (1 - d / reach) * 0.2 - (b.z > 1.8 ? 0.12 : 0);
+    if (k.ax?.lastStand && world.minute >= 80 && world.score[k.team] >= world.score[shot.team]) p *= 1 + k.ax.lastStand; // (M26) Last Stand
     if (world.rng.next() < p) {
       world.stats[k.team].saves++;
+      tally(world, k, 'saves');
       world.event({ type: 'save', team: k.team, by: k.name });
-      if (world.rng.next() < K.hold) {
+      if (world.rng.next() < (k.ax?.catch ? K.hold * (1 + k.ax.catch) : K.hold)) { // (M26) Safe Hands
         world.give(k);
       } else if (world.rng.next() < SET_PIECES.corner.fromParry * setPieceLevel(world, k.team)) {
         world._corner(shot.team, b.x); // (M25) tipped round the post: a corner
@@ -693,7 +756,7 @@ export function tryControl(world) {
   if (world.shot && !world.shot.resolved && best === world.shot.by) return;
   // A hard ball is sometimes miscontrolled.
   const sp = ballSpeed(b);
-  if (best.role !== 'GK' && sp > 15 && world.rng.next() < 0.3) {
+  if (best.role !== 'GK' && sp > 15 && world.rng.next() < (best.ax?.pressLoss ? 0.3 * (1 - best.ax.pressLoss) : 0.3)) { // (M26) Press Resistant
     b.vx *= -0.35;
     b.vy *= -0.35;
     world.lastTouch = best.team;

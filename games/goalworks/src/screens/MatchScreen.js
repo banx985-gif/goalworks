@@ -70,7 +70,7 @@ const LINE = '#F4F8EE';
 const MINE = '#FFE14A'; // the ring under the player you control
 const CLOSE = 1.35; // the Close camera: this much nearer than Follow
 
-export function createMatchScreen({ renderer, layout, assets, bus = null, input = null, live, onMenu, onContinue, onReplay = null, onProgress = () => {}, onTactics = null, held = () => false, resultLines = () => null, leftHanded = () => false, lowFx = () => false }) {
+export function createMatchScreen({ renderer, layout, assets, bus = null, input = null, live, onMenu, onContinue, onReplay = null, onProgress = () => {}, onTactics = null, onChange = null, held = () => false, resultLines = () => null, leftHanded = () => false, lowFx = () => false }) {
   const W = renderer.width;
   let k = 10; // pixels per metre
   let ox = 0;
@@ -86,7 +86,7 @@ export function createMatchScreen({ renderer, layout, assets, bus = null, input 
   let shown = ''; // the mode + camera the layout was fitted for
   let offMove = null;
   const controls = createMatchControls({ layout, input, leftHanded }); // (M12b) Settings → Left-hand controls
-  const ui = createModeUi({ layout, renderer, onTactics }); // (M9: Manage's Tactics button)
+  const ui = createModeUi({ layout, renderer, onTactics, onChange }); // (M9: Manage's Tactics button; M26: Make a change, in the Mode menu)
   const playing = () => !!live()?.world?.control;
   const camera = () => (playing() ? 'follow' : live()?.director?.camera ?? 'full');
   let lastEvent = 0;

@@ -22,6 +22,10 @@
 // (data.training.group2 = { focus, ids }: group 2 trains its own focus, the Head Coach at half strength — groupOf /
 // secondGroupOpen), and Position Learning moves retraining (p.retrain = { to, progress }, retrainDay). gainXp is the
 // academy's way into the same XP rules.
+// Milestone 26: abilities. A training day also moves each player towards his next ability (abilities.js learnDay: the
+// matching session, Ability Development, the Head Coach, R02 / SP09); once a week each one that has met its needs evolves
+// (evolveCheck). After a match: Engine Room / Press Master tire less, a Leader (once a team) softens his team-mates' morale
+// losses, and a substitute's minutes count (subIds: a little fatigue, the morale of having played).
 import { Rng } from '../../../../core/Rng.js';
 import { CORE, NEAR } from '../../data/players.js';
 import { founderById } from '../../data/setup.js';
@@ -30,6 +34,8 @@ import { overall, statCap } from './players.js';
 import { effect as bonus } from './effects.js';
 import { staffBonus } from './staff.js';
 import { medicalDay } from './medical.js'; // (M25)
+import { normaliseAbilities, learnDay, evolveCheck, has, teamHas } from './abilities.js'; // (M26)
+import { abilityById } from '../../data/abilities.js';
 
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const round1 = (v) => Math.round(v * 10) / 10;
@@ -43,6 +49,7 @@ export function normalisePlayer(p) {
   p.risk ??= 0;
   if (p.focus === undefined) p.focus = null; // individual focus: null = the team session only
   p.today ??= { xp: 0, kind: null };
+  normaliseAbilities(p); // (M26)
   return p;
 }
 export function normaliseSquad(squad) {
@@ -195,6 +202,7 @@ export function trainDay(data, { day, matchDay = false }) {
   const moraleDay = bonus(data, 'moraleDay');
   const loadCut = Math.max(0, 1 + bonus(data, 'trainingLoadPct') / 100) * fatigueGain(data); // (M13) research: sessions tire players less; (M14) the Physio's Load Manager
   const out = [];
+  const abilities = []; // (M26) abilities learned / evolved today
   for (const p of squad.players) {
     if (p.injury) {
       // (M25) injured: no session (medicalDay heals him and he loses a little sharpness)
@@ -220,6 +228,8 @@ export function trainDay(data, { day, matchDay = false }) {
       }
       xp = d.xp;
       learned = retrainDay(p, d.parts, data); // (M15) a retraining moves on (fastest in Position Learning)
+      const ab = learnDay(data, p, d.parts); // (M26) towards his next ability
+      if (ab) abilities.push({ kind: 'learnedAbility', id: p.id, name: p.name, ability: ab, day });
       // a session moves form a little: better when fresh and not flogged, worse when tired
       const lean = (1 - p.fatigue / 100) * (intensity === INTENSITY.heavy ? 0.6 : 1) - 0.45;
       p.form += (rng.next() - 0.5 + lean * 0.5) * 2 * FORM.training * (1 - restShare);
@@ -234,14 +244,16 @@ export function trainDay(data, { day, matchDay = false }) {
     p.today = { xp: round1(xp), kind, gains };
     out.push({ id: p.id, xp, gains, ...(learned ? { learned } : {}) });
   }
+  // (M26) once a week: evolutions
+  if (day % 7 === 0) for (const p of squad.players) for (const e of evolveCheck(data, p, day)) abilities.push({ kind: 'evolved', id: p.id, name: p.name, from: e.from, ability: e.to, day });
   training.lastDay = day;
   training.log = [...(training.log ?? []), { day, kind, focus: training.focus, intensity: training.intensity, xp: round1(out.reduce((a, x) => a + x.xp, 0)) }].slice(-28);
-  return { kind, players: out, medical }; // (M25) the medical events of the day (back from injury)
+  return { kind, players: out, medical, abilities }; // (M25) the medical events of the day (back from injury); (M26) abilities
 }
 
 // After a match (our side = the home side of the fixture): the XI tire, form follows the result and goals, morale the
 // result, minutes and squad role; the Founder Keeper's clean-sheet confidence lifts everyone.
-export function applyMatch(data, { xiIds, score, scorers = [] }) {
+export function applyMatch(data, { xiIds, score, scorers = [], subIds = [] }) {
   normaliseTraining(data);
   const [us, them] = score;
   const res = us > them ? 'win' : us < them ? 'loss' : 'draw';
@@ -249,15 +261,28 @@ export function applyMatch(data, { xiIds, score, scorers = [] }) {
   const effects = perkEffects(data.club?.founder?.id);
   const cleanBoost = clean ? effects.filter((e) => PERKS[e.key].kind === 'cleanSheetMorale').reduce((a, e) => a + e.value, 0) : 0;
   const inXi = new Set(xiIds);
+  const subs = new Set(subIds.filter((id) => !inXi.has(id)));
   const gain = fatigueGain(data); // (M14) the Physio's Load Manager
+  // (M26) a Leader who played: his team-mates lose less morale (once a team); Press Master tires less when we pressed
+  const played = data.squad.players.filter((p) => inXi.has(p.id) || subs.has(p.id));
+  const leader = teamHas(played, 'leader');
+  const leaders = new Set(leader ? played.filter((p) => has(p, 'leader')).map((p) => p.id) : []);
+  const pressed = (data.tactics?.instr?.press ?? 'mid') !== 'low';
+  const tireOf = (p) => (1 - has(p, 'stamina')) * (pressed ? 1 - has(p, 'pressCost') : 1);
   const goals = {};
   for (const s of scorers) if (s.team === 0 && !s.own) goals[s.name] = (goals[s.name] ?? 0) + 1;
   for (const p of data.squad.players) {
+    const m0 = p.morale;
     if (inXi.has(p.id)) {
-      p.fatigue = clamp(p.fatigue + FATIGUE.match * gain, 0, 100);
+      p.fatigue = clamp(p.fatigue + FATIGUE.match * gain * tireOf(p), 0, 100);
       p.form += FORM[res] + FORM.goal * (goals[p.name] ?? 0) + (clean && (p.position === 'GK' || p.position === 'DF') ? FORM.cleanSheet : 0);
       p.morale += MORALE[res] + MORALE.played;
+    } else if (subs.has(p.id)) {
+      p.fatigue = clamp(p.fatigue + FATIGUE.match * SUB_SHARE * gain * tireOf(p), 0, 100); // (M26) a substitute: part of a match
+      p.form += FORM.goal * (goals[p.name] ?? 0);
+      p.morale += MORALE[res] + MORALE.played;
     } else p.morale += MORALE[res] + (MORALE.benched[p.contract?.role] ?? 0);
+    if (leader && p.morale < m0 && !leaders.has(p.id)) p.morale = m0 + (p.morale - m0) * (1 - leader); // (M26) Leader
     p.morale += cleanBoost;
     p.fatigue = round1(p.fatigue);
     p.risk = riskOf(p.fatigue);
@@ -267,14 +292,17 @@ export function applyMatch(data, { xiIds, score, scorers = [] }) {
   return { res, clean, cleanBoost };
 }
 
-export function conditionFactor(p) {
+const SUB_SHARE = 0.35; // (M26) a substitute's share of a match's fatigue
+export function conditionFactor(p, lift = 0) {
   const C = MATCH_CONDITION;
   const f = p.fatigue ?? 0;
   let fat = 1;
   if (f > C.fatigueHard) fat = Math.max(C.fatigueFloor, 1 - C.fatigueSoft - C.fatigueSteep * (f - C.fatigueHard));
   else if (f > C.fatigueFrom) fat = 1 - (C.fatigueSoft * (f - C.fatigueFrom)) / (C.fatigueHard - C.fatigueFrom);
   const form = 1 + (C.form * (p.form ?? 0)) / 10;
-  const morale = 1 + (C.morale * ((p.morale ?? MORALE.neutral) - MORALE.neutral)) / 50;
+  // (M26) lift: Captain Fantastic captaining — morale under neutral counts this much higher (never past neutral)
+  const m = p.morale ?? MORALE.neutral;
+  const morale = 1 + (C.morale * ((lift && m < MORALE.neutral ? Math.min(MORALE.neutral, m + lift) : m) - MORALE.neutral)) / 50;
   return fat * form * morale;
 }
 

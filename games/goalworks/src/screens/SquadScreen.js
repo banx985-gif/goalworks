@@ -29,6 +29,8 @@ import { CAREER_TEXT } from '../../data/careers.js';
 import { DIVINE } from '../../data/gods.js';
 import { severityById } from '../../data/matchRules.js';
 import * as MED from '../systems/medical.js';
+import * as ABL from '../systems/abilities.js'; // (M26)
+import { abilityById, ART as abilityArt, ART_FOR, SLOT_NAMES, PRESTIGE } from '../../data/abilities.js';
 
 const C = THEME.color;
 const S = THEME.size;
@@ -38,8 +40,9 @@ const ROW_H = 150;
 const GOLD = DIVINE.colour;
 const chipText = (p) => (p.anyOutfield ? 'ANY' : p.position);
 const GAP = 14;
+const iconOf = (id) => abilityArt(id) ?? abilityArt(ART_FOR[id] ?? 'AB01'); // (M26) a Featured trait borrows the nearest ability's icon
 
-export function createSquadScreen({ layout, assets, sheet, club, onBack, onTraining = () => {}, onTactics = () => {}, onLeague = () => {}, onTransfers = () => {}, onContract = null, detailExtra = () => [] }) {
+export function createSquadScreen({ layout, assets, sheet, club, onBack, onTraining = () => {}, onTactics = () => {}, onLeague = () => {}, onTransfers = () => {}, onContract = null, onCaptain = null, detailExtra = () => [] }) {
   const rowY = () => layout.safeRect.y + 24 + THEME.button.minH + 14;
   const rowRect = (i) => {
     const sr = layout.safeRect;
@@ -110,8 +113,11 @@ export function createSquadScreen({ layout, assets, sheet, club, onBack, onTrain
     const ovrW = 116;
     const tw = r.x + r.w - ovrW - 24 - tx;
     const pos = POSITIONS[p.position];
-    // name (+ shirt), then position chip · age · role
-    text(ctx, `${p.shirt ? `${p.shirt}. ` : ''}${p.name}`, tx, r.y + 40, { size: S.body, bold: true, baseline: 'middle', maxWidth: tw });
+    // name (+ shirt), then position chip · age · role; (M26) his ability icons, small, at the end of the name line
+    const ids = p.god ? [] : ABL.abilityIds(p);
+    const iw = 40;
+    ids.forEach((id, i) => assets.draw(ctx, iconOf(id), tx + tw - (ids.length - i) * iw, r.y + 20, iw - 4, iw - 4));
+    text(ctx, `${p.shirt ? `${p.shirt}. ` : ''}${p.name}${p.captain ? ' (C)' : ''}`, tx, r.y + 40, { size: S.body, bold: true, baseline: 'middle', maxWidth: tw - ids.length * iw - 6 });
     ctx.save();
     ctx.fillStyle = pos.colour;
     ctx.beginPath();
@@ -213,7 +219,8 @@ export function createSquadScreen({ layout, assets, sheet, club, onBack, onTrain
         ...(p.star ? [{ title: 'Star player', lines: [`Stats can grow past 99, up to ${statCap(p)} (a normal player stops at 99).`] }] : []),
         { title: 'Core stats', bars: CORE.map((k) => ({ label: `${k} · ${CORE_NAMES[k]}`, value: p.stats[k], max: 99, color: pos.colour, ...(p.star ? { star: statCap(p) } : {}) })) },
         { title: 'Ratings', bars: DERIVED_KEYS.map((k) => ({ label: k, value: d[k], max: 99, color: C.progress, ...(p.star ? { star: statCap(p) } : {}) })) },
-        { title: 'Trait', lines: [p.trait, ...(p.founder ? [`Founder Perk: ${founderById(p.featuredId).perk.name} — ${founderById(p.featuredId).perk.text}`] : [])] },
+        ...(p.founder ? [{ title: 'Founder Perk', lines: [`${founderById(p.featuredId).perk.name} — ${founderById(p.featuredId).perk.text}`] }] : []),
+        ...(p.god ? [{ title: 'Blessing', lines: [p.trait] }] : abilitiesSection(p)), // (M26) the slots (a god's blessing stays apart)
         ...careerSection(p), // (M16) at the club: appearances, goals, assists, clean sheets; retiring
         ...detailExtra(p), // (M12c) Items: "Loves: …", items received, Give an item
         ...fitnessSection(p), // (M25) injured / banned, history, yellow cards
@@ -238,6 +245,58 @@ export function createSquadScreen({ layout, assets, sheet, club, onBack, onTrain
           buttons: onContract && !p.watch ? [{ id: 'contract', label: 'Manage contract', sub: 'Renew · release · sell · loan out', accent: C.action, onTap: () => onContract(p.id) }] : [],
           columns: 1,
         },
+      ],
+    };
+  }
+  // (M26) Abilities: the five slots (personality, innate, two learned, signature) with an icon and the effect each, what he
+  // is learning, and how close each ability is to evolving. Tap one: its card. The armband.
+  function abilitiesSection(p) {
+    const d = club()?.data;
+    const A = ABL.normaliseAbilities(p);
+    const buttons = ABL.slotsOf(p).map(({ slot, id, open }, i) => {
+      const a = id ? abilityById(id) : null;
+      const shut = slot === 'signature' && !open;
+      return {
+        id: `abl:${p.id}:${i}`,
+        label: a ? `${SLOT_NAMES[slot]}: ${a.name}` : `${SLOT_NAMES[slot]}: ${shut ? 'locked' : 'empty'}`,
+        sub: a ? `${a.tier} · ${a.plain}` : shut ? 'Legendary and Secret abilities only (a secret opens it)' : slot === 'learned' ? 'Learned in training' : '—',
+        icon: a ? iconOf(a.id) : null,
+        accent: a && PRESTIGE.has(a.tier) ? C.gold : a ? C.progress : C.line,
+        disabled: !a,
+        onTap: () => a && sheet.open(() => abilityCard(p, a.id)),
+      };
+    });
+    const bars = [];
+    const lines = []; // (the bars' own text stays short: it sits in a narrow strip by the bar)
+    if (A.learning) {
+      const a = abilityById(A.learning.id);
+      bars.push({ label: `Learning ${a.name}`, value: Math.round(A.learning.progress * 100), max: 100, color: C.good, text: `${Math.round(A.learning.progress * 100)}%` });
+      lines.push(`${a.name} is learned in ${focusById(a.group).name} or Ability Development training.`);
+    }
+    for (const id of ABL.abilityIds(p)) {
+      const ev = d ? ABL.evolveProgress(d, p, id) : null;
+      if (!ev || ev.locked) continue;
+      bars.push({ label: `${abilityById(id).name} → ${abilityById(ev.to).name}`, value: Math.round(ev.frac * 100), max: 100, color: C.gold, text: `${Math.round(ev.frac * 100)}%` });
+      if (ev.blocked) lines.push(`${abilityById(id).name}: ${ev.blocked}`);
+    }
+    const capBtn = onCaptain && !p.watch && !p.loan ? [{ id: 'captain', label: p.captain ? 'Captain ✓' : 'Make captain', sub: 'Wears the armband when he plays', accent: C.action, disabled: !!p.captain, onTap: () => onCaptain(p.id) }] : [];
+    return [{ title: 'Abilities', lines, bars, columns: 1, buttons: [...buttons, ...capBtn] }];
+  }
+  function abilityCard(p, id) {
+    const a = abilityById(id);
+    const d = club()?.data;
+    const ev = d ? ABL.evolveProgress(d, p, id) : null;
+    const NEED = { goals: 'goals', assists: 'assists', apps: 'appearances', cleanSheets: 'clean sheets', tacklesWon: 'tackles won', beaten: 'tackles beaten' };
+    return {
+      title: a.name,
+      subtitle: `${a.tier} · ${a.kind === 'personality' ? 'personality trait' : 'football ability'}${a.team ? ' · counts once a team' : ''}`,
+      art: iconOf(id),
+      accent: PRESTIGE.has(a.tier) ? C.gold : C.progress,
+      sections: [
+        { title: 'What it does', lines: [a.plain] },
+        ...(ev
+          ? [{ title: `Evolves into ${abilityById(ev.to).name}`, lines: ev.locked ? ['A secret has to be found first.'] : ev.blocked ? [ev.blocked] : [], bars: ev.locked ? [] : ev.rows.map((r) => ({ label: NEED[r.key] ?? r.key, value: Math.min(r.have, r.need), max: r.need, color: C.gold, text: `${r.have} / ${r.need}` })) }]
+          : []),
       ],
     };
   }

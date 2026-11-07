@@ -115,7 +115,7 @@ export function createControl(world, { team = 0, log = [] } = {}) {
       const moving = Math.hypot(mx, my) >= C.dead;
       ctl.sprinting = !!(btn & BTN.sprint) && moving && play && !!p && !exhausted;
       if (ctl.sprinting) {
-        ctl.stamina -= C.drain * DT;
+        ctl.stamina -= C.drain * DT * (ctl.player?.ax?.stamina ? 1 - ctl.player.ax.stamina : 1); // (M26) Engine Room
         if (ctl.stamina <= 0) {
           ctl.stamina = 0;
           exhausted = true;

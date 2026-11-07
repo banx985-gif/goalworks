@@ -12,7 +12,8 @@
 //   takerFor(world, team, kind) — the designated taker if he is on the pitch, else the next best by the stats
 //   penaltyChance(...) — the pure model (the tests and the shoot-out measure read it)
 import { PITCH, MATCH_TIME } from '../../data/match.js';
-import { INJURY, SEVERITY, DISCIPLINE as D, SET_PIECES as SP, routineById, ROUTINES, SET_PIECE_TRAITS, SUBS } from '../../data/matchRules.js';
+import { INJURY, SEVERITY, DISCIPLINE as D, SET_PIECES as SP, routineById, ROUTINES, SUBS } from '../../data/matchRules.js';
+import { ax, refreshPlayer, tally } from './abilityFx.js';
 import { GODS } from '../../data/gods.js';
 
 const W = PITCH.w;
@@ -21,7 +22,9 @@ const DT = MATCH_TIME.step;
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
 const JINX = GODS.GOD2;
-const traitFx = (p, k) => (p?.trait ? SET_PIECE_TRAITS[p.trait]?.[k] ?? 0 : 0);
+// (M26) the set-piece abilities through the one ability lookup (Penalty King, Penalty Reader, Ice Cold …)
+const AB_KEY = { pen: 'penKick', saves: 'penSave', shootout: 'shootout' };
+const traitFx = (p, k) => ax(p, AB_KEY[k]);
 
 // --- helpers --------------------------------------------------------------------------------------------------------------
 const side = (world, team) => world.players.filter((p) => p.team === team);
@@ -74,6 +77,17 @@ export function foulOnTackle(world, p, owner, won) {
   const top = world.T.speed.base + (world.T.speed.pace * p.stats.pace) / 100; // (relative to his own top speed: a Premier sprint is no more reckless than a Regional one)
   const reckless = closing > top * D.reckless.speed || behind < D.reckless.behind;
   if (reckless) chance += D.reckless.add;
+  if (p.ax) {
+    // (M26) Hard Tackler fouls a little more; Perfect Timing's standing tackles foul less; No Way Through: his first won
+    // tackle in each spell can't be a foul (no dice rolled for it)
+    if (p.ax.foulAdd) chance += p.ax.foulAdd;
+    if (p.ax.standFoul && !reckless) chance *= 1 - p.ax.standFoul;
+    if (p.ax.cleanTackle && won && (p.nwtAt == null || world.minute >= p.nwtAt + p.ax.cleanTackle)) {
+      p.nwtAt = world.minute;
+      tally(world, p, 'cleanTackles');
+      return false;
+    }
+  }
   if (inOwnBox(world, p.team, owner.x, owner.y)) chance *= D.inBox * (D.inBoxLine[t.line] ?? 1) * setPieceLevel(world, p.team);
   if (p.yellow) chance *= D.booked;
   chance *= (D.pressMult[t.press] ?? 1) * (D.mentalityMult[t.mentality] ?? 1);
@@ -134,8 +148,15 @@ function sendOff(world, p, straight) {
 }
 // A bench player takes over a player's place on the pitch (his slot, his spot): the object keeps its slot, takes the new man.
 function becomes(world, p, b) {
-  Object.assign(p, { name: b.name, shirt: b.shirt, stats: { ...b.stats }, id: b.id ?? null, position: b.position ?? p.position, god: b.god ?? null, trait: b.trait ?? null, risk: b.risk ?? 1, yellow: false, hurt: false, manual: !!p.manual, sub: true, cool: 0.5 }); // (Play: the man coming on keeps the control mark)
+  Object.assign(p, { name: b.name, shirt: b.shirt, stats: { ...b.stats }, id: b.id ?? null, position: b.position ?? p.position, god: b.god ?? null, trait: b.trait ?? null, abl: b.abl ?? null, fat: b.fat ?? null, captain: false, risk: b.risk ?? 1, yellow: false, hurt: false, manual: !!p.manual, sub: true, cool: 0.5, runFor: 0, blinkAt: null, blinkUntil: null, nwtAt: null }); // (Play: the man coming on keeps the control mark)
   if (p.position === 'GK') p.role = 'GK';
+  refreshPlayer(world, p); // (M26) his abilities
+  tally(world, p, 'subOn');
+}
+// (M26) a change by choice (src/match/changes.js): the incident, then the bench player takes his place
+export function replaceOnPitch(world, p, b, why) {
+  incident(world, { type: 'sub', team: p.team, off: p.name, offId: p.id ?? null, on: b.name, onId: b.id ?? null, why });
+  becomes(world, p, b);
 }
 
 // --- injuries -------------------------------------------------------------------------------------------------------------
@@ -294,8 +315,8 @@ function takeCross(world) {
     world.restart = { type: 'freekick', team, taker };
     return;
   }
-  const head = (p) => p.stats.tackling * 0.3 + p.stats.pace * 0.2 + p.stats.shooting * 0.5 + (r.tall ? p.stats.tackling * 0.2 : 0);
-  const dfn = (p) => p.stats.tackling * 0.7 + p.stats.pace * 0.3;
+  const head = (p) => (p.stats.tackling * 0.3 + p.stats.pace * 0.2 + p.stats.shooting * 0.5 + (r.tall ? p.stats.tackling * 0.2 : 0)) * (p.ax?.header ? 1 + p.ax.header : 1); // (M26) Aerial Strong
+  const dfn = (p) => (p.stats.tackling * 0.7 + p.stats.pace * 0.3) * (p.ax?.header ? 1 + p.ax.header : 1);
   const a = att.slice().sort((x, y) => head(y) - head(x) || x.i - y.i)[0];
   const d = def.slice().sort((x, y) => dfn(y) - dfn(x) || x.i - y.i)[0];
   const delivery = (taker.stats.passing - (k?.stats.keeping ?? taker.stats.passing)) / 400; // (relative: a great delivery against a great keeper is no edge)

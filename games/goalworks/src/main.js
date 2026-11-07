@@ -220,6 +220,8 @@ import { createFinanceSheets } from './screens/financeSheets.js'; // (M23)
 import { registerSponsorArt } from './ui/sponsorArt.js'; // (M23) SP01–SP08's text badges until the logos arrive
 import * as STAD from './systems/stadium.js'; // (M24) the stadium stages, pieces, attendance
 import * as MED from './systems/medical.js'; // (M25) injuries, bans
+import * as ABL from './systems/abilities.js'; // (M26) abilities: learning, evolution, the armband
+import { abilityById, ART as abilityArt, ART_FOR as ABILITY_ART_FOR } from '../data/abilities.js';
 import * as SPM from './match/setPieces.js'; // (M25: ?debug=1 tests reach the set pieces through __gw)
 import { benchFor } from './systems/squad.js';
 import { matchExtras } from './match/lineups.js';
@@ -504,6 +506,7 @@ bus.on('clock:day', () => {
   for (const n of open.research.day(c.clock.totalDays)) researchDone(n);
   const r = trainDay(open.data, { day: c.clock.totalDays, matchDay: c.atKickoff });
   for (const e of r.medical ?? []) medicalEvent(e); // (M25) back from injury
+  for (const e of r.abilities ?? []) abilityEvent(e); // (M26) an ability learned / evolved
   for (const x of r.players) if (x.learned) academyEvent({ kind: 'learned', id: x.id, name: open.data.squad.players.find((p) => p.id === x.id)?.name ?? '', to: x.learned }); // (M15)
   for (const e of AC.academyDay(open.data, c.clock.totalDays)) academyEvent(e); // (M15) the trials, academy training, breakthroughs, the season's end
   open.items.noteTraining(r.players); // (M12c) the week's training effort (the great-session item)
@@ -670,6 +673,17 @@ function medicalEvent(e) {
   else if (e.kind === 'ban') researchBanner.show({ id: `ban:${e.id}:${day}`, title: `${e.name} banned`, line: `${e.matches} match${e.matches === 1 ? '' : 'es'} · ${e.why}`, gives: 'He sits out your next competitive matches', icon: 'ui_01', color: COL.bad });
   else if (e.kind === 'recovered' && p) researchBanner.show({ id: `back:${e.id}:${day}`, title: `${e.name} is back`, line: 'Fit to play again', gives: 'Team: pick him for the next match', icon: 'ui_01', color: COL.good });
   debug.log(`medical: ${e.kind} ${e.name ?? ''}`);
+}
+// (M26) An ability learned or evolved: a banner and a News line.
+function abilityEvent(e) {
+  if (!open) return;
+  const a = abilityById(e.ability);
+  if (!a) return;
+  const icon = abilityArt(a.id) ?? abilityArt(ABILITY_ART_FOR[a.id] ?? 'AB01');
+  const text = e.kind === 'evolved' ? `${e.name}'s ${abilityById(e.from)?.name ?? 'ability'} has evolved into ${a.name}!` : `${e.name} has learned ${a.name}.`;
+  LG.news(open.data, open.calendar.today, text);
+  researchBanner.show({ id: `abl:${e.kind}:${e.id}:${a.id}`, title: e.kind === 'evolved' ? `${a.name}!` : `New ability: ${a.name}`, line: `${e.name} · ${a.plain}`, gives: 'Team → his card → Abilities', icon, color: e.kind === 'evolved' ? C_GOLD : COL.good });
+  debug.log(`ability: ${e.kind} ${e.name} ${a.id}`);
 }
 // (M23) The ledger's day: a sponsor's offer, the board's sheet or rescue plan (pop-ups); Emergency Credit lent / repaid, a
 // deal ended, Fan Trust moving a band (banners).
@@ -1255,8 +1269,10 @@ function matchFinished(world) {
   open.layout.sync(); // (M12) a new Club Rank grows the ground
   // Milestone 8: the XI tire; form and morale follow the result, minutes and roles
   const xiIds = world.setup.home.players.map((p) => p.id).filter(Boolean);
-  if (open.data.squad) applyMatch(open.data, { xiIds, score: r.score, scorers: r.scorers });
-  if (open.data.squad && !friendly) CA.recordMatch(open.data, { xiIds, score: r.score, scorers: r.scorers }); // (M16) career stats, club records
+  const subIds = (r.incidents ?? []).filter((e) => e.type === 'sub' && e.team === 0 && e.onId).map((e) => e.onId); // (M26) a substitute's minutes are an appearance
+  if (open.data.squad) applyMatch(open.data, { xiIds, score: r.score, scorers: r.scorers, subIds });
+  if (open.data.squad && !friendly) CA.recordMatch(open.data, { xiIds, score: r.score, scorers: r.scorers, subIds }); // (M16) career stats, club records
+  if (open.data.squad) ABL.afterMatch(open.data, { pst: world.pst, played: [...xiIds, ...subIds] }); // (M26) the abilities' tallies (evolution), Trickster
   if (fx && open.data.squad) VD.afterMatch(open.data, { fixture: fx, score: r.score, scorers: r.scorers, cup: league?.cup ?? null, xiIds }, open.calendar.today); // (M21b) the season's tally (not a friendly)
   if (fx && open.data.squad) SE.afterMatch(open.data, { fixture: fx, score: r.score, scorers: r.scorers, cup: league?.cup ?? null, xiIds }, open.calendar.today); // (M20b) the secrets' tallies
   const fanEvents = fx?.source === 'league' && open.data.squad ? FIN.afterMatch(open.data, { fixture: fx, score: r.score, xiIds, sum: league }, open.calendar.today) : []; // (M23) sponsors' objectives, Fan Trust
@@ -1301,6 +1317,36 @@ async function leaveMatch() {
     router.go('menu');
   }
 }
+// (M26) Make a change: who comes off (our eleven on the pitch now), then who comes on (the bench). The match waits while
+// the sheet is open; the change goes through the director (a timeline command, so a saved match replays it exactly).
+function openMatchChange() {
+  const d = match?.director;
+  if (!d) return;
+  let off = null; // the player coming off (his p.i)
+  sheet.open(() => {
+    const w = match?.world;
+    if (!w || !match?.director) return null;
+    const left = w.subsLeft[0];
+    const ours = w.players.filter((p) => p.team === 0).sort((a, b) => a.slot - b.slot);
+    const bench = w.bench[0];
+    const who = ours.find((p) => p.i === off);
+    const sum = (p) => Math.round((p.stats.pace + p.stats.passing + p.stats.shooting + p.stats.tackling + p.stats.dribbling + (p.position === 'GK' ? p.stats.keeping * 4 : 0)) / (p.position === 'GK' ? 9 : 5));
+    const tired = (p) => (p.fat ?? 0) + w.minute * 0.45 >= 66;
+    const sections = [];
+    if (!left || !bench.length) sections.push({ title: 'No changes left', lines: [left ? 'Nobody is left on the bench.' : 'All three changes have been made.'] });
+    else if (!who)
+      sections.push({ title: 'Who comes off?', columns: 2, buttons: ours.map((p) => ({ id: `sub:off:${p.i}`, label: `${p.shirt}. ${p.name}`, sub: `${p.position} · ${sum(p)}${p.yellow ? ' · booked' : ''}${tired(p) ? ' · tiring' : ''}${p.hurt ? ' · hurt' : ''}`, accent: tired(p) || p.yellow ? COL.bad : COL.progress, disabled: !!p.hurt, onTap: () => (off = p.i) })) });
+    else
+      sections.push(
+        { title: `Coming on for ${who.name} (${who.position})`, columns: 2, buttons: bench.map((b, bi) => ({ id: `sub:on:${bi}`, label: `${b.shirt}. ${b.name}`, sub: `${b.position} · ${sum(b)}${b.position === who.position ? ' · same position' : ''}`, accent: b.position === who.position ? COL.good : COL.progress, onTap: () => {
+          if (match.director.makeChange(off, bi)) researchBanner.show({ id: `sub:${w.steps}`, title: 'Change made', line: `${b.name} on for ${who.name}`, gives: `${w.subsLeft[0]} change${w.subsLeft[0] === 1 ? '' : 's'} left`, icon: 'match_17', color: COL.good });
+          sheet.close();
+        } })) },
+        { title: '', columns: 1, buttons: [{ id: 'sub:back', label: 'Pick someone else', accent: COL.progress, onTap: () => (off = null) }] },
+      );
+    return { title: 'Make a change', subtitle: `${left} of 3 left · the match waits while this is open`, art: 'match_17', accent: COL.good, sections };
+  });
+}
 // Milestone 9: Manage's Tactics sheet — formation, all seven team instructions and each slot's role (the one in force
 // ticked, as in the other games' sheets); the match waits while
 // it is open; every change goes through the director (logged in the match timeline, remembered by the club).
@@ -1343,6 +1389,7 @@ const matchScreen = createMatchScreen({
   onReplay: () => startTestMatch(`test-${Date.now()}`, match?.director?.userMode ?? 'watch'),
   onProgress: (world, reason) => matchProgress(world, reason),
   onTactics: () => openMatchTactics(),
+  onChange: () => openMatchChange(), // (M26) Make a change (the Mode menu, in every mode)
   // (M10) the rewards line on the result panel, before Continue records them
   resultLines: (world) => {
     if (match?.mode !== 'fixture' || !open) return null;
@@ -1389,7 +1436,7 @@ function playPlaceholder() {
   open.setupShown = false;
   sheet.close();
 }
-const squadScreen = createSquadScreen({ layout, assets, sheet, club: () => open, onBack: () => router.go('club'), onTraining: () => openTraining('squad'), onTactics: () => openTactics('squad'), onLeague: () => openLeague(), onTransfers: () => transfersUi.openTransfers('market'), onContract: (id) => transfersUi.openOwn(id), detailExtra: (p) => [...godPlayerSection(p), ...honoursSection(p), ...playerItemsSection(p)] });
+const squadScreen = createSquadScreen({ layout, assets, sheet, club: () => open, onBack: () => router.go('club'), onTraining: () => openTraining('squad'), onTactics: () => openTactics('squad'), onLeague: () => openLeague(), onTransfers: () => transfersUi.openTransfers('market'), onContract: (id) => transfersUi.openOwn(id), onCaptain: (id) => { ABL.setCaptain(open.data, id); autosave.request('captain'); squadScreen.openDetail(id); }, detailExtra: (p) => [...godPlayerSection(p), ...honoursSection(p), ...playerItemsSection(p)] });
 // Milestone 11: the Transfers sheets (every finished deal saves at once, bible §36).
 const transfersUi = createTransferSheets({
   sheet,
@@ -1982,7 +2029,7 @@ function addFeaturedStar(fid) {
 }
 // ?debug=1: a test hook for automated checks.
 if (debug.enabled) {
-  window.__gw = { MED, SPM, STAD, stadiumUi, walkerScene, setWalkerOverride: (o) => (walkerOverride = o), FIN, SP, FAN, BOARD, financeUi, pumpMoney, RIV, rivalsUi, pumpRivals, VD, awardsNight, debugAwardsNight, debugShowcase, pumpAwards, syncGreatTeams, tournamentsUi, pumpArrivals, godUi, GD, SE, signGod, releaseGod, renderer, layout, input, loop, router, assets, sheet, dialog, systemBack, textPrompt, splashScreen, menuScreen, slotsScreen, setupScreen, clubScreen, squadScreen, trainingScreen, openTraining, tacticsScreen, openTactics, openMatchTactics, playSlot, startClub, deleteSlot, openShop, setRank, facilityBonus, researchUi, researchBanner, get research() { return open?.research ?? null; }, newGame, openLeague, openCountyOffer, openPromotionOffer, openCrownChampions, addFeaturedStar, overall, openShield, commitCupTie, LG, CUP, acceptChallenge, issueChallenge, transfers: transfersUi, TR, openMatchSetup, playPlaceholder, kickOff, startTestMatch, matchScreen, restoreMatchWorld, get match() { return match; }, toggleSpeedFlag, autosave, saveRun, canvasLost, canvasLossCount, itemsUi, staffUi, normaliseStaff, academyUi, AC, openStaffRole, hofUi, CA, syncHallOfFame, facilityLevel: (id) => (open ? facilityLevel(open.data, id) : 0), get items() { return open?.items ?? null; }, settings, governor, lowFx, haptics, hintLine, openNavMenu, MENU_OPEN, menuState, openSettings, get account() { return account; }, taps: [], get campaigns() { return campaigns; }, get open() { return open; } };
+  window.__gw = { ABL, abilityEvent, grantAbility: (id, ab) => { const p = open?.data.squad.players.find((x) => x.id === id); return p ? ABL.grant(p, ab, { open: true }) : null; }, openMatchChange, MED, SPM, STAD, stadiumUi, walkerScene, setWalkerOverride: (o) => (walkerOverride = o), FIN, SP, FAN, BOARD, financeUi, pumpMoney, RIV, rivalsUi, pumpRivals, VD, awardsNight, debugAwardsNight, debugShowcase, pumpAwards, syncGreatTeams, tournamentsUi, pumpArrivals, godUi, GD, SE, signGod, releaseGod, renderer, layout, input, loop, router, assets, sheet, dialog, systemBack, textPrompt, splashScreen, menuScreen, slotsScreen, setupScreen, clubScreen, squadScreen, trainingScreen, openTraining, tacticsScreen, openTactics, openMatchTactics, playSlot, startClub, deleteSlot, openShop, setRank, facilityBonus, researchUi, researchBanner, get research() { return open?.research ?? null; }, newGame, openLeague, openCountyOffer, openPromotionOffer, openCrownChampions, addFeaturedStar, overall, openShield, commitCupTie, LG, CUP, acceptChallenge, issueChallenge, transfers: transfersUi, TR, openMatchSetup, playPlaceholder, kickOff, startTestMatch, matchScreen, restoreMatchWorld, get match() { return match; }, toggleSpeedFlag, autosave, saveRun, canvasLost, canvasLossCount, itemsUi, staffUi, normaliseStaff, academyUi, AC, openStaffRole, hofUi, CA, syncHallOfFame, facilityLevel: (id) => (open ? facilityLevel(open.data, id) : 0), get items() { return open?.items ?? null; }, settings, governor, lowFx, haptics, hintLine, openNavMenu, MENU_OPEN, menuState, openSettings, get account() { return account; }, taps: [], get campaigns() { return campaigns; }, get open() { return open; } };
 }
 
 router.go('boot');

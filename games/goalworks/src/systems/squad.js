@@ -16,6 +16,7 @@ import { formationById } from '../../data/tactics.js';
 import { clubById, REGIONAL_CLUBS, PREMIER_CLUBS } from '../../data/fixtures.js';
 import { founderPlayer, generatePlayer, overall, matchStats, statCap, makeStar } from './players.js';
 import { conditionFactor, normaliseSquad } from './training.js';
+import { matchIds, captainOf, has } from './abilities.js'; // (M26)
 
 // Milestone 9: any formation (data/tactics.js). Each slot is rated at its natural position (slot.pos: wide midfield and
 // wide forward slots want wingers), and the scarce slots fill first: keeper, strikers, the back line, centre midfield, then
@@ -68,20 +69,27 @@ export function pickable(players) {
   const hurt = players.filter((p) => p.injury && !(p.ban?.matches > 0)).sort((a, b) => a.injury.days - b.injury.days);
   return [...ok, ...hurt.slice(0, 11 - ok.length)];
 }
-export function matchPlayer(p) {
-  const k = conditionFactor(p);
+export function matchPlayer(p, lift = 0) {
+  const k = conditionFactor(p, lift);
   const stats = matchStats(p);
   for (const key of Object.keys(stats)) stats[key] = Math.round(stats[key] * k);
-  return { id: p.id, name: p.name, shirt: p.shirt, position: p.position, stats, ...(p.god ? { god: p.god } : {}), ...(p.trait ? { trait: p.trait } : {}) }; // (M20b) a god's blessing plays in the match; (M25) his trait (set pieces)
+  const abl = matchIds(p); // (M26) his abilities, his fatigue at kickoff (the AI's changes)
+  return { id: p.id, name: p.name, shirt: p.shirt, position: p.position, stats, ...(p.god ? { god: p.god } : {}), ...(p.trait ? { trait: p.trait } : {}), ...(abl.length ? { abl } : {}), ...(p.fatigue != null ? { fat: p.fatigue } : {}) }; // (M20b) a god's blessing plays in the match; (M25) his trait (set pieces)
 }
-export const xiForMatch = (players, { formation = '442', lineup = null } = {}) => bestXI(pickable(players), formation, lineup).filter(Boolean).map(matchPlayer);
+// (M26) the XI wears the armband: its captain (abilities.js captainOf); Captain Fantastic captaining lifts low morale
+export function xiForMatch(players, { formation = '442', lineup = null } = {}) {
+  const xi = bestXI(pickable(players), formation, lineup).filter(Boolean);
+  const cap = captainOf(xi);
+  const lift = cap ? has(cap, 'captain') : 0;
+  return xi.map((p) => ({ ...matchPlayer(p, lift), ...(p === cap ? { captain: true } : {}) }));
+}
 // (M25) the bench: the next best fit players who are not in the XI, a keeper among them when there is one
 export function benchFor(players, xiIds, n = 7) {
   const rest = players.filter((p) => fit(p) && !xiIds.includes(p.id) && !p.loan);
   const score = (p) => matchStats(p).pace + matchStats(p).passing + matchStats(p).shooting + matchStats(p).tackling + matchStats(p).dribbling;
   const gk = rest.filter((p) => p.position === 'GK').sort((a, b) => matchStats(b).keeping - matchStats(a).keeping)[0];
   const out = rest.filter((p) => p !== gk).sort((a, b) => score(b) - score(a)).slice(0, gk ? n - 1 : n);
-  return (gk ? [gk, ...out] : out).map(matchPlayer);
+  return (gk ? [gk, ...out] : out).map((p) => matchPlayer(p));
 }
 
 // (Milestone 11: exported — what a player's wages are for a role, and a fresh contract — for transfers and renewals)

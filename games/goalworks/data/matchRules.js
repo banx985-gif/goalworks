@@ -93,12 +93,8 @@ export const SET_PIECES = {
   setPiecePct: 'setPiecePct', // the effect key (research R28 Set Pieces, training) that adds to the taker's skill
   takerSuggest: { pen: ['shooting', 'TEC'], fk: ['shooting', 'passing'], corner: ['passing'] },
 };
-// Set-piece abilities (bible traits; the full 40 are M26 — these hooks are what they plug into):
-export const SET_PIECE_TRAITS = {
-  'Penalty King': { pen: 0.12, saves: 0.1 }, // as a taker: +12% to score; as a keeper: +10% to save
-  'Penalty Reader': { saves: 0.12 },
-  'Ice Cold': { pen: 0.06, shootout: 0.06 },
-};
+// (M26: the set-piece abilities — Penalty King, Penalty Reader, Ice Cold — now live in data/abilities.js with the other 40,
+// read through src/match/abilityFx.js; the same numbers as M25's hooks)
 
 // --- substitutes ----------------------------------------------------------------------------------------------------------
 // 7 on the bench (Match Setup), 3 changes a match. An injured player is replaced at once while changes are left (by the

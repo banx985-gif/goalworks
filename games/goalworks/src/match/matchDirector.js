@@ -114,6 +114,15 @@ export function createMatchDirector(world, { saved = null, prompts = true, speed
       changed('formation');
       return true;
     },
+    // (M26) a change: our player (his index p.i) off, the bench player (its index) on — logged like the other commands
+    subsLeft() {
+      return world.subsLeft[team];
+    },
+    makeChange(i, bi) {
+      if (!world.command(['sub', team, i, bi])) return false;
+      changed('sub');
+      return true;
+    },
     setRole(slot, role) {
       if (!world.command(['role', team, slot, role])) return false;
       changed('role');

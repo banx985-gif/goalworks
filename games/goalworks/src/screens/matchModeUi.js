@@ -24,7 +24,7 @@ const MODE_LINE = { watch: 'The team plays · camera and 1× / 2×', manage: 'Th
 const CAMERA_NAME = { full: 'Full pitch', follow: 'Follow', close: 'Close' };
 const TAC_KEYS = QUICK_TACTICS; // (Milestone 9: the four quick ones stay below the pitch; the full set is in the Tactics sheet)
 
-export function createModeUi({ layout, renderer, onTactics = null }) {
+export function createModeUi({ layout, renderer, onTactics = null, onChange = null }) {
   let picker = false;
   let flash = null; // { text, t } — a short note after a team command
 
@@ -76,11 +76,11 @@ export function createModeUi({ layout, renderer, onTactics = null }) {
     const r = sr();
     const w = Math.min(900, r.w - 64);
     const row = BH + 40 + 16;
-    const h = 100 + row * 4 + BH + 40;
+    const h = 100 + row * (onChange ? 5 : 4) + BH + 40;
     const x = r.x + (r.w - w) / 2;
     const y = r.y + Math.max(40, (r.h - h) / 2);
     const out = { panel: { x, y, w, h } };
-    ['watch', 'manage', 'play', 'km'].forEach((id, i) => (out[`pick:${id}`] = { x: x + 40, y: y + 100 + row * i, w: w - 80, h: BH }));
+    ['watch', 'manage', 'play', 'km', ...(onChange ? ['sub'] : [])].forEach((id, i) => (out[`pick:${id}`] = { x: x + 40, y: y + 100 + row * i, w: w - 80, h: BH })); // (M26) Make a change
     out['pick:close'] = { x: x + 40, y: y + h - 40 - BH, w: w - 80, h: BH };
     return out;
   };
@@ -136,6 +136,10 @@ export function createModeUi({ layout, renderer, onTactics = null }) {
             picker = false;
           }
         if (hitRect(p, r['pick:km'])) d.setPrompts(!d.prompts);
+        else if (r['pick:sub'] && hitRect(p, r['pick:sub'])) {
+          picker = false;
+          onChange(); // (M26) the change sheet (the match waits while it is open)
+        }
         else if (hitRect(p, r['pick:close']) || !hitRect(p, r.panel)) picker = false;
         return true;
       }
@@ -263,6 +267,13 @@ export function createModeUi({ layout, renderer, onTactics = null }) {
     const k = r['pick:km'];
     drawButton(ctx, k, `Key Moments: ${d.prompts ? 'On' : 'Off'}`, { accent: d.prompts ? C.good : C.progress });
     text(ctx, d.prompts ? 'Watch / Manage pause to offer big chances, corners, late attacks and defences.' : 'No prompts: the team plays every moment itself.', k.x + k.w / 2, k.y + k.h + 22, { size: S.small, color: C.textMuted, align: 'center', baseline: 'middle', maxWidth: k.w });
+    // (M26) Make a change: who comes off, who comes on (3 a match)
+    const sb = r['pick:sub'];
+    if (sb) {
+      const left = d.subsLeft?.() ?? 0;
+      drawButton(ctx, sb, `Make a change (${left} left)`, { accent: C.good, disabled: !left });
+      text(ctx, left ? 'Who comes off, who comes on: from your bench of seven.' : 'All three changes made.', sb.x + sb.w / 2, sb.y + sb.h + 22, { size: S.small, color: C.textMuted, align: 'center', baseline: 'middle', maxWidth: sb.w });
+    }
     drawButton(ctx, r['pick:close'], 'Close', { accent: C.progress });
   }
 
