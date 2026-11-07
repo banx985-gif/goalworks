@@ -80,7 +80,7 @@ export const MEASURES = {
   bestSale: (d) => d.records?.sale?.value ?? 0,
   eliteFree: (d) => d.achv.track.eliteFree,
   homeGrownCup: (d) => d.achv.track.homeGrownCup,
-  facilitiesOwned: (d) => new Set((d.facilities?.placement ?? []).map((p) => p.id).filter((id) => NORMAL_FACILITIES.includes(id))).size,
+  facilitiesOwned: (d) => new Set((d.facilities?.placement ?? []).map((p) => p.def).filter((id) => NORMAL_FACILITIES.includes(id))).size,
   researchDone: (d) => d.research?.sys?.done?.length ?? 0,
   topSellOut: (d) => d.achv.track.topSellOut,
   fanTop: (d) => ((d.fans?.trust ?? 0) >= 80 ? 1 : 0),
@@ -180,7 +180,7 @@ export function achievementsDay(data, account, day) {
   for (const p of squad) {
     if (p.god) continue;
     if (p.origin === 'academy' && overall(p) >= R.eliteOverall) T.eliteAcademy = 1;
-    if (p.origin === 'free' && !p.founder && overall(p) >= R.eliteOverall) T.eliteFree = 1;
+    if (p.joinedFrom === 'free' && !p.founder && overall(p) >= R.eliteOverall) T.eliteFree = 1;
     if ((p.tier === 'Legendary' || p.tier === 'Secret') && !A.seen[`legend:${p.id}`]) {
       A.seen[`legend:${p.id}`] = day;
       T.legendSigned++;

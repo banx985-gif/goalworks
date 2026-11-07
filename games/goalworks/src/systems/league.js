@@ -78,8 +78,9 @@ function noteSeasonWin(data, clubId, day) {
   if (!L.season || L.season.year !== year || L.season.league !== L.tier) L.season = { year, league: L.tier, beaten: [] };
   if (leagueById(L.tier).clubs.includes(clubId) && !L.season.beaten.includes(clubId)) L.season.beaten.push(clubId);
 }
-export function addHistory(data, day, text) {
-  data.clubHistory = [...(data.clubHistory ?? []), { day, year: Math.floor((Math.max(1, day) - 1) / YEAR) + 1, text }].slice(-60);
+// (M27) type: the timeline's icon and filter (data/achievements.js HISTORY_TYPES); kept to the last 120 lines
+export function addHistory(data, day, text, type = null) {
+  data.clubHistory = [...(data.clubHistory ?? []), { day, year: Math.floor((Math.max(1, day) - 1) / YEAR) + 1, text, ...(type ? { type } : {}) }].slice(-120);
 }
 
 // (M18) The cups running now: open ones (a league cup while that is your league; a Rank cup once the club has reached that
@@ -449,7 +450,7 @@ export function recordResult(data, fixture, score, day, opts = {}) {
       }
       if (pz.tokens) data.prestige = { ...(data.prestige ?? {}), tokens: (data.prestige?.tokens ?? 0) + pz.tokens }; // (M21 C08; the account keeps them for NG+)
     }
-    if (cup?.champion) addHistory(data, day, `Won the ${cupById(cup.cup).name}`); // (M18: the C04 "club history" prize)
+    if (cup?.champion) addHistory(data, day, `Won the ${cupById(cup.cup).name}`, 'cup'); // (M18: the C04 "club history" prize)
     if (cup) cup.events = [...(cup.events ?? []), ...cupsDay(data, day)]; // (M21) the next tie today: 7 days after the result
   }
   const rivalry = friendly ? null : RIV.afterResult(data, fixture, score, day, cup); // (M22) the meter, head-to-head, a new rivalry, the manager's line
@@ -467,7 +468,7 @@ export function recordResult(data, fixture, score, day, opts = {}) {
       P.via = 'title';
       L.crownTitle = { day, year: yearOfDay(day), opponent: club.id };
       achieve(data, lg.achievement, day);
-      addHistory(data, day, `CROWN CHAMPIONS — won the Crown Title Match against the ${club.name}`);
+      addHistory(data, day, `CROWN CHAMPIONS — won the Crown Title Match against the ${club.name}`, 'promotion');
       news(data, day, `Crown Champions! ${AFTER_TITLE}`);
       crownTitle = true;
     } else P.retryAt = day + lg.promotion.retryCooldown;
@@ -514,7 +515,7 @@ function enterLeague(data, id, day, line) {
     C.nextStart = Math.max(C.nextStart ?? 0, day); // (its first edition opens now)
   }
   news(data, day, line);
-  addHistory(data, day, `Promoted to the ${lg.name}`);
+  addHistory(data, day, `Promoted to the ${lg.name}`, 'promotion');
 }
 function achieve(data, id, day) {
   data.achievements ??= {};
@@ -531,7 +532,7 @@ export function acceptOffer(data, id = leagueOf(data).id, day = normaliseLeague(
   if (next) enterLeague(data, next.id, day, `Promoted: welcome to the ${next.name}.${next.cup ? ` The ${cupById(next.cup).name} opens now.` : ''}`);
   else {
     news(data, day, `${COMING[lg.promotion.to]?.name ?? 'The next league'} offer accepted: coming soon.`);
-    addHistory(data, day, `Earned promotion to the ${COMING[lg.promotion.to]?.name ?? 'next league'}`); // (M19)
+    addHistory(data, day, `Earned promotion to the ${COMING[lg.promotion.to]?.name ?? 'next league'}`, 'promotion'); // (M19)
   }
   return true;
 }

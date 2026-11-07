@@ -24,6 +24,7 @@ export const MENU_GROUPS = [
     row('academy', 'Academy', 'Young players: the yearly trials, promote, loan, retrain, mentor', 'ui_12'), // (Milestone 15)
     row('transfers', 'Transfers & Scouting', 'Buy, sell and loan players; send the scout out', 'ui_10'),
     row('hallOfFame', 'Hall of Fame', 'Club legends, records and this season’s retirements', 'ui_29'), // (Milestone 16)
+    row('achievements', 'Achievements', 'All 41 achievements, the club’s records, its history and the trophy cabinet', 'ui_27'), // (Milestone 27)
     row('clubStore', 'Club Store', 'Items the club has earned: give one to a player to raise a stat for good', 'item_25'),
   ] },
   { title: 'Club', rows: [

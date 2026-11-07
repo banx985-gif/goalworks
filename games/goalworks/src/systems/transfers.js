@@ -39,6 +39,7 @@ import { BAND } from '../../data/careers.js';
 import { normaliseGods, nextSeasonEnd } from './gods.js'; // (M20b)
 import { noteTransfer } from './rivals.js'; // (M22) a player signed from / sold to a rival
 import { post, weeklyIncomeEstimate, runningCosts } from './finance.js'; // (M23) every Credit through the ledger
+import { noteRecord } from './records.js'; // (M27) the record sale / signing
 import { noteSale } from './fans.js'; // (M23) a favourite sold: Fan Trust falls
 import { wageBill as staffWageBill } from './staff.js';
 
@@ -352,8 +353,9 @@ export function freeShirt(data) {
   for (let n = CONTRACT_TERMS.shirts[0]; n <= CONTRACT_TERMS.shirts[1]; n++) if (!used.has(n)) return n;
   return null;
 }
-function joinUs(data, p, day) {
+function joinUs(data, p, day, from = null) {
   normalisePlayer(p);
+  if (from) p.joinedFrom = from; // (M27) 'free' / 'market' / a club id: A27 Free Bargain
   p.shirt = freeShirt(data);
   p.watch = false;
   p.preContract = false;
@@ -403,7 +405,8 @@ export function completeDeal(data, kind, p, owner, offer, day) {
   } else {
     take(data, owner, p);
     p.contract = contractOf(offer, day, v);
-    joinUs(data, p, day);
+    joinUs(data, p, day, owner);
+    if (offer.fee) noteRecord(data, 'signing', offer.fee, `${p.name} from ${ownerName(owner)} for ${fmt(offer.fee)} Credits`, day); // (M27)
     log(data, day, `${p.name} signs from ${ownerName(owner)}${offer.fee ? ` for ${fmt(offer.fee)} Credits` : ' on a free'}: ${offer.years} year${offer.years === 1 ? '' : 's'}, ${fmt(offer.salary)} a week.`);
   }
   valuation(data, p);
@@ -491,6 +494,7 @@ function sellTo(data, p, clubId, fee, day) {
   take(data, 'us', p);
   purgeTactics(data, p.id);
   earn(data, fee, 'transfersIn', `${p.name} sold to ${ownerName(clubId)}`, day);
+  noteRecord(data, 'sale', fee, `${p.name} to ${ownerName(clubId)} for ${fmt(fee)} Credits`, day); // (M27)
   noteSale(data, p, day); // (M23) selling a favourite: Fan Trust falls
   const rng = new Rng(`${data.seed}:sale:${p.id}:${day}`);
   p.contract = { ...contractFor(rng, p, 'Starter'), salary: Math.round((p.contract.salary * 1.1) / 10) * 10 };
@@ -598,7 +602,7 @@ export function ensureMinimum(data, day) {
     }
     take(data, 'free', p);
     p.contract = { salary: salaryFor(p, 'Rotation'), years: 1, role: 'Rotation', bonus: 0, clause: null, promised: false, signedDay: day };
-    joinUs(data, p, day);
+    joinUs(data, p, day, 'free');
     log(data, day, `${p.name} signed on a one-year deal by the board: the squad was short.`);
     signed.push(p.id);
   }
@@ -760,7 +764,7 @@ function seasonEnd(data, day, rng) {
     take(data, owner, p);
     p.contract = pend.contract;
     p.loan = null;
-    joinUs(data, p, day);
+    joinUs(data, p, day, owner);
     log(data, day, `${p.name} arrives on his pre-contract from ${ownerName(owner)}.`);
   }
   T.pending = [];

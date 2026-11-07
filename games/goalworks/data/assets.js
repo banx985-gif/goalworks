@@ -37,6 +37,8 @@ export const ASSETS = {
   ...Object.fromEntries(['trophy_17', 'trophy_18'].map((k) => art('trophies', k))),
   // Milestone 20: the premier crown trophy (the Crown Champions sheet).
   ...Object.fromEntries(['trophy_07'].map((k) => art('trophies', k))),
+  // Milestone 27: the trophy cabinet and the history timeline (promotions, cups, the celebration banner)
+  ...Object.fromEntries(['trophy_01', 'trophy_02', 'trophy_03', 'trophy_04', 'trophy_05', 'trophy_06', 'trophy_08', 'trophy_09', 'trophy_14'].map((k) => art('trophies', k))),
   // Milestone 21b: Awards Night — the four award trophies and the Fans' voice (the Board, the Press and the stand-in coach
   // use ui_05 / ui_19 / ui_08, already loaded; the Showcase's gold cup is made in code from tournament_c01).
   ...Object.fromEntries(['trophy_10', 'trophy_11', 'trophy_12', 'trophy_13'].map((k) => art('trophies', k))),

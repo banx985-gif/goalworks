@@ -221,6 +221,9 @@ import { registerSponsorArt } from './ui/sponsorArt.js'; // (M23) SP01–SP08's 
 import * as STAD from './systems/stadium.js'; // (M24) the stadium stages, pieces, attendance
 import * as MED from './systems/medical.js'; // (M25) injuries, bans
 import * as ABL from './systems/abilities.js'; // (M26) abilities: learning, evolution, the armband
+import * as ACH from './systems/achievements.js'; // (M27) achievements, records, history, the trophy cabinet
+import { createAchievementSheets } from './screens/achievementSheets.js';
+import { achievementById } from '../data/achievements.js';
 import { abilityById, ART as abilityArt, ART_FOR as ABILITY_ART_FOR } from '../data/abilities.js';
 import * as SPM from './match/setPieces.js'; // (M25: ?debug=1 tests reach the set pieces through __gw)
 import { benchFor } from './systems/squad.js';
@@ -475,6 +478,8 @@ function openRun(n, data) {
       autosave.request(`league:${movedTo}`);
     }, 0);
   }
+  ACH.normaliseAchievements(data); // (M27) an older save: its counters, its earned flags into the account
+  if (ACH.syncAccount(data, account)) setTimeout(() => saveAccountNow('achievements'), 0);
   open = { n, data, layout: createLayout(data, { bus }), research: createResearch(data, { bus }), items: createItems(data, { bus }), calendar: createCalendar({ bus, saved: data.calendar ?? null, flags: speedFlags(), isIssued: (o) => !!open && LG.isIssued(open.data, o) }), setupShown: false };
 }
 // Milestone 16: the run's Hall of Famers go into the account save (they survive new games and other slots). Checked when a
@@ -507,6 +512,7 @@ bus.on('clock:day', () => {
   const r = trainDay(open.data, { day: c.clock.totalDays, matchDay: c.atKickoff });
   for (const e of r.medical ?? []) medicalEvent(e); // (M25) back from injury
   for (const e of r.abilities ?? []) abilityEvent(e); // (M26) an ability learned / evolved
+  achievementsDay(c.clock.totalDays); // (M27) achievements now met, records, milestones, history lines
   for (const x of r.players) if (x.learned) academyEvent({ kind: 'learned', id: x.id, name: open.data.squad.players.find((p) => p.id === x.id)?.name ?? '', to: x.learned }); // (M15)
   for (const e of AC.academyDay(open.data, c.clock.totalDays)) academyEvent(e); // (M15) the trials, academy training, breakthroughs, the season's end
   open.items.noteTraining(r.players); // (M12c) the week's training effort (the great-session item)
@@ -673,6 +679,21 @@ function medicalEvent(e) {
   else if (e.kind === 'ban') researchBanner.show({ id: `ban:${e.id}:${day}`, title: `${e.name} banned`, line: `${e.matches} match${e.matches === 1 ? '' : 'es'} · ${e.why}`, gives: 'He sits out your next competitive matches', icon: 'ui_01', color: COL.bad });
   else if (e.kind === 'recovered' && p) researchBanner.show({ id: `back:${e.id}:${day}`, title: `${e.name} is back`, line: 'Fit to play again', gives: 'Team: pick him for the next match', icon: 'ui_01', color: COL.good });
   debug.log(`medical: ${e.kind} ${e.name ?? ''}`);
+}
+// (M27) The club day's achievements check: an earned one is a one-tap banner (queued like the others) and saves the account.
+function achievementsDay(day) {
+  if (!open) return;
+  const evs = ACH.achievementsDay(open.data, account, day);
+  let earned = false;
+  for (const e of evs) {
+    if (e.kind === 'achievement') {
+      earned = true;
+      const a = achievementById(e.id);
+      researchBanner.show({ id: `ach:${e.id}`, title: `Achievement: ${a.name}`, line: a.line, gives: `${a.reward.credits ? `+${a.reward.credits.toLocaleString('en-GB')} Credits` : `+${a.reward.rep} reputation`} · Menu → Achievements`, icon: 'trophy_09', color: C_GOLD });
+      debug.log(`achievement ${e.id}`);
+    } else if (e.kind === 'milestone') researchBanner.show({ id: `ms:${e.id}`, title: 'A club milestone', line: e.text, gives: 'Menu → Achievements → History', icon: 'trophy_14', color: COL.good });
+  }
+  if (earned) saveAccountNow('achievement');
 }
 // (M26) An ability learned or evolved: a banner and a News line.
 function abilityEvent(e) {
@@ -1273,6 +1294,8 @@ function matchFinished(world) {
   if (open.data.squad) applyMatch(open.data, { xiIds, score: r.score, scorers: r.scorers, subIds });
   if (open.data.squad && !friendly) CA.recordMatch(open.data, { xiIds, score: r.score, scorers: r.scorers, subIds }); // (M16) career stats, club records
   if (open.data.squad) ABL.afterMatch(open.data, { pst: world.pst, played: [...xiIds, ...subIds] }); // (M26) the abilities' tallies (evolution), Trickster
+  // (M27) the achievements' match counters (a Play stint at any point counts as manual Play)
+  if (open.data.squad && fx) ACH.afterMatch(open.data, { fixture: fx, score: r.score, scorers: r.scorers, cup: league?.cup ?? null, xiIds, squadIds: (world.setup.home.bench ?? []).map((p) => p.id).filter(Boolean), incidents: r.incidents ?? [], formation: world.setup.formation?.[0] ?? '442', manual: world.start === 'play' || world.timeline.some((e) => e[1] === 'mode' && e[2] === 'play') }, open.calendar.today);
   if (fx && open.data.squad) VD.afterMatch(open.data, { fixture: fx, score: r.score, scorers: r.scorers, cup: league?.cup ?? null, xiIds }, open.calendar.today); // (M21b) the season's tally (not a friendly)
   if (fx && open.data.squad) SE.afterMatch(open.data, { fixture: fx, score: r.score, scorers: r.scorers, cup: league?.cup ?? null, xiIds }, open.calendar.today); // (M20b) the secrets' tallies
   const fanEvents = fx?.source === 'league' && open.data.squad ? FIN.afterMatch(open.data, { fixture: fx, score: r.score, xiIds, sum: league }, open.calendar.today) : []; // (M23) sponsors' objectives, Fan Trust
@@ -1590,6 +1613,7 @@ const MENU_OPEN = {
   stadium: () => stadiumUi.openStadium(), // (M24)
   academy: () => academyUi.openAcademy(), // (M15)
   hallOfFame: () => hofUi.openHallOfFame(), // (M16)
+  achievements: () => achievementsUi.openAchievements(), // (M27)
   shield: () => openShield(false, 'C02'), // (M17)
   knockout: () => openShield(false, 'C03'), // (M18)
   crownCup: () => openShield(false, 'C04'), // (M18)
@@ -1883,6 +1907,7 @@ const academyUi = createAcademySheets({
   onYouthCoach: () => openStaffRole('YC'),
 });
 // Milestone 16: the Hall of Fame sheets (the account's legends; this club's records and retirements).
+const achievementsUi = createAchievementSheets({ sheet, run: () => open?.data ?? null, account: () => account }); // (M27)
 const hofUi = createHallOfFameSheets({ sheet, assets, entries: () => account.hallOfFame ?? [], run: () => open?.data ?? null, secrets: () => SE.foundRecipes(open?.data ?? null, account), teams: () => account.greatTeams ?? [] }); // (M20b) the secrets found; (M21b) Great Teams
 // (M21b) Player Detail's Honours: his season awards ("Golden Boot · Year 3").
 function honoursSection(p) {
@@ -2029,7 +2054,7 @@ function addFeaturedStar(fid) {
 }
 // ?debug=1: a test hook for automated checks.
 if (debug.enabled) {
-  window.__gw = { ABL, abilityEvent, grantAbility: (id, ab) => { const p = open?.data.squad.players.find((x) => x.id === id); return p ? ABL.grant(p, ab, { open: true }) : null; }, openMatchChange, MED, SPM, STAD, stadiumUi, walkerScene, setWalkerOverride: (o) => (walkerOverride = o), FIN, SP, FAN, BOARD, financeUi, pumpMoney, RIV, rivalsUi, pumpRivals, VD, awardsNight, debugAwardsNight, debugShowcase, pumpAwards, syncGreatTeams, tournamentsUi, pumpArrivals, godUi, GD, SE, signGod, releaseGod, renderer, layout, input, loop, router, assets, sheet, dialog, systemBack, textPrompt, splashScreen, menuScreen, slotsScreen, setupScreen, clubScreen, squadScreen, trainingScreen, openTraining, tacticsScreen, openTactics, openMatchTactics, playSlot, startClub, deleteSlot, openShop, setRank, facilityBonus, researchUi, researchBanner, get research() { return open?.research ?? null; }, newGame, openLeague, openCountyOffer, openPromotionOffer, openCrownChampions, addFeaturedStar, overall, openShield, commitCupTie, LG, CUP, acceptChallenge, issueChallenge, transfers: transfersUi, TR, openMatchSetup, playPlaceholder, kickOff, startTestMatch, matchScreen, restoreMatchWorld, get match() { return match; }, toggleSpeedFlag, autosave, saveRun, canvasLost, canvasLossCount, itemsUi, staffUi, normaliseStaff, academyUi, AC, openStaffRole, hofUi, CA, syncHallOfFame, facilityLevel: (id) => (open ? facilityLevel(open.data, id) : 0), get items() { return open?.items ?? null; }, settings, governor, lowFx, haptics, hintLine, openNavMenu, MENU_OPEN, menuState, openSettings, get account() { return account; }, taps: [], get campaigns() { return campaigns; }, get open() { return open; } };
+  window.__gw = { ACH, achievementsUi, achievementsDay, ABL, abilityEvent, grantAbility: (id, ab) => { const p = open?.data.squad.players.find((x) => x.id === id); return p ? ABL.grant(p, ab, { open: true }) : null; }, openMatchChange, MED, SPM, STAD, stadiumUi, walkerScene, setWalkerOverride: (o) => (walkerOverride = o), FIN, SP, FAN, BOARD, financeUi, pumpMoney, RIV, rivalsUi, pumpRivals, VD, awardsNight, debugAwardsNight, debugShowcase, pumpAwards, syncGreatTeams, tournamentsUi, pumpArrivals, godUi, GD, SE, signGod, releaseGod, renderer, layout, input, loop, router, assets, sheet, dialog, systemBack, textPrompt, splashScreen, menuScreen, slotsScreen, setupScreen, clubScreen, squadScreen, trainingScreen, openTraining, tacticsScreen, openTactics, openMatchTactics, playSlot, startClub, deleteSlot, openShop, setRank, facilityBonus, researchUi, researchBanner, get research() { return open?.research ?? null; }, newGame, openLeague, openCountyOffer, openPromotionOffer, openCrownChampions, addFeaturedStar, overall, openShield, commitCupTie, LG, CUP, acceptChallenge, issueChallenge, transfers: transfersUi, TR, openMatchSetup, playPlaceholder, kickOff, startTestMatch, matchScreen, restoreMatchWorld, get match() { return match; }, toggleSpeedFlag, autosave, saveRun, canvasLost, canvasLossCount, itemsUi, staffUi, normaliseStaff, academyUi, AC, openStaffRole, hofUi, CA, syncHallOfFame, facilityLevel: (id) => (open ? facilityLevel(open.data, id) : 0), get items() { return open?.items ?? null; }, settings, governor, lowFx, haptics, hintLine, openNavMenu, MENU_OPEN, menuState, openSettings, get account() { return account; }, taps: [], get campaigns() { return campaigns; }, get open() { return open; } };
 }
 
 router.go('boot');
