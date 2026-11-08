@@ -54,14 +54,14 @@ export function slotSummary(data) {
     month: data.date.month,
     league: data.league ? leagueOf(data).short : null, // (Milestone 10: the Regional League and the Club Rank E–S; M17: County)
     rank: data.league ? clubRank(data).id : null,
-    ngPlus: data.ngPlus ?? 0,
+    ngPlus: data.ng?.level ?? data.ngPlus ?? 0, // (M29 keeps it in data.ng)
     playSec: data.playSec ?? 0,
     grade: null,
   };
 }
 
-// Older saves moved up to date on load (none yet: version 1 is the first).
-export const SAVE_MIGRATIONS = {};
+// Older saves moved up to date on load: since Milestone 33 the chain is src/systems/migrate.js (app/campaigns.js uses it).
+export { SAVE_MIGRATIONS } from './migrate.js';
 
 // "Club Manager Aaron — Banx Park Rangers".
 export const managerLine = (manager, club) => `Club Manager ${manager || '…'} — ${club || '…'}`;

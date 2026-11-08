@@ -8,5 +8,5 @@ export const SAVE = {
   count: 4,
   prefix: 'campaign_',
   accountKey: 'goalworks:account',
-  version: 1,
+  version: 2, // (M33) the migration chain: src/systems/migrate.js
 };

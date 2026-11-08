@@ -16,7 +16,7 @@ const C = THEME.color;
 const S = THEME.size;
 
 // cards(): [{ n, empty, summary, error }]; last(): the last-used slot number or null.
-export function createSlotsScreen({ layout, assets, cards, last, onBack, onPlay, onDelete, onNewInSlot }) {
+export function createSlotsScreen({ layout, assets, cards, last, onBack, onPlay, onDelete, onNewInSlot, onCopy = () => {} }) {
   let mode = 'browse';
   let note = null;
   const rects = {};
@@ -68,9 +68,12 @@ export function createSlotsScreen({ layout, assets, cards, last, onBack, onPlay,
     const m = s.summary;
     const isLast = s.n === last();
     const bw = 230;
-    const bh = Math.min(110, (r.h - 60) / 2);
-    const b1 = { x: r.x + r.w - bw - 24, y: r.y + r.h / 2 - bh - 10, w: bw, h: bh };
-    const b2 = { x: b1.x, y: r.y + r.h / 2 + 10, w: bw, h: bh };
+    // (M33) three buttons: Play, Copy, Delete
+    const bh = Math.min(96, (r.h - 56) / 3);
+    const g3 = Math.max(8, Math.min(14, (r.h - bh * 3) / 4));
+    const b1 = { x: r.x + r.w - bw - 24, y: r.y + r.h / 2 - bh * 1.5 - g3, w: bw, h: bh };
+    const b3 = { x: b1.x, y: r.y + r.h / 2 - bh / 2, w: bw, h: bh };
+    const b2 = { x: b1.x, y: r.y + r.h / 2 + bh / 2 + g3, w: bw, h: bh };
     if (mode === 'new') {
       const rep = { x: b1.x, y: r.y + (r.h - bh) / 2, w: bw, h: bh };
       box(rep, () => onNewInSlot(s.n), `replace${s.n}`);
@@ -78,11 +81,13 @@ export function createSlotsScreen({ layout, assets, cards, last, onBack, onPlay,
       if (ctx) drawButton(ctx, rep, 'Replace', { accent: C.bad });
     } else {
       box(b1, () => onPlay(s.n), `play${s.n}`);
+      box(b3, () => onCopy(s.n), `copy${s.n}`);
       box(b2, () => onDelete(s.n), `delete${s.n}`);
       box(r, () => onPlay(s.n), `card${s.n}`);
       if (ctx) {
         layoutCard();
         drawButton(ctx, b1, 'Play');
+        drawButton(ctx, b3, 'Copy', { accent: C.progress });
         drawButton(ctx, b2, 'Delete', { accent: C.bad });
       }
     }
@@ -111,8 +116,22 @@ export function createSlotsScreen({ layout, assets, cards, last, onBack, onPlay,
       if (m.league) text(ctx, `${m.league} League`, tx, ty, { size: S.small, bold: true, color: C.progress, maxWidth: tw });
       else text(ctx, `Founder: ${m.founderPosition}`, tx, ty, { size: S.small, color: C.textMuted, maxWidth: tw });
       ty += 46 * k;
-      text(ctx, `Year ${m.year} · Month ${m.month}${m.rank ? ` · Rank ${m.rank}` : ""}`, tx, ty, { size: S.body, bold: true, color: C.actionDark, maxWidth: tw }); // (M10: the Club Rank)
+      text(ctx, `Year ${m.year} · Month ${m.month}${m.rank ? ` · Rank ${m.rank}` : ""}${m.ngPlus ? ` · NG+${m.ngPlus}` : ''}`, tx, ty, { size: S.body, bold: true, color: C.actionDark, maxWidth: tw }); // (M10: the Club Rank; M33: the NG+ level)
+      ty += 44 * k;
+      if (s.savedAt && ty + 30 * k < r.y + r.h) text(ctx, `Last played ${playedAgo(s.savedAt)}`, tx, ty, { size: S.small, color: C.textMuted, maxWidth: tw }); // (M33)
     }
+  }
+
+  // (M33) "Last played 5 minutes ago" / "… 3 days ago" / the date
+  function playedAgo(t) {
+    const min = Math.max(0, Math.round((Date.now() - t) / 60000));
+    if (min < 1) return 'just now';
+    if (min < 60) return `${min} minute${min === 1 ? '' : 's'} ago`;
+    const h = Math.round(min / 60);
+    if (h < 24) return `${h} hour${h === 1 ? '' : 's'} ago`;
+    const d = Math.round(h / 24);
+    if (d < 14) return `${d} day${d === 1 ? '' : 's'} ago`;
+    return new Date(t).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
   }
 
   function empty(ctx, r, s) {
@@ -161,7 +180,7 @@ export function createSlotsScreen({ layout, assets, cards, last, onBack, onPlay,
     render(ctx) {
       pass(ctx, null);
     },
-    // Screen rect of a tappable thing (tests): 'back', 'play1', 'delete2', 'new3', 'replace4', 'slot1'…
+    // Screen rect of a tappable thing (tests): 'back', 'play1', 'copy1', 'delete2', 'new3', 'replace4', 'slot1'…
     rectOf(id) {
       pass(null, null);
       return rects[id] ?? null;

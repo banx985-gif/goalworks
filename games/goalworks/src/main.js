@@ -948,6 +948,8 @@ async function prepareSaves() {
   await campaigns.refresh();
   account = await campaigns.slots.loadAccount();
   mon.reload(); // (M30) the account's Tokens, Remove Ads and purchase history
+  fallbackNote('account', 'your account (achievements, secrets, Tokens)'); // (M33)
+  if (campaigns.slots.accountProblem && !campaigns.slots.accountProblem.newer) setTimeout(() => dialog.show({ title: 'Account restarted', body: 'Your account record could not be read, so a fresh one was started (a copy of the old one is kept aside). Your clubs in the four slots are safe.', buttons: [{ id: 'ok', label: 'OK', accent: COL.progress }] }), 0);
   mon.startup().catch((err) => debug.log(`store startup: ${err?.message ?? err}`));
   settings.attachStore(adapter, 'settings'); // (M12b) the settings slot in the account store too
   speedFlags();
@@ -991,6 +993,7 @@ async function playSlot(n) {
   }
   openRun(n, data);
   debug.log(`slot ${n} opened: ${data.club.name}`);
+  fallbackNote(n, data.club.name); // (M33)
   rememberClub(n);
   if (data.match && resumeMatch()) return;
   router.go('club');
@@ -1034,12 +1037,47 @@ function deleteSlot(n) {
     body: name ? `"${name}" will be gone for good. This can't be undone.` : 'This save will be gone for good.',
     yes: 'Delete',
     danger: true,
+    // (M33) asked twice: the second time by name
+    onYes: () =>
+      setTimeout(
+        () =>
+          dialog.confirm({
+            title: 'Are you really sure?',
+            body: `Slot ${n}${name ? `, "${name}"` : ''}, every season of it, gone for good. Copy it to another slot first if you might want it back.`,
+            yes: 'Yes, delete it',
+            danger: true,
+            onYes: async () => {
+              await campaigns.remove(n);
+              if (open?.n === n) open = null;
+              debug.log(`slot ${n} deleted`);
+            },
+          }),
+        0,
+      ),
+  });
+}
+// (M33) Copy a club into an empty slot (asked first; never over a club).
+function copySlot(n) {
+  const name = campaigns.card(n)?.summary?.club ?? 'this club';
+  const to = campaigns.cards.find((c) => c.empty && !c.error)?.n ?? null;
+  if (to == null) return dialog.show({ title: 'No empty slot', body: 'All four slots hold a club. Delete one first to make a copy.', buttons: [{ id: 'ok', label: 'OK', accent: COL.progress }] });
+  dialog.confirm({
+    title: `Copy Slot ${n}?`,
+    body: `"${name}" will be copied into Slot ${to}. The two then go their own ways.`,
+    yes: `Copy to Slot ${to}`,
     onYes: async () => {
-      await campaigns.remove(n);
-      if (open?.n === n) open = null;
-      debug.log(`slot ${n} deleted`);
+      const ok = await campaigns.copy(n, to);
+      debug.log(ok ? `slot ${n} copied to ${to}` : `slot ${n}: copy failed`);
     },
   });
+}
+// (M33) A gentle word when a save had to come from an older copy (the newest was damaged or cut off half way).
+function fallbackNote(n, what) {
+  const note = campaigns?.loadNote(n);
+  if (!note?.fallback) return;
+  const when = note.savedAt ? new Date(note.savedAt).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : 'a moment before';
+  debug.log(`save fallback (${n}): ${note.damaged.map((d) => d.why).join('; ')}`);
+  setTimeout(() => dialog.show({ title: 'Save restored', body: `The newest save of ${what} couldn't be read (the game may have closed while saving), so the one saved ${when} was loaded instead. Everything up to then is safe.`, buttons: [{ id: 'ok', label: 'OK', accent: COL.progress }] }), 0);
 }
 
 function newGame() {
@@ -1073,6 +1111,7 @@ const slotsScreen = createSlotsScreen({
   onPlay: (n) => playSlot(n),
   onDelete: (n) => deleteSlot(n),
   onNewInSlot: (n) => setupFor(n),
+  onCopy: (n) => copySlot(n), // (M33)
 });
 function leaveSetup() {
   pendingNg = null; // (M29) backing out of Club Setup drops a New Game+ start
@@ -2221,7 +2260,7 @@ function addFeaturedStar(fid) {
 }
 // ?debug=1: a test hook for automated checks.
 if (debug.enabled) {
-  window.__gw = { mon, shopUi, get fakeStore() { return fakeStore; }, END, endingCeremony, ngUi, startNg, get pendingNg() { return pendingNg; }, forceEnding: () => { const d = open.data; const day = Math.max(open.calendar.today, END_DAY); const ev = END.endingDay(d, account, day); saveAccountNow('ending:debug'); pumpArrivals(); return ev; }, godsDay, forceSecret: (id) => { const ev = SE.forceSecret(open.data, id, open.calendar.today, account); for (const e of Array.isArray(ev) ? ev : []) { if (e.kind === 'playerArrival') legendQueue.push(e.fid); if (e.kind === 'secretFound') researchBanner.show({ id: 'secret:' + e.id, title: 'Secret found: ' + e.name + '!', line: secretLine(e.id), gives: 'Menu → Secrets Archive', icon: 'ui_28', color: COL.purple }); } saveAccountNow('secret:debug'); pumpArrivals(); return ev; }, signLegend, legendQueue, ACH, achievementsUi, achievementsDay, ABL, abilityEvent, grantAbility: (id, ab) => { const p = open?.data.squad.players.find((x) => x.id === id); return p ? ABL.grant(p, ab, { open: true }) : null; }, openMatchChange, MED, SPM, STAD, stadiumUi, walkerScene, setWalkerOverride: (o) => (walkerOverride = o), FIN, SP, FAN, BOARD, financeUi, pumpMoney, RIV, rivalsUi, pumpRivals, VD, awardsNight, debugAwardsNight, debugShowcase, pumpAwards, syncGreatTeams, tournamentsUi, pumpArrivals, godUi, GD, SE, signGod, releaseGod, renderer, layout, input, loop, router, assets, sheet, dialog, systemBack, textPrompt, splashScreen, menuScreen, slotsScreen, setupScreen, clubScreen, squadScreen, trainingScreen, openTraining, tacticsScreen, openTactics, openMatchTactics, playSlot, startClub, deleteSlot, openShop, setRank, facilityBonus, researchUi, researchBanner, get research() { return open?.research ?? null; }, newGame, openLeague, openCountyOffer, openPromotionOffer, openCrownChampions, addFeaturedStar, overall, openShield, commitCupTie, LG, CUP, acceptChallenge, issueChallenge, transfers: transfersUi, TR, openMatchSetup, playPlaceholder, kickOff, startTestMatch, matchScreen, restoreMatchWorld, get match() { return match; }, toggleSpeedFlag, autosave, saveRun, canvasLost, canvasLossCount, itemsUi, staffUi, normaliseStaff, academyUi, AC, openStaffRole, hofUi, CA, syncHallOfFame, facilityLevel: (id) => (open ? facilityLevel(open.data, id) : 0), get items() { return open?.items ?? null; }, settings, governor, lowFx, haptics, hintLine, openNavMenu, MENU_OPEN, menuState, openSettings, get account() { return account; }, taps: [], get campaigns() { return campaigns; }, get open() { return open; } };
+  window.__gw = { copySlot, fallbackNote, matchProgress, leaveClub, mon, shopUi, get fakeStore() { return fakeStore; }, END, endingCeremony, ngUi, startNg, get pendingNg() { return pendingNg; }, forceEnding: () => { const d = open.data; const day = Math.max(open.calendar.today, END_DAY); const ev = END.endingDay(d, account, day); saveAccountNow('ending:debug'); pumpArrivals(); return ev; }, godsDay, forceSecret: (id) => { const ev = SE.forceSecret(open.data, id, open.calendar.today, account); for (const e of Array.isArray(ev) ? ev : []) { if (e.kind === 'playerArrival') legendQueue.push(e.fid); if (e.kind === 'secretFound') researchBanner.show({ id: 'secret:' + e.id, title: 'Secret found: ' + e.name + '!', line: secretLine(e.id), gives: 'Menu → Secrets Archive', icon: 'ui_28', color: COL.purple }); } saveAccountNow('secret:debug'); pumpArrivals(); return ev; }, signLegend, legendQueue, ACH, achievementsUi, achievementsDay, ABL, abilityEvent, grantAbility: (id, ab) => { const p = open?.data.squad.players.find((x) => x.id === id); return p ? ABL.grant(p, ab, { open: true }) : null; }, openMatchChange, MED, SPM, STAD, stadiumUi, walkerScene, setWalkerOverride: (o) => (walkerOverride = o), FIN, SP, FAN, BOARD, financeUi, pumpMoney, RIV, rivalsUi, pumpRivals, VD, awardsNight, debugAwardsNight, debugShowcase, pumpAwards, syncGreatTeams, tournamentsUi, pumpArrivals, godUi, GD, SE, signGod, releaseGod, renderer, layout, input, loop, router, assets, sheet, dialog, systemBack, textPrompt, splashScreen, menuScreen, slotsScreen, setupScreen, clubScreen, squadScreen, trainingScreen, openTraining, tacticsScreen, openTactics, openMatchTactics, playSlot, startClub, deleteSlot, openShop, setRank, facilityBonus, researchUi, researchBanner, get research() { return open?.research ?? null; }, newGame, openLeague, openCountyOffer, openPromotionOffer, openCrownChampions, addFeaturedStar, overall, openShield, commitCupTie, LG, CUP, acceptChallenge, issueChallenge, transfers: transfersUi, TR, openMatchSetup, playPlaceholder, kickOff, startTestMatch, matchScreen, restoreMatchWorld, get match() { return match; }, toggleSpeedFlag, autosave, saveRun, canvasLost, canvasLossCount, itemsUi, staffUi, normaliseStaff, academyUi, AC, openStaffRole, hofUi, CA, syncHallOfFame, facilityLevel: (id) => (open ? facilityLevel(open.data, id) : 0), get items() { return open?.items ?? null; }, settings, governor, lowFx, haptics, hintLine, openNavMenu, MENU_OPEN, menuState, openSettings, get account() { return account; }, taps: [], get campaigns() { return campaigns; }, get open() { return open; } };
 }
 
 router.go('boot');
