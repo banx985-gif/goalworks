@@ -25,6 +25,7 @@ export const MENU_GROUPS = [
     row('transfers', 'Transfers & Scouting', 'Buy, sell and loan players; send the scout out', 'ui_10'),
     row('hallOfFame', 'Hall of Fame', 'Club legends, records and this season’s retirements', 'ui_29'), // (Milestone 16)
     row('achievements', 'Achievements', 'All 41 achievements, the club’s records, its history and the trophy cabinet', 'ui_27'), // (Milestone 27)
+    row('newGamePlus', 'New Game+', 'A new club with a Legacy Player, tougher rivals and deeper secrets (this save is kept)', 'ui_28'), // (Milestone 29)
     row('clubStore', 'Club Store', 'Items the club has earned: give one to a player to raise a stat for good', 'item_25'),
   ] },
   { title: 'Club', rows: [
@@ -32,7 +33,8 @@ export const MENU_GROUPS = [
     row('stadium', 'Stadium', 'Build the next stage and its pieces; the matchday crowd', 'club_stage_01'), // (Milestone 24)
     row('build', 'Build / Facilities', 'Build, move, sell and upgrade facilities on your ground', 'ui_03'),
     row('research', 'Research', 'Spend Research Points on better training, scouting and tactics', 'ui_26'),
-    row('rumours', 'Rumours', 'Whispers around the club: strange clues, and who is waiting at the gates', 'ui_28'), // (Milestone 20b)
+    row('tokenShop', 'Club Token Shop', 'Optional: Club Tokens for a market refresh, a new sponsor offer or a cosmetic trim; Remove Ads', 'ui_24'), // (Milestone 30)
+    row('rumours', 'Secrets Archive', 'Rumours, clues, who is waiting at the gates and every secret found', 'ui_28'), // (Milestone 20b; M28 the archive)
   ] },
   { title: 'More', rows: [
     row('settings', 'Settings', 'Sound, graphics, text size, the Menu button and hints', 'gw_ui_menu'),

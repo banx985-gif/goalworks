@@ -40,6 +40,7 @@ import { normaliseGods, nextSeasonEnd } from './gods.js'; // (M20b)
 import { noteTransfer } from './rivals.js'; // (M22) a player signed from / sold to a rival
 import { post, weeklyIncomeEstimate, runningCosts } from './finance.js'; // (M23) every Credit through the ledger
 import { noteRecord } from './records.js'; // (M27) the record sale / signing
+import { noteScouted, noteSigning } from './secretNotes.js'; // (M28) SEC-FAC-06, SEC-BEH-04, SEC-NGP-01
 import { noteSale } from './fans.js'; // (M23) a favourite sold: Fan Trust falls
 import { wageBill as staffWageBill } from './staff.js';
 
@@ -355,7 +356,11 @@ export function freeShirt(data) {
 }
 function joinUs(data, p, day, from = null) {
   normalisePlayer(p);
-  if (from) p.joinedFrom = from; // (M27) 'free' / 'market' / a club id: A27 Free Bargain
+  if (from) {
+    p.joinedFrom = from; // (M27) 'free' / 'market' / a club id: A27 Free Bargain
+    p.joinOvr = overall(p); // (M28) how good he was when he came (SEC-ABL-07: developed here, not bought)
+    noteSigning(data, p, (data.transfers.scouting.knowledge[p.id] ?? 0) > 0); // (M28) a signing (a scouted one?)
+  }
   p.shirt = freeShirt(data);
   p.watch = false;
   p.preContract = false;
@@ -616,7 +621,8 @@ export function transfersDay(data, day) {
   if (T.lastDay === day) return { saved: false };
   const rng = new Rng(`${data.seed}:transfers:${day}`);
   let changed = false;
-  scoutDay(T, day, (region) => pool(data, region), rng, scoutingFac(data)); // (M12) Video Room / Recruitment Office, (M13) research
+  const scouted = scoutDay(T, day, (region) => pool(data, region), rng, scoutingFac(data)); // (M12) Video Room / Recruitment Office, (M13) research
+  if (scouted?.kind === 'report') noteScouted(data, scouted.report.ids.map((id) => locate(data, id).p).filter(Boolean)); // (M28) their home areas
   // bids: expire, and bids for players no longer here
   for (const b of T.bids) if (b.talk.state === 'open' && (day > b.until || !data.squad.players.some((p) => p.id === b.playerId))) b.talk.state = 'over';
   T.bids = T.bids.filter((b) => b.talk.state === 'open' || day - b.day <= AI.bidOpenDays * 2);
@@ -753,6 +759,28 @@ function refreshPools(data, day, rng) {
     while (list.length < cfg.target) list.push(genPlayer(data, rng, { kind: key }));
     while (list.length > cfg.max) list.splice(list.reduce((oi, p, i) => (p.age > list[oi].age ? i : oi), 0), 1);
   }
+}
+
+// (M30) A convenience refresh (a Club Token spend or a rewarded ad, src/systems/monetisation.js): the market and free-agent
+// lists get new ordinary faces now, as the daily churn would bring in time. Anyone you are talking to stays; the lists are
+// generated like any day's (no Legendary or Secret player can come this way). → the number of new faces.
+export function convenienceRefresh(data, day) {
+  const T = normaliseTransfers(data);
+  T.refreshes = (T.refreshes ?? 0) + 1;
+  const rng = new Rng(`${data.seed}:refresh:${day}:${T.refreshes}`);
+  let n = 0;
+  for (const [key, cfg] of [
+    ['free', POOL.free],
+    ['market', POOL.market],
+  ]) {
+    const list = T[key];
+    for (const p of list.slice()) if (!T.talks[`free:${p.id}`]?.state && !T.talks[`transfer:${p.id}`]?.state && !data.transfers.scouting?.knowledge?.[p.id]) list.splice(list.indexOf(p), 1);
+    while (list.length < cfg.target) {
+      list.push(genPlayer(data, rng, { kind: key }));
+      n++;
+    }
+  }
+  return n;
 }
 
 function seasonEnd(data, day, rng) {

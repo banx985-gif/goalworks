@@ -52,7 +52,7 @@ import { createControl } from './manualControl.js';
 import { stepSpecial, overuseMinute, awardRestart, penaltyInput, startShootout, setPieceLevel } from './setPieces.js';
 import { shoot as aiShoot, clear as aiClear, pressureOn } from './matchAI.js';
 import { SUBS, SET_PIECES } from '../../data/matchRules.js';
-import { initAbilities } from './abilityFx.js';
+import { initAbilities, tally } from './abilityFx.js';
 import { makeChange, aiChanges } from './changes.js';
 
 const W = PITCH.w;
@@ -295,6 +295,8 @@ export function createMatchWorld(setup, { play = null, start = play ? 'play' : '
         return;
       }
       world.t += dt;
+      world.clockSteps = (world.clockSteps ?? 0) + 1;
+      if (world.mode === 'play') world.playSteps = (world.playSteps ?? 0) + 1; // (M28) the share of the match played by hand
       if (world.owner) world.stats[world.owner.team].possessionSteps++;
       // (M25) once a match minute: a knock for a player who started tired
       if (world.minute !== world.lastMinute) {
@@ -359,7 +361,7 @@ export function createMatchWorld(setup, { play = null, start = play ? 'play' : '
     give(p) {
       if (world.pass && world.pass.team === p.team && world.pass.from !== p) {
         world.stats[p.team].passesDone++;
-        world.lastPass = { from: world.pass.from, to: p, step: world.steps, touches: 1 }; // (M16) the assist, if he scores
+        world.lastPass = { from: world.pass.from, to: p, step: world.steps, touches: 1, ...(world.pass.forward ? { forward: true } : {}) }; // (M16) the assist, if he scores
       } else if (world.lastPass?.to === p) world.lastPass.touches++; // (M17) he got it back himself: another touch
       if (world.possTeam !== p.team) {
         world.lastPass = null;
@@ -527,6 +529,8 @@ export function createMatchWorld(setup, { play = null, start = play ? 'play' : '
     const setPiece = world.shot?.setPiece ?? null; // (M25) a corner / free kick / penalty goal
     const entry = { team, name: by ? by.name : 'Unknown', minute: world.minute + 1, own, assist, ...(setPiece ? { setPiece } : {}), ...(by?.sub && !own ? { sub: true } : {}), ...(world.shot?.big && world.shot.by === by ? { big: true } : {}) }; // (M26) a sub's goal, a big chance taken
     world.scorers.push(entry);
+    if (assist && lp.forward) tally(world, lp.from, 'throughAssists'); // (M28) Impossible Pass
+    if (entry.big && by) tally(world, by, 'bigScored'); // (M28) Perfect Finisher
     world.event({ type: 'goal', team, by: entry.name, own, score: [...world.score], setPiece });
     // the ball rests in the net
     world.ball.x = o.x;
@@ -683,5 +687,7 @@ export function matchResult(world) {
     // (M25) the shoot-out [home, away] (a cup tie level at full time), the cards / injuries / changes
     pens: world.pens?.done ? [...world.pens.score] : null,
     incidents: world.incidents.map((e) => ({ ...e })),
+    keyPasses: [...(world.keyPasses ?? [0, 0])], // (M28) key passes [home, away]
+    manualShare: world.clockSteps ? Math.round(((world.playSteps ?? 0) / world.clockSteps) * 1000) / 1000 : 0, // (M28)
   };
 }

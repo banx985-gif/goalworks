@@ -105,6 +105,7 @@ export function foulOnTackle(world, p, owner, won) {
   return true;
 }
 // Was the carrier through on goal (nobody but the keeper goal-side, inside 30 m)?
+export const clearRunOf = (world, o) => clearRun(world, o); // (M28)
 function clearRun(world, o) {
   const g = world.goalOf(o.team);
   if (dist(o, g) > 30) return false;
@@ -536,6 +537,7 @@ function flyPenalty(world, dt) {
   world.phase = 'play';
   if (f.result === 'save' && sp.keeper) {
     world.stats[sp.keeper.team].saves++;
+    tally(world, sp.keeper, 'penSaves'); // (M28) Penalty Wall
     world.event({ type: 'save', team: sp.keeper.team, by: sp.keeper.name, pen: true });
     world.give(sp.keeper);
     return;

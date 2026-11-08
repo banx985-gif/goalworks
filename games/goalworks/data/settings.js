@@ -30,7 +30,7 @@ export const SETTINGS_TEXT = {
   helpBody: 'Tap anything at the club — a facility, the Founder — to open it, or use the Menu button. Find a match: Menu → Find a match (or the Manager Office), accept a challenge, and on match day Match Setup opens. Set training at the Training Pitch. The line under the date always says what to do next.',
   legal: 'Privacy & legal',
   legalLine: 'How your clubs are kept',
-  legalBody: 'GOALWORKS keeps your clubs on this device. It has no account and collects no personal data of its own. Every club and player is fictional.',
+  legalBody: 'GOALWORKS keeps your clubs on this device. It has no account and collects no personal data of its own. Every club and player is fictional. GOALWORKS has optional ads and optional purchases (Club Tokens and Remove Ads); nothing for sale changes a match, a player or a secret.',
   credits: 'Credits',
   creditsLine: 'The people behind GOALWORKS',
   creditsBody: 'GOALWORKS — a Canvas Management Series game by Aaron (Banx Games). Art by Aaron; code by Claude Code. The Works Gods — Bolt, Jinx, Zip, Kaching and Havoc — a Banx Games series cast. Thanks for playing!',

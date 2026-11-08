@@ -17,6 +17,7 @@
 //                                                    after everyone is a year older)
 //   hofReasons(data, p) → why he would go in (empty: not a Hall of Famer)    validateCareers(data) → [] or problems
 // Season numbers: season s runs from day 336·s to 336·(s+1) − 1 (Year s + 1); its end is day 336·(s+1).
+import { NG } from '../../data/ending.js'; // (M29) New Game+ scaling
 import { Rng } from '../../../../core/Rng.js';
 import { GROWTH, BAND, DECLINE, RETIRE, REGEN, HALL_OF_FAME, STAFF_ELIGIBLE, RECORD_KEYS } from '../../data/careers.js';
 import { GEN, FEATURED_NAMES, STAR, CLUB_AREAS } from '../../data/players.js';
@@ -100,7 +101,7 @@ export function bandOf(data, owner) {
   const club = data.transfers.clubs[owner];
   if (!club) return BAND[owner] ?? BAND.free;
   club.band ??= Math.round(club.players.reduce((a, p) => a + overall(p), 0) / Math.max(1, club.players.length));
-  return club.band;
+  return club.band + NG.aiBand[Math.min(NG.maxLevel, data.ng?.level ?? 0)]; // (M29) New Game+: a notch stronger
 }
 // A season's growth for a player who doesn't train with you: about growthOf(age) overall points toward his ceiling (and
 // no higher than ceiling, his club's band + room).
@@ -327,6 +328,11 @@ function retire(data, { p, owner, parent }, day, season, rng) {
     K.retired = [...K.retired, entry].slice(-300);
     if (data.transfers) transferLog(data, day, `${p.name} has retired${entry.hof ? ': into the Hall of Fame' : ''}.`);
     K.events.push({ kind: 'retired', id: p.id, name: p.name, age: p.age, hof: entry.hof });
+    if (entry.apps >= STAFF_ELIGIBLE.apps) {
+      // (M28, bible §10) a club legend (150+ appearances) stays on as a mentor on the staff (SEC-HIS-04 Retired to Return)
+      K.legacyStaff = [...(K.legacyStaff ?? []), { id: p.id, name: p.name, day, apps: entry.apps }];
+      K.events.push({ kind: 'legacyStaff', id: p.id, name: p.name });
+    }
     if (entry.hof) {
       K.counts.hof++;
       K.events.push({ kind: 'hof', id: p.id, uid: entry.uid, name: p.name, reasons: entry.reasons });
@@ -462,6 +468,7 @@ function retiredEntry(data, p, season) {
     hof,
     reasons,
     staffEligible: hof || c.apps >= STAFF_ELIGIBLE.apps, // (bible §10: the conversion event itself is M28)
+    signature: p.abl?.signature ?? null, // (M29) a Legacy Player keeps it in New Game+
   };
 }
 // The run's Hall of Famers (for the account save).

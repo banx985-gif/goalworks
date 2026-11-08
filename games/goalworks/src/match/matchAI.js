@@ -28,7 +28,7 @@ import { FAMILIARITY } from '../../data/tactics.js';
 import { GODS } from '../../data/gods.js';
 import { STAR } from '../../data/players.js';
 import { predictBall, rollDistance, ballSpeed } from './ballPhysics.js';
-import { foulOnTackle, tackleKnock, setPieceLevel } from './setPieces.js';
+import { foulOnTackle, tackleKnock, setPieceLevel, clearRunOf } from './setPieces.js';
 import { SET_PIECES } from '../../data/matchRules.js';
 import { ax, tax, moveMult, tally } from './abilityFx.js';
 
@@ -569,7 +569,7 @@ export function pass(world, p, q, press, lofted, aim = null) {
     if (f.zip) v += f.zip; // a quick tempo zips it in (harder to control)
     kick(world, p, tx - p.x, ty - p.y, v, 0, err);
   }
-  world.pass = { from: p, to: q, team: p.team };
+  world.pass = { from: p, to: q, team: p.team, ...(forward ? { forward: true } : {}) }; // (M28) a forward pass (a through ball)
 }
 
 // Nobody on: hoof it up the pitch.
@@ -617,6 +617,12 @@ export function shoot(world, p, press, aim = null) {
   world.stats[p.team].shots++;
   world.shot = { team: p.team, by: p, step: world.steps, resolved: false, ...(big ? { big: true } : {}) };
   if (big) tally(world, p, 'bigChances');
+  // (M28) a key pass: the shot comes from a team-mate's pass he has only just taken
+  const lp = world.lastPass;
+  if (lp && lp.to === p && lp.from.team === p.team && lp.touches <= 2) {
+    (world.keyPasses ??= [0, 0])[p.team]++; // (kept out of world.stats: the M25 goldens compare it byte for byte)
+    tally(world, lp.from, 'keyPasses');
+  }
   // on target? (where it would cross the line, ignoring the keeper)
   const b = world.ball;
   const tt = (g.y - b.y) / (b.vy || 1e-6);
@@ -643,6 +649,7 @@ export function tackle(world, p, owner) {
   }
   if (won) {
     world.stats[p.team].tacklesWon++;
+    if (clearRunOf(world, owner)) world.incidents.push({ type: 'lastDitch', team: p.team, by: p.name, id: p.id ?? null, minute: world.minute }); // (M28) a last-man tackle
     tally(world, p, 'tacklesWon'); // (M26) the club's tallies (evolution: Hard Tackler → Lockdown …)
     tackleKnock(world, owner); // (M25) a heavy, fair challenge now and then hurts
     // the ball squirts loose; the tackler usually comes away with it
@@ -767,6 +774,7 @@ export function tryControl(world) {
   }
   if (world.shot && !world.shot.resolved && best.role !== 'GK') {
     world.event({ type: 'block', team: best.team, by: best.name });
+    if (world.shot.onTarget) world.incidents.push({ type: 'lastDitch', team: best.team, by: best.name, id: best.id ?? null, minute: world.minute, block: true }); // (M28) a goal-line block
     if (world.rng.next() < SET_PIECES.corner.fromBlock * setPieceLevel(world, best.team)) {
       const atk = world.shot.team;
       world.shot.resolved = true;

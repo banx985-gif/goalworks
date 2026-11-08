@@ -182,6 +182,30 @@ export function sponsorsDay(data, day) {
   return events;
 }
 
+// (M30) A new offer now (a Club Token spend or a rewarded ad, src/systems/monetisation.js): Celeste drops the open offer (not
+// a re-signing) and calls the next sponsor she would have called anyway. Never one that isn't unlocked. → the offer, or null
+// when there is nobody else to call (then nothing changes). canRefreshOffer(data, day) asks first.
+function refreshCandidate(data, day) {
+  const S = normaliseSponsors(data, day);
+  const dropped = S.offers.filter((o) => !o.resign);
+  const busy = new Set([...S.active.map((d) => d.id), ...S.offers.map((o) => o.id)]);
+  const list = SPONSORS.filter((s) => S.unlocked[s.id] != null && !busy.has(s.id) && !(S.cooldown[s.id] > day)).sort((a, b) => b.stipend - a.stipend);
+  return { S, dropped, def: list[0] ?? null };
+}
+export const canRefreshOffer = (data, day) => !!refreshCandidate(data, day).def;
+export function refreshOffer(data, day) {
+  const { S, dropped, def } = refreshCandidate(data, day);
+  if (!def) return null;
+  for (const o of dropped) {
+    S.offers = S.offers.filter((x) => x !== o);
+    S.cooldown[o.id] = day + SPONSOR_RULES.offerGap;
+  }
+  const o = makeOffer(data, def, day);
+  S.nextOfferDay = Math.max(S.nextOfferDay ?? 0, day + SPONSOR_RULES.offerGap);
+  news(data, day, `${def.name} want to sponsor the club: ${fmt(o.stipend)} Credits a week for ${o.seasons} season${o.seasons === 1 ? '' : 's'}. Expect my call.`, 'celeste_moore');
+  return o;
+}
+
 function payBudget(data, deal, day) {
   const b = sponsorById(deal.id)?.benefit;
   if (b?.key !== 'signingBudget') return;

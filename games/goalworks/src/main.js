@@ -167,6 +167,7 @@ import { createSquadScreen } from './screens/SquadScreen.js';
 import { createTrainingScreen } from './screens/TrainingScreen.js';
 import { trainDay, applyMatch, normaliseTraining, normalisePlayer } from './systems/training.js';
 import { featuredStar, overall } from './systems/players.js';
+import { FEATURED_STARS } from '../data/players.js'; // (M28) the Legendary / Secret players
 import { normaliseTactics, familiarityDay, familiarityMatch, teamSide, opponentSide, setRole as setClubRole } from './systems/tactics.js';
 import { pairKey, FORMATIONS, formationById, rolesForSlot, ROLES } from '../data/tactics.js';
 import { TACTICS } from '../data/match.js';
@@ -207,6 +208,17 @@ import { STAFF, staffById, roleById, STAFF_TIERS } from '../data/staff.js';
 import { preparedFamiliarity, settleSec, weaknessClue, tacticalPrep } from './systems/effects.js';
 import * as VD from './systems/verdicts.js'; // (M21b) Awards Night, the Season Review, Great Teams
 import { createAwardsNight } from './ui/awardsNight.js';
+import { createEndingCeremony } from './ui/endingCeremony.js'; // (M29) the Year-25 ending and the true ending
+import { createNgSheets } from './screens/ngSheets.js'; // (M29) New Game+
+import * as END from './systems/ending.js';
+import { ENDING } from '../data/ending.js';
+import { createMonetisation } from './systems/monetisation.js'; // (M30) Club Tokens, Remove Ads, the optional ads
+import { createShopSheets } from './screens/shopSheets.js';
+import { PRODUCTS } from '../data/monetisation.js';
+import { FakeStoreProvider } from '../../../core/FakeStoreProvider.js';
+import { PlayBillingProvider } from '../../../core/PlayBillingProvider.js';
+import { NativeBridge } from '../../../core/NativeBridge.js';
+const END_DAY = ENDING.day;
 import { registerTintedArt } from './ui/kitArt.js';
 import { FRIENDLIES } from '../data/cups.js';
 import * as RIV from './systems/rivals.js'; // (M22) rivals, dynamic rivalry, the late twist
@@ -261,6 +273,7 @@ const router = new ScreenRouter(bus, { roots: ['menu', 'test', 'club', 'match'] 
 const dialog = new Dialog({ layout, assets }); // confirm boxes (delete / replace a slot)
 const researchBanner = createResearchBanner({ layout, assets }); // (M13) "Research complete!"
 const awardsNight = createAwardsNight({ layout, assets }); // (M21b) the full-screen ceremony
+const endingCeremony = createEndingCeremony({ layout, assets }); // (M29) the same stage for the Year-25 ending
 for (const c of Object.values(FRIENDLIES)) if (c.baseArt) registerTintedArt(assets, c.art, c.baseArt, c.tint); // (M21b) the Showcase's gold cup
 const sheet = new BottomSheet({ layout, assets });
 const textPrompt = new TextPrompt({ renderer });
@@ -301,7 +314,9 @@ const loop = new FixedStepLoop({
     sheet.update(dt);
     researchBanner.update(dt);
     awardsNight.update(dt);
+    endingCeremony.update(dt); // (M29)
     if (open?.data.verdicts?.pending != null && !awardsNight.active) pumpArrivals(); // (M21b) Awards Night waits for a free club screen
+    if ((END.endingPending(open?.data) || END.trueEndingDue(open?.data)) && !endingCeremony.active) pumpArrivals(); // (M29) so does the ending
   },
   render: (alpha) => {
     const ctx = renderer.begin(COL.bg);
@@ -309,6 +324,7 @@ const loop = new FixedStepLoop({
     sheet.render(ctx);
     researchBanner.render(ctx);
     awardsNight.render(ctx); // (M21b) over the club, under a dialog
+    endingCeremony.render(ctx); // (M29)
     dialog.render(ctx);
     if (onTestScreen()) drawButton(ctx, pauseButton(), loop.paused ? 'RESUME' : 'PAUSE', { selected: loop.paused });
     if (loop.paused) drawPaused(ctx);
@@ -353,12 +369,12 @@ bus.on('assets:canvasLost', ({ reason, dropped }) => debug.log(`canvas loss (${r
 const pauseButton = () => layout.anchor('top-right', 240, THEME.button.minH, 80);
 router.modal = {
   get active() {
-    return loop.paused || dialog.active || awardsNight.active;
+    return loop.paused || dialog.active || awardsNight.active || endingCeremony.active;
   },
-  onTap: (p) => (loop.paused ? loop.resume('tap') : dialog.active ? dialog.onTap(p) : awardsNight.onTap(p)),
+  onTap: (p) => (loop.paused ? loop.resume('tap') : dialog.active ? dialog.onTap(p) : endingCeremony.active ? endingCeremony.onTap(p) : awardsNight.onTap(p)),
   onDown: (p) => dialog.active && dialog.onDown?.(p),
   onUp: (p) => dialog.active && dialog.onUp?.(p),
-  onBack: () => (loop.paused ? loop.resume('back') : dialog.active ? dialog.onBack() : awardsNight.onBack()),
+  onBack: () => (loop.paused ? loop.resume('back') : dialog.active ? dialog.onBack() : endingCeremony.active ? endingCeremony.onBack() : awardsNight.onBack()),
 };
 window.addEventListener('keydown', (e) => {
   if (e.key !== 'p' && e.key !== 'P' && e.key !== ' ') return;
@@ -419,6 +435,27 @@ let campaigns = null;
 let open = null; // { n, data, calendar, setupShown } — the campaign on screen
 let account = {}; // the account store (core/CampaignSlots): speedUnlocks { perm2x, perm4x } for now
 const speedFlags = () => (account.speedUnlocks ??= { perm2x: false, perm4x: false });
+// Milestone 30: Club Tokens, Remove Ads and the optional ads (src/systems/monetisation.js on core CommerceService /
+// EntitlementService / AdService), all kept in the account save. The web build has no store and no ad network (the Shop
+// says the store is unavailable; no ad ever shows); ?debug=1 uses core/FakeStoreProvider; the Android app Play Billing.
+const mon = createMonetisation({
+  bus,
+  account: () => account,
+  club: () => (open ? { data: open.data, today: open.calendar.today } : null),
+  commit: () => (campaigns ? campaigns.slots.saveAccount(account).catch((err) => debug.log(`account save failed (store): ${err?.message ?? err}`)) : Promise.resolve()),
+});
+let fakeStore = null;
+const nativeBridge = new NativeBridge();
+if (debug.enabled) {
+  const FAKE_KEY = 'goalworks:fakestore';
+  fakeStore = new FakeStoreProvider({
+    products: PRODUCTS,
+    persist: { load: () => JSON.parse(localStorage.getItem(FAKE_KEY) ?? 'null'), save: (s) => localStorage.setItem(FAKE_KEY, JSON.stringify(s)) },
+    // the stand-in ad: the game's own dialog while it "plays"; Close early = cancelled
+    present: (kind, placementId, outcome) => new Promise((resolve) => dialog.show({ title: kind === 'rewarded' ? 'Pretend ad (debug)' : 'Pretend full-screen ad (debug)', body: `No real ad is shown. Next outcome: ${outcome}.`, dismissible: false, buttons: [{ id: 'adEnd', label: 'Watched to the end', accent: COL.good, onTap: () => resolve(outcome) }, { id: 'adEarly', label: 'Close early', accent: COL.progress, onTap: () => resolve('cancel') }] })),
+  });
+  mon.setProvider(fakeStore);
+} else if (nativeBridge.isNative) mon.setProvider(new PlayBillingProvider({ bridge: nativeBridge, products: PRODUCTS })); // purchases only: no ad network yet
 
 // A campaign's calendar from its save (a save from before Milestone 2 starts on Year 1 · Month 1 · Day 1).
 function openRun(n, data) {
@@ -527,6 +564,10 @@ bus.on('clock:day', () => {
   for (const e of CA.careersDay(open.data, c.clock.totalDays)) careerEvent(e); // (M16) retirements announced / done, the Hall of Fame
   for (const e of VD.verdictsDay(open.data, c.clock.totalDays, { items: open.items })) awardsEvent(e); // (M21b) the season's tally; Awards Night
   godsDay(c.clock.totalDays); // (M20b) rumours, a god's arrival, a window that closes, a god back after the season's end
+  if (END.endingDay(open.data, account, c.clock.totalDays).length) { // (M29) the Year-25 ending: graded and saved today
+    saveAccountNow('ending');
+    autosave.request('ending');
+  }
   if (open.layout.sync()) debug.log(`the ground grows: ${open.layout.stage.name} ${open.layout.stage.cols}×${open.layout.stage.rows}`); // (M12) by the Club Rank
   // (M11) contracts ending: one warning a season, from Month 9
   const T = open.data.transfers;
@@ -566,6 +607,7 @@ function careerEvent(e) {
   const id = `career:${e.kind}:${e.id}:${open?.calendar.today}`;
   if (e.kind === 'announce') researchBanner.show({ id, title: 'Last season', line: `${e.name} (${e.age}) will retire`, gives: 'At the end of the season · plan for his place', icon: 'ui_29', color: COL.bad });
   else if (e.kind === 'retired' && !e.hof) researchBanner.show({ id, title: 'Retired', line: `${e.name} has hung up his boots`, gives: 'Thanks for everything · Menu → Hall of Fame', icon: 'ui_29', color: COL.progress });
+  else if (e.kind === 'legacyStaff') researchBanner.show({ id, title: 'He stays on', line: `${e.name} joins the staff as a mentor`, gives: 'A club legend helps the young players', icon: 'trophy_17', color: C_GOLD }); // (M28)
   else if (e.kind === 'hof') {
     researchBanner.show({ id, title: 'Into the Hall of Fame!', line: e.name, gives: e.reasons[0] ?? '', icon: 'trophy_17', color: C_GOLD });
     syncHallOfFame(open.data);
@@ -579,12 +621,18 @@ function godsDay(day) {
   if (r.accountChanged) saveAccountNow('gods');
   for (const e of r.events) {
     const g = GODS[e.god];
-    if (e.kind === 'clue') researchBanner.show({ id: `rumour:${e.id}:${e.stage}`, title: 'A rumour…', line: e.text, gives: 'Manager Office → Rumours', icon: 'ui_28', color: COL.purple });
+    if (e.kind === 'clue') researchBanner.show({ id: `rumour:${e.id}:${e.stage}`, title: 'A rumour…', line: e.text, gives: 'Menu → Secrets Archive', icon: 'ui_28', color: COL.purple });
     else if (e.kind === 'arrival') godUi.queueArrival(e.god, e.back);
     else if (e.kind === 'cupFound' && !reveals.includes(e.cup)) {
       reveals.push(e.cup); // (M21) the reveal pop-up; its first edition is drawn today
       for (const c of LG.cupsDay(open.data, day)) cupEvent(c);
       commitCupTie();
+    }
+    else if (e.kind === 'playerArrival') legendQueue.push(e.fid); // (M28) a Legendary / Secret player at the gates
+    else if (e.kind === 'playerGone') researchBanner.show({ id: `legendGone:${e.fid}:${day}`, title: `${FEATURED_STARS[e.fid]?.name ?? 'The legend'} has gone`, line: 'Nobody signed him in time', gives: 'Back at the gates after the season’s end', icon: 'ui_28', color: COL.bad });
+    else if (e.kind === 'secretFound') {
+      if (mon.earn('secret', `${open.data.seed}:${e.id}`)) saveAccountNow('tokens:secret'); // (M30) Club Tokens, once per secret per club
+      researchBanner.show({ id: `secret:${e.id}`, title: `Secret found: ${e.name}!`, line: secretLine(e.id), gives: 'Menu → Secrets Archive', icon: 'ui_28', color: COL.purple }); // (M28)
     }
     else if (e.kind === 'gone') researchBanner.show({ id: `godGone:${e.god}:${day}`, title: `${g.name} has gone`, line: 'Nobody signed him in time', gives: 'Back at the gates after the season’s end', icon: g.art, color: COL.bad });
     debug.log(`gods: ${e.kind} ${e.god ?? e.id}`);
@@ -594,7 +642,7 @@ function godsDay(day) {
 // An arrival shows when the club is free (no sheet, no dialog); the rest wait their turn. (M21b) Awards Night waits its
 // turn in the same queue, after them.
 function pumpArrivals() {
-  if (open && router.currentName === 'club' && !sheet.active && !dialog.active && !awardsNight.active && !godUi.pump() && !pumpReveals() && !pumpRivals() && !pumpAwards()) pumpMoney();
+  if (open && router.currentName === 'club' && !sheet.active && !dialog.active && !awardsNight.active && !endingCeremony.active && !godUi.pump() && !pumpLegends() && !pumpReveals() && !pumpRivals() && !pumpAwards() && !pumpEnding()) pumpMoney();
 }
 // (M22) A new rivalry, the late twist, a rivalry secret: one-tap pop-ups, one at a time (kept in the save until seen).
 function pumpRivals() {
@@ -612,6 +660,45 @@ function pumpRivals() {
   }
   return true;
 }
+// (M29) The Year-25 ending ceremony (graded and saved on the day: ending.js), then New Game+; the true ending (SEC-NGP-05)
+// the same way. The calendar pauses for them (and runs again after, if it was running).
+let endingResume = null;
+function pumpEnding() {
+  if (!open || endingCeremony.active || dialog.active || awardsNight.active) return false;
+  const d = open.data;
+  const isTrue = !END.endingPending(d) && END.trueEndingDue(d);
+  if (!END.endingPending(d) && !isTrue) return false;
+  const c = open.calendar.clock;
+  if (!c.paused) {
+    endingResume = c.speed;
+    open.calendar.setSpeed(0);
+  }
+  const done = () => {
+    autosave.request(isTrue ? 'ending:true' : 'ending:seen');
+    if (endingResume != null && open.calendar.clock.paused && !open.calendar.atKickoff) open.calendar.setSpeed(endingResume);
+    endingResume = null;
+  };
+  if (isTrue)
+    return endingCeremony.openTrue({ club: d.club?.name ?? '', onClose: () => {
+      d.trueEnding = { seen: open.calendar.today };
+      done();
+    } });
+  return endingCeremony.open(d.ending, { club: d.club?.name ?? '', onClose: () => {
+    d.ending.pending = false;
+    done();
+    dialog.confirm({ title: 'New Game+ is open', body: `${d.club?.name ?? 'Your club'} carries on: play on as long as you like. Or start New Game+ in another slot with a Legacy Player from your Hall of Fame. This save stays as it is.`, art: 'ui_28', yes: 'New Game+', no: 'Play on', onYes: () => ngUi.openNg() });
+  } });
+}
+// (M29) New Game+: the sheet picks the level, the Legacy picks and the slot; Club Setup makes the club; startClub sets the
+// new run up as NG+ before it opens (the parent slot is never written).
+let pendingNg = null;
+function startNg({ level, slot, legacyUid, legacyStaff }) {
+  if (!open || slot === open.n) return;
+  pendingNg = { slot, level, legacyUid, legacyStaff, parent: { slot: open.n, seed: open.data.seed ?? null, club: open.data.club?.name ?? '' } };
+  sheet.close();
+  saveRun();
+  router.go('setup', { slot, replacing: campaigns.card(slot)?.summary ?? null });
+}
 // (M21b) Awards Night: decided and saved on the day (verdicts.js); the ceremony opens when the club is free. The calendar
 // pauses for it (and runs again after, if it was running).
 let awardsResume = null;
@@ -623,6 +710,7 @@ function awardsEvent(e) {
     open.calendar.setSpeed(0);
   }
   syncGreatTeams(open.data);
+  if (mon.earn('awardsNight', `${open.data.seed}:${e.year}`)) saveAccountNow('tokens:awards'); // (M30) Club Tokens each Awards Night
   for (const a of e.record.awards) debug.log(`awards: ${a.name} ${a.player}`);
   debug.log(`awards night: year ${e.year} review ${e.record.total} / 40`);
   autosave.request('awards:night');
@@ -689,6 +777,7 @@ function achievementsDay(day) {
     if (e.kind === 'achievement') {
       earned = true;
       const a = achievementById(e.id);
+      mon.earn('achievement', e.id); // (M30) Club Tokens, once per achievement
       researchBanner.show({ id: `ach:${e.id}`, title: `Achievement: ${a.name}`, line: a.line, gives: `${a.reward.credits ? `+${a.reward.credits.toLocaleString('en-GB')} Credits` : `+${a.reward.rep} reputation`} · Menu → Achievements`, icon: 'trophy_09', color: C_GOLD });
       debug.log(`achievement ${e.id}`);
     } else if (e.kind === 'milestone') researchBanner.show({ id: `ms:${e.id}`, title: 'A club milestone', line: e.text, gives: 'Menu → Achievements → History', icon: 'trophy_14', color: COL.good });
@@ -715,7 +804,10 @@ function financeEvent(e) {
   if (e.kind === 'offer' || e.kind === 'boardObjectives' || e.kind === 'rescue') setTimeout(() => pumpArrivals(), 0);
   else if (e.kind === 'loan') researchBanner.show({ id: `loan:${day}`, title: 'Emergency Credit', line: `The board lent ${fmtC(e.n)} Credits to cover the gap`, gives: 'Repaid from income each week · new building frozen until then', icon: 'ui_24', color: COL.bad });
   else if (e.kind === 'repaid') researchBanner.show({ id: `repaid:${day}`, title: 'Emergency Credit repaid', line: 'The club is out of debt', gives: 'Building is open again', icon: 'ui_24', color: COL.good });
-  else if (e.kind === 'ended') researchBanner.show({ id: `spEnd:${e.id}:${day}`, title: `${sponsorById(e.id)?.name ?? 'A sponsor'}: deal over`, line: e.early ? 'Replaced early' : `${e.met} of ${e.of} objectives met · bonus ${fmtC(e.bonus)} Credits`, gives: e.resign ? 'They want to re-sign: see Finances → Sponsors' : 'Celeste is looking for the next one', icon: sponsorById(e.id)?.art ?? 'ui_22', color: e.met === e.of ? COL.good : COL.progress });
+  else if (e.kind === 'ended') {
+    if (!e.early && e.of > 0 && e.met === e.of && mon.earn('sponsorAllMet', `${open.data.seed}:${e.id}:${day}`)) saveAccountNow('tokens:sponsor'); // (M30)
+    researchBanner.show({ id: `spEnd:${e.id}:${day}`, title: `${sponsorById(e.id)?.name ?? 'A sponsor'}: deal over`, line: e.early ? 'Replaced early' : `${e.met} of ${e.of} objectives met · bonus ${fmtC(e.bonus)} Credits`, gives: e.resign ? 'They want to re-sign: see Finances → Sponsors' : 'Celeste is looking for the next one', icon: sponsorById(e.id)?.art ?? 'ui_22', color: e.met === e.of ? COL.good : COL.progress });
+  }
   else if (e.kind === 'stadiumBuilt') researchBanner.show({ id: `stadium:${e.id}`, title: `The ${e.name} is open!`, line: `${fmtC(e.capacity)} seats`, gives: 'Bigger crowds, a bigger gate · Menu → Stadium', icon: STAD.stageNow(open.data).art, color: COL.good }); // (M24)
   else if (e.kind === 'pieceBuilt') researchBanner.show({ id: `piece:${e.id}`, title: `Stadium: ${e.name}`, line: 'Ready for the next home match', gives: 'Menu → Stadium', icon: STAD.stageNow(open.data).art, color: COL.good });
   else if (e.kind === 'stageOpen') researchBanner.show({ id: `stageOpen:${e.id}`, title: `The ${e.name} can be built`, line: `${fmtC(e.cost)} Credits`, gives: 'Menu → Stadium (or tap the stadium)', icon: STAD.stageNow(open.data).art, color: COL.gold });
@@ -724,6 +816,57 @@ function financeEvent(e) {
 }
 // (M21) A secret tournament found: a one-tap pop-up reveals its name and art (several wait their turn).
 const reveals = [];
+// (M28) A Legendary / Secret player at the gates: a one-tap pop-up (sign now, or later from the Secrets Archive).
+const legendQueue = [];
+function pumpLegends() {
+  if (!open || !legendQueue.length || dialog.active || awardsNight.active) return false;
+  const fid = legendQueue.shift();
+  const row = FEATURED_STARS[fid];
+  const o = SE.playerOffers(open.data).find((x) => x.fid === fid);
+  if (!row || !o) return pumpLegends();
+  dialog.confirm({
+    title: 'A legend at the gates!',
+    body: `${row.name}, a ${row.tier} ${row.position}, has heard what your club has done and wants to play for you. He waits ${Math.max(0, o.until - open.calendar.today)} days.`,
+    art: 'ui_28',
+    yes: 'Sign him',
+    no: 'Later',
+    onYes: () => {
+      const p = signLegend(fid);
+      if (p) researchBanner.show({ id: `legendSigned:${fid}`, title: `${p.name} signs!`, line: `${row.tier} ${row.position}`, gives: 'Team → Squad', icon: 'trophy_17', color: C_GOLD });
+    },
+  });
+  return true;
+}
+// Sign a legend at the gates (the Featured Player, a Star contract); the account remembers him (SEC-PLY-S1 … S5 need it).
+function signLegend(fid) {
+  if (!open) return null;
+  const d = open.data;
+  const p = SE.signPlayer(d, fid, (id) => {
+    const x = featuredStar(id, `fs${d.squad.nextId++}`);
+    x.contract = { salary: salaryFor(x, 'Star'), years: 3, role: 'Star' };
+    x.shirt = null;
+    normalisePlayer(x);
+    return x;
+  }, account);
+  if (p) {
+    saveAccountNow('legend');
+    autosave.request('legend:signed');
+  }
+  return p;
+}
+// The found line: the reward in plain words
+function secretLine(id) {
+  const s = secretById(id);
+  const r = s?.reward ?? {};
+  return r.player ? `${FEATURED_STARS[r.player]?.name ?? 'A legend'} is coming to the gates` : r.unlock ?? (r.cup ? 'A secret tournament opens' : r.sponsor ? 'A secret sponsor will call' : r.facility ? 'A secret room opens in the Shop' : r.tokens ? `+${r.tokens} Prestige Tokens` : 'Something has changed at the club');
+}
+// The match's numbers the secrets read (ours): possession share, shots, key passes
+function secretStats(r) {
+  const [a, b] = r.stats ?? [];
+  if (!a) return null;
+  const pos = (a.possessionSteps ?? 0) + (b?.possessionSteps ?? 0);
+  return { possession: pos ? a.possessionSteps / pos : 0, shots: a.shots ?? 0, keyPasses: r.keyPasses?.[0] ?? 0 };
+}
 function pumpReveals() {
   if (!reveals.length || dialog.active || awardsNight.active) return false;
   const cup = cupById(reveals.shift());
@@ -804,6 +947,8 @@ async function prepareSaves() {
   if (debug.enabled && PARAMS.get('reset') === '1') for (const n of campaigns.slots.numbers()) await campaigns.slots.remove(n);
   await campaigns.refresh();
   account = await campaigns.slots.loadAccount();
+  mon.reload(); // (M30) the account's Tokens, Remove Ads and purchase history
+  mon.startup().catch((err) => debug.log(`store startup: ${err?.message ?? err}`));
   settings.attachStore(adapter, 'settings'); // (M12b) the settings slot in the account store too
   speedFlags();
   if (debug.enabled) {
@@ -856,6 +1001,13 @@ async function startClub(n, setup) {
   const old = campaigns.card(n);
   const write = async () => {
     const data = await campaigns.start(n, setup);
+    if (pendingNg?.slot === n) {
+      // (M29) New Game+: the Legacy picks, the stronger world (the parent run stays as it was saved)
+      END.applyNg(data, account, { level: pendingNg.level, parent: pendingNg.parent, legacyUid: pendingNg.legacyUid, legacyStaff: pendingNg.legacyStaff });
+      await campaigns.save(n, data);
+      debug.log(`NG+${data.ng.level} in slot ${n} (parent slot ${pendingNg.parent.slot})`);
+    }
+    pendingNg = null;
     openRun(n, data);
     debug.log(`new club in slot ${n}: ${setup.club}, founder ${setup.founder}`);
     rememberClub(n);
@@ -923,6 +1075,7 @@ const slotsScreen = createSlotsScreen({
   onNewInSlot: (n) => setupFor(n),
 });
 function leaveSetup() {
+  pendingNg = null; // (M29) backing out of Club Setup drops a New Game+ start
   const to = router.backTarget;
   router.go(to?.name ?? 'menu', to?.params ?? {});
 }
@@ -1297,7 +1450,7 @@ function matchFinished(world) {
   // (M27) the achievements' match counters (a Play stint at any point counts as manual Play)
   if (open.data.squad && fx) ACH.afterMatch(open.data, { fixture: fx, score: r.score, scorers: r.scorers, cup: league?.cup ?? null, xiIds, squadIds: (world.setup.home.bench ?? []).map((p) => p.id).filter(Boolean), incidents: r.incidents ?? [], formation: world.setup.formation?.[0] ?? '442', manual: world.start === 'play' || world.timeline.some((e) => e[1] === 'mode' && e[2] === 'play') }, open.calendar.today);
   if (fx && open.data.squad) VD.afterMatch(open.data, { fixture: fx, score: r.score, scorers: r.scorers, cup: league?.cup ?? null, xiIds }, open.calendar.today); // (M21b) the season's tally (not a friendly)
-  if (fx && open.data.squad) SE.afterMatch(open.data, { fixture: fx, score: r.score, scorers: r.scorers, cup: league?.cup ?? null, xiIds }, open.calendar.today); // (M20b) the secrets' tallies
+  if (fx && open.data.squad) SE.afterMatch(open.data, { fixture: fx, score: r.score, scorers: r.scorers, cup: league?.cup ?? null, xiIds, subIds, incidents: r.incidents ?? [], stats: secretStats(r), manualShare: r.manualShare ?? 0, tactics: world.tactics?.[0] ?? null, pst: world.pst ?? null, captainId: world.players.find((p) => p.team === 0 && p.captain)?.id ?? null, account }, open.calendar.today); // (M20b) the secrets' tallies; (M28) the 60's counters
   const fanEvents = fx?.source === 'league' && open.data.squad ? FIN.afterMatch(open.data, { fixture: fx, score: r.score, xiIds, sum: league }, open.calendar.today) : []; // (M23) sponsors' objectives, Fan Trust
   if (open.data.transfers) TR.afterMatch(open.data, xiIds); // (M11) a promised role not met: morale
   // (M9) familiarity: the formation / style the match started in
@@ -1329,6 +1482,11 @@ function matchFinished(world) {
   if (league?.crownTitle) setTimeout(() => openCrownChampions(), 0); // (M20) the title chain won
   else if (league?.offerNow) setTimeout(() => openPromotionOffer(league.offerNow), 0);
   else if (league?.promotionUnlocked) debug.log(`${league.league === 'regional' ? 'Promotion Match' : 'Promotion Playoff'} unlocked`);
+  // (M30) the only interstitial break point: after a competitive result, never with a decision waiting (never before the
+  // first competitive match is over; Remove Ads switches it off; the web build has no ad network)
+  const competitive = !!fx && !friendly;
+  const decision = !!(league?.crownTitle || league?.offerNow);
+  setTimeout(() => mon.afterResult({ competitive, decisionPending: decision || sheet.active || dialog.active || awardsNight.active || endingCeremony.active }).then((r) => debug.log(`ad break: ${r.shown ? 'shown' : r.reason}`)).catch(() => {}), 0);
 }
 async function leaveMatch() {
   if (match?.mode === 'fixture') {
@@ -1521,7 +1679,10 @@ const clubScreen = createClubScreen({
   lowFx,
   onStadium: () => stadiumUi.openStadium(), // (M24) a tap on the stadium
   walkerScene: () => walkerScene(),
+  cosmetic: (kind) => mon.cosmetic(kind), // (M30) the name plate / fence trims (looks only)
 });
+// (M30) The Club Token Shop (Club Menu): every Token spend, ad and purchase saves the account (and the club) at once.
+const shopUi = createShopSheets({ sheet, dialog, mon, onChange: (why) => { saveAccountNow(why); if (open && /^(tokens|ad):/.test(why)) autosave.request(why); } });
 // (M24) The day's walking people on the complex (src/systems/walkers.js): today's home match (fans; a Showcase friendly
 // brings families), the academy trials, the board's days, Celeste's open offer, the gods at the club (Bolt walks as his
 // staff figure), the fans who stay to cheer after a win; how many: Settings → Walking people and the Graphics setting.
@@ -1575,7 +1736,7 @@ function facilitySections(defId) {
   const youthHire = hireIf('YC', 'No Youth Coach yet: potential is hard to read', 'Hire a Youth Coach');
   // (M20b) the Rumours list (clues, gods at the gates, the secrets found)
   const waitingGods = open ? Object.keys(GODS).filter((id) => GD.offerFor(open.data, id)).length : 0;
-  const rumours = { title: 'Rumours', lines: [waitingGods ? `Someone is waiting at the club gates (${waitingGods})!` : 'Whispers around the club: strange clues, and who might turn up.'], buttons: [{ id: 'rumours', label: 'Rumours', icon: 'ui_28', accent: waitingGods ? DIVINE.colour : COL.purple, onTap: () => godUi.openRumours() }] };
+  const rumours = { title: 'Secrets Archive', lines: [waitingGods ? `Someone is waiting at the club gates (${waitingGods})!` : 'Rumours, clues and the secrets found (with their exact recipes).'], buttons: [{ id: 'rumours', label: 'Secrets Archive', icon: 'ui_28', accent: waitingGods ? DIVINE.colour : COL.purple, onTap: () => godUi.openRumours() }] };
   return { F01: [training, ...coachHire], F11: [training], F03: [office, staff, tactics, transfers, research, rumours], F04: [scout, ...scoutHire], F06: [kit], F08: [tactics], F09: [academy, ...youthHire], F14: [academy, ...youthHire], F26: [academy, ...youthHire], F13: [research], F24: [research], F25: [transfers] }[defId] ?? [];
 }
 // (M15) Hiring for one role: the first candidate who can be hired now (their card: Hire), else the Staff sheet.
@@ -1614,6 +1775,8 @@ const MENU_OPEN = {
   academy: () => academyUi.openAcademy(), // (M15)
   hallOfFame: () => hofUi.openHallOfFame(), // (M16)
   achievements: () => achievementsUi.openAchievements(), // (M27)
+  newGamePlus: () => ngUi.openNg(), // (M29)
+  tokenShop: () => shopUi.openShop(), // (M30)
   shield: () => openShield(false, 'C02'), // (M17)
   knockout: () => openShield(false, 'C03'), // (M18)
   crownCup: () => openShield(false, 'C04'), // (M18)
@@ -1625,6 +1788,8 @@ const MENU_OPEN = {
 };
 const matchesPlayed = (d) => Object.values(d.league.clubs).reduce((n, c) => n + c.w + c.d + c.l, 0); // (M17: every league's record)
 function menuState(id) {
+  if (id === 'tokenShop') return { sub: `${mon.tokens} Club Tokens${mon.removeAds ? ' · ad-free' : ''} · optional: nothing here buys results` }; // (M30)
+  if (id === 'newGamePlus') return (account?.ngUnlocked ?? 0) > 0 ? { sub: `Up to NG+${account.ngUnlocked} is open · this save is kept` } : { hidden: true }; // (M29)
   if (id === 'matchSetup') return open?.calendar.atKickoff ? { sub: `Today: ${open.calendar.fixture?.opponent.name ?? ''} · pick Watch, Manage or Play` } : { hidden: true };
   if (id === 'league') {
     const n = open ? LG.openOffers(open.data).length : 0;
@@ -1881,6 +2046,7 @@ const godUi = createGodSheets({
   },
   signGod,
   releaseGod,
+  signLegend: (fid) => signLegend(fid), // (M28)
   onChange: (why, r) => {
     debug.log(`${why}`);
     if (r?.accountChanged) saveAccountNow(why);
@@ -1907,6 +2073,7 @@ const academyUi = createAcademySheets({
   onYouthCoach: () => openStaffRole('YC'),
 });
 // Milestone 16: the Hall of Fame sheets (the account's legends; this club's records and retirements).
+const ngUi = createNgSheets({ sheet, run: () => open?.data ?? null, account: () => account, slotCards: () => campaigns?.cards ?? [], parentSlot: () => open?.n ?? null, staffName: (id) => staffById(id)?.name ?? id, onStart: (o) => startNg(o) }); // (M29)
 const achievementsUi = createAchievementSheets({ sheet, run: () => open?.data ?? null, account: () => account }); // (M27)
 const hofUi = createHallOfFameSheets({ sheet, assets, entries: () => account.hallOfFame ?? [], run: () => open?.data ?? null, secrets: () => SE.foundRecipes(open?.data ?? null, account), teams: () => account.greatTeams ?? [] }); // (M20b) the secrets found; (M21b) Great Teams
 // (M21b) Player Detail's Honours: his season awards ("Golden Boot · Year 3").
@@ -2054,7 +2221,7 @@ function addFeaturedStar(fid) {
 }
 // ?debug=1: a test hook for automated checks.
 if (debug.enabled) {
-  window.__gw = { ACH, achievementsUi, achievementsDay, ABL, abilityEvent, grantAbility: (id, ab) => { const p = open?.data.squad.players.find((x) => x.id === id); return p ? ABL.grant(p, ab, { open: true }) : null; }, openMatchChange, MED, SPM, STAD, stadiumUi, walkerScene, setWalkerOverride: (o) => (walkerOverride = o), FIN, SP, FAN, BOARD, financeUi, pumpMoney, RIV, rivalsUi, pumpRivals, VD, awardsNight, debugAwardsNight, debugShowcase, pumpAwards, syncGreatTeams, tournamentsUi, pumpArrivals, godUi, GD, SE, signGod, releaseGod, renderer, layout, input, loop, router, assets, sheet, dialog, systemBack, textPrompt, splashScreen, menuScreen, slotsScreen, setupScreen, clubScreen, squadScreen, trainingScreen, openTraining, tacticsScreen, openTactics, openMatchTactics, playSlot, startClub, deleteSlot, openShop, setRank, facilityBonus, researchUi, researchBanner, get research() { return open?.research ?? null; }, newGame, openLeague, openCountyOffer, openPromotionOffer, openCrownChampions, addFeaturedStar, overall, openShield, commitCupTie, LG, CUP, acceptChallenge, issueChallenge, transfers: transfersUi, TR, openMatchSetup, playPlaceholder, kickOff, startTestMatch, matchScreen, restoreMatchWorld, get match() { return match; }, toggleSpeedFlag, autosave, saveRun, canvasLost, canvasLossCount, itemsUi, staffUi, normaliseStaff, academyUi, AC, openStaffRole, hofUi, CA, syncHallOfFame, facilityLevel: (id) => (open ? facilityLevel(open.data, id) : 0), get items() { return open?.items ?? null; }, settings, governor, lowFx, haptics, hintLine, openNavMenu, MENU_OPEN, menuState, openSettings, get account() { return account; }, taps: [], get campaigns() { return campaigns; }, get open() { return open; } };
+  window.__gw = { mon, shopUi, get fakeStore() { return fakeStore; }, END, endingCeremony, ngUi, startNg, get pendingNg() { return pendingNg; }, forceEnding: () => { const d = open.data; const day = Math.max(open.calendar.today, END_DAY); const ev = END.endingDay(d, account, day); saveAccountNow('ending:debug'); pumpArrivals(); return ev; }, godsDay, forceSecret: (id) => { const ev = SE.forceSecret(open.data, id, open.calendar.today, account); for (const e of Array.isArray(ev) ? ev : []) { if (e.kind === 'playerArrival') legendQueue.push(e.fid); if (e.kind === 'secretFound') researchBanner.show({ id: 'secret:' + e.id, title: 'Secret found: ' + e.name + '!', line: secretLine(e.id), gives: 'Menu → Secrets Archive', icon: 'ui_28', color: COL.purple }); } saveAccountNow('secret:debug'); pumpArrivals(); return ev; }, signLegend, legendQueue, ACH, achievementsUi, achievementsDay, ABL, abilityEvent, grantAbility: (id, ab) => { const p = open?.data.squad.players.find((x) => x.id === id); return p ? ABL.grant(p, ab, { open: true }) : null; }, openMatchChange, MED, SPM, STAD, stadiumUi, walkerScene, setWalkerOverride: (o) => (walkerOverride = o), FIN, SP, FAN, BOARD, financeUi, pumpMoney, RIV, rivalsUi, pumpRivals, VD, awardsNight, debugAwardsNight, debugShowcase, pumpAwards, syncGreatTeams, tournamentsUi, pumpArrivals, godUi, GD, SE, signGod, releaseGod, renderer, layout, input, loop, router, assets, sheet, dialog, systemBack, textPrompt, splashScreen, menuScreen, slotsScreen, setupScreen, clubScreen, squadScreen, trainingScreen, openTraining, tacticsScreen, openTactics, openMatchTactics, playSlot, startClub, deleteSlot, openShop, setRank, facilityBonus, researchUi, researchBanner, get research() { return open?.research ?? null; }, newGame, openLeague, openCountyOffer, openPromotionOffer, openCrownChampions, addFeaturedStar, overall, openShield, commitCupTie, LG, CUP, acceptChallenge, issueChallenge, transfers: transfersUi, TR, openMatchSetup, playPlaceholder, kickOff, startTestMatch, matchScreen, restoreMatchWorld, get match() { return match; }, toggleSpeedFlag, autosave, saveRun, canvasLost, canvasLossCount, itemsUi, staffUi, normaliseStaff, academyUi, AC, openStaffRole, hofUi, CA, syncHallOfFame, facilityLevel: (id) => (open ? facilityLevel(open.data, id) : 0), get items() { return open?.items ?? null; }, settings, governor, lowFx, haptics, hintLine, openNavMenu, MENU_OPEN, menuState, openSettings, get account() { return account; }, taps: [], get campaigns() { return campaigns; }, get open() { return open; } };
 }
 
 router.go('boot');

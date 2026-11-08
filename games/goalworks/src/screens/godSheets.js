@@ -16,13 +16,15 @@ import { POSITIONS } from '../../data/setup.js';
 import * as G from '../systems/gods.js';
 import { overall } from '../systems/players.js';
 import * as SE from '../systems/secrets.js';
+import { SECRET_GROUPS } from '../../data/secrets60.js';
+import { FEATURED_STARS } from '../../data/players.js';
 
 const C = THEME.color;
 const GOLD = DIVINE.colour;
 const CORE_NAMES = { ATK: 'Attack', TEC: 'Technique', PAS: 'Passing', DEF: 'Defence', PHY: 'Physical' };
 const roleText = (g) => (g.kind === 'staff' ? `Divine ${roleById(g.role)?.name ?? 'staff'}` : g.kind === 'chairman' ? 'Honorary Chairman' : g.wildcard ? 'Wildcard (any outfield position)' : g.position === 'GK' ? 'Goalkeeper' : 'Forward');
 
-export function createGodSheets({ sheet, dialog, run, account = () => null, today = () => 0, dateText = (d) => `day ${d}`, signGod, releaseGod, onChange = () => {}, debug = false }) {
+export function createGodSheets({ sheet, dialog, run, account = () => null, today = () => 0, dateText = (d) => `day ${d}`, signGod, releaseGod, signLegend = () => null, onChange = () => {}, debug = false }) {
   const ui = { msg: null };
   const queue = [];
   const msgSection = () => (ui.msg ? [{ title: 'Latest', lines: [ui.msg] }] : []);
@@ -61,7 +63,7 @@ export function createGodSheets({ sheet, dialog, run, account = () => null, toda
       const verb = g.kind === 'player' ? 'Sign' : 'Appoint';
       sections.push({ columns: 1, buttons: [{ id: 'godSign', label: `${verb} ${g.name}`, sub: offer ? `Free · the window closes ${dateText(offer.until)}` : 'Debug: no arrival yet', accent: GOLD, onTap: () => act(id, !offer) }] });
     }
-    sections.push({ columns: 1, buttons: [{ id: 'rumours', label: '‹ Rumours', accent: C.progress, onTap: () => openRumours() }] });
+    sections.push({ columns: 1, buttons: [{ id: 'rumours', label: '‹ Secrets Archive', accent: C.progress, onTap: () => openRumours() }] });
     return {
       title: g.name,
       subtitle: `${g.title} · ${roleText(g)} · Divine${p ? ` · Overall ${overall(p)}` : ''}`,
@@ -129,12 +131,27 @@ export function createGodSheets({ sheet, dialog, run, account = () => null, toda
     const heard = SE.rumours(d);
     const waiting = GOD_IDS.filter((id) => G.offerFor(d, id));
     const here = G.godsAtClub(d);
-    const found = SE.foundRecipes(d, account());
     const sections = [...msgSection()];
     if (waiting.length) sections.push({ title: 'Waiting at the club gates', columns: 1, buttons: waiting.map((id) => ({ id: `god:${id}`, label: `${GODS[id].name}, ${GODS[id].title}`, sub: `${roleText(GODS[id])} · ${Math.max(0, G.offerFor(d, id).until - today())} days to ${GODS[id].kind === 'player' ? 'sign' : 'appoint'}`, icon: GODS[id].art, accent: GOLD, onTap: () => openCard(id) })) });
     if (here.length) sections.push({ title: 'At the club', columns: 1, buttons: here.map((id) => ({ id: `god:${id}`, label: `${GODS[id].name} · ${GODS[id].blessing.name}`, sub: `${roleText(GODS[id])} · tap for the blessing`, icon: GODS[id].art, accent: GOLD, onTap: () => openCard(id) })) });
+    // (M28) Legendary / Secret players at the gates (a 56-day window, back next season if missed)
+    const legends = SE.playerOffers(d).filter((o) => FEATURED_STARS[o.fid]);
+    if (legends.length) sections.push({ title: 'A legend at the gates', columns: 1, buttons: legends.map((o) => ({ id: `legend:${o.fid}`, label: `Sign ${FEATURED_STARS[o.fid].name}`, sub: `${FEATURED_STARS[o.fid].tier} ${FEATURED_STARS[o.fid].position} · ${Math.max(0, o.until - today())} days to sign`, icon: 'ui_28', accent: GOLD, onTap: () => {
+      const p = signLegend(o.fid);
+      ui.msg = p ? `${p.name} has signed!` : 'He could not sign.';
+      sheet.refresh?.();
+    } })) });
     sections.push({ title: 'Rumours heard', lines: heard.length ? heard.slice(0, 12).map((r) => `${dateText(r.day)} · ${r.text}`) : ['Nothing yet. Strange things happen at clubs that climb high: keep an ear out.'] });
-    if (found.length) sections.push({ title: 'Secrets found (the exact recipe)', lines: found.map((f) => `${f.godName} — ${f.conditions.join('; ')}`) });
+    // (M28) the Secrets Archive: every secret by group — found (the exact recipe for future runs), a clue, or a silhouette
+    const arc = SE.archive(d, account());
+    for (const g of SECRET_GROUPS) {
+      const xs = arc.filter((x) => x.kind === g.kind);
+      if (!xs.length) continue;
+      sections.push({
+        title: `${g.name} · ${xs.filter((x) => x.found).length} / ${xs.length}`,
+        lines: xs.map((x) => (x.found ? { text: `✓ ${x.name} — ${x.recipe.join('; ')}`, color: C.text } : x.locked ? { text: `??? (New Game+ ${x.ng})${x.clue ? ` — “${x.clue}”` : ''}`, color: C.textMuted } : x.clue ? { text: `??? — “${x.clue}”`, color: C.purple } : { text: '???', color: C.textMuted })),
+      });
+    }
     if (debug) sections.push({ title: 'Debug: force an arrival', columns: 3, buttons: GOD_IDS.map((id) => ({ id: `debug:god:${id}`, label: GODS[id].name, accent: GOLD, onTap: () => {
       SE.forceArrival(run(), id, today());
       onChange(`god:debug:${id}`);
@@ -142,7 +159,8 @@ export function createGodSheets({ sheet, dialog, run, account = () => null, toda
       sheet.close();
       pump();
     } })) });
-    return { title: 'Rumours', subtitle: 'Whispers around the club · M28 brings the full Rumour Archive', art: 'ui_28', accent: C.purple, sections };
+    const arcAll = SE.archive(d, account());
+    return { title: 'Secrets Archive', subtitle: `Rumours and secrets · ${arcAll.filter((x) => x.found).length} of ${arcAll.length} found`, art: 'ui_28', accent: C.purple, sections };
   }
   function openRumours() {
     ui.msg = null;

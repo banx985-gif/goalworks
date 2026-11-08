@@ -23,6 +23,8 @@
 //   acceptCounty(data) = acceptOffer(data, 'regional')      catchUp(data, day): an older save that accepted the County
 //                                                           offer before M17 moves up now (a News line)
 //   previewReward(data, clubId, score, promotion) → what a result would give (the result screen, before Continue)
+import { CUP_CLUES } from '../../data/secrets60.js'; // (M28) the secret cups' clue prizes
+import { notePromotion } from './secretNotes.js'; // (M28)
 import { Rng } from '../../../../core/Rng.js';
 import { REGIONAL_CLUBS, clubById } from '../../data/fixtures.js';
 import { ISSUE, RANKS, REPUTATION, CREDITS, LEAGUES, leagueById, COMING, ACHIEVEMENTS, STADIUM_FLAGS, AFTER_TITLE } from '../../data/league.js';
@@ -444,9 +446,14 @@ export function recordResult(data, fixture, score, day, opts = {}) {
       L.rep.history = round1(L.rep.history + (pz.history ?? 0) * k);
       L.rep.momentum = round1(L.rep.momentum + (pz.momentum ?? 0) * k);
       for (const f of pz.flags ?? []) (data.unlocks ??= {})[f] ??= day;
-      if (pz.rumour) { // (M21) a clue line in the Rumours list (the clue chains are M28)
+      if (pz.rumour) { // (M21) a clue line in the Rumours list; (M28) and that secret's clue chain moves on a stage
         data.secrets ??= { v: 1, track: {}, state: {}, rumours: [] };
         data.secrets.rumours = [...(data.secrets.rumours ?? []), { day, id: `cup:${cup.cup}`, stage: 0, text: pz.rumour }].slice(-40);
+        const sid = CUP_CLUES[cup.cup];
+        if (sid) {
+          const st = ((data.secrets.state ??= {})[sid] ??= { clue: 0, found: null });
+          if (st.found == null) st.clue = Math.min(2, (st.clue ?? 0) + 1);
+        }
       }
       if (pz.tokens) data.prestige = { ...(data.prestige ?? {}), tokens: (data.prestige?.tokens ?? 0) + pz.tokens }; // (M21 C08; the account keeps them for NG+)
     }
@@ -503,6 +510,7 @@ export function recordResult(data, fixture, score, day, opts = {}) {
 function enterLeague(data, id, day, line) {
   const L = normaliseLeague(data);
   const lg = leagueById(id);
+  notePromotion(data, L.tier); // (M28) promoted without a signing in that tier? (SEC-BEH-04, SEC-NGP-01)
   L.tier = id;
   L.entered = { ...(L.entered ?? {}), [id]: day };
   RIV.normaliseRivals(data, day); // (M22) this league's story rival starts now

@@ -81,7 +81,7 @@ export const bonusFactor = (data, key) => 1 + bonus(data, key) / 100;
 export function unlockOf(data, defId) {
   const f = facilityById(defId);
   if (!f) return { ok: false, hidden: true, reason: 'Unknown facility' };
-  if (f.unlock === 'secret') return { ok: false, hidden: true, reason: 'Secret' };
+  if (f.unlock === 'secret') return data?.secrets?.state?.[f.secret]?.found != null ? { ok: true, hidden: false, reason: null } : { ok: false, hidden: true, reason: 'Secret' }; // (M28) SEC-FAC-01 / 02 open F34 / F35
   if (f.unlock === 'start') return { ok: true, hidden: false, reason: null };
   if (data?.research?.unlocks?.unlocked?.facility?.includes(defId)) return { ok: true, hidden: false, reason: null };
   const need = RANK_ORDER.indexOf(f.unlock);

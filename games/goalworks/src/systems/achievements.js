@@ -12,7 +12,7 @@
 //   list(data, account) → every achievement with its progress (the screen)
 //   historyOf(data, type = null) → the timeline (newest first), typed     trophies(data) → the cabinet
 //   recordRows(data) → the Records page
-import { ACHIEVEMENT_LIST, achievementById, ACHV_RULES as R, HISTORY_GUESS, MILESTONES, TROPHY_ART, CLUB_RECORDS } from '../../data/achievements.js';
+import { ACHIEVEMENT_LIST, achievementById, ACHV_RULES as R, HISTORY_GUESS, MILESTONES, CLUB_RECORDS } from '../../data/achievements.js';
 import { FACILITIES } from '../../data/facilities.js';
 import { ALL_CUPS, US } from '../../data/cups.js';
 import { sponsorById } from '../../data/sponsors.js';
@@ -266,27 +266,8 @@ export function historyOf(data, type = null) {
   const lines = (data.clubHistory ?? []).map((h) => ({ ...h, type: h.type ?? HISTORY_GUESS.find(([re]) => re.test(h.text))?.[1] ?? 'club' }));
   return lines.filter((h) => !type || h.type === type).reverse();
 }
-export function trophies(data) {
-  const out = [];
-  const promos = ['A10', 'A11', 'A12', 'A13'].filter((id) => data.achievements?.[id]).length;
-  if (promos) out.push({ key: 'promotion', name: 'Promotion', art: TROPHY_ART.promotion, count: promos });
-  if (data.achievements?.A15 || data.league?.crownTitle) out.push({ key: 'crown', name: 'Crown Premier title', art: TROPHY_ART.crown, count: 1 });
-  for (const [id, C] of Object.entries(data.cups ?? {})) {
-    const cup = ALL_CUPS[id];
-    if (!cup || !(C?.wins > 0)) continue;
-    const years = (C.history ?? []).filter((h) => h.champion === US).map((h) => h.year);
-    out.push({ key: id, name: cup.name, art: TROPHY_ART[id] ?? cup.art, count: C.wins, years });
-  }
-  const awards = {};
-  for (const s of data.verdicts?.seasons ?? []) for (const aw of s.awards ?? []) {
-    const k = aw.id;
-    awards[k] ??= { key: k, name: aw.name, art: TROPHY_ART[k] ?? aw.art, count: 0, years: [] };
-    awards[k].count++;
-    awards[k].years.push(s.year);
-  }
-  return [...out, ...Object.values(awards)];
-}
-export const distinctTrophies = (data) => trophies(data).length; // (M28 SEC-FAC-08 Museum Full)
+// (the trophy cabinet lives in records.js: the Secret Engine reads it without importing this system)
+export { trophies, distinctTrophies } from './records.js';
 export function recordRows(data) {
   const R2 = data.records ?? {};
   const club = CLUB_RECORDS.map((r) => ({ id: r.id, name: r.name, now: R2[r.id] ?? null }));

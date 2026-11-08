@@ -8,15 +8,18 @@
 //   needs: ids of secrets / gods that must come first (Havoc), trigger: 'defeat' — he turns up after your next defeat
 // The numbers are Cowork's starting picks (M20b card); the money one is a placeholder until the M23 / M35 money pass.
 
+import { BIBLE_SECRETS } from './secrets60.js'; // (M28) the bible's 60
+
 export const SECRET_RULES = {
   clueAt: [1 / 3, 2 / 3],
-  window: 56, // days
+  window: 56, // days (a god's or (M28) a Legendary / Secret player's arrival)
   giantGap: 6, // (M21, Cowork: was 10) Jinx's giant-killing final: their team rating at least this much above yours
 };
 
 export const SECRETS = [
   {
     id: 'SEC-GOD-1',
+    kind: 'god',
     name: 'The brass cog',
     reward: { god: 'GOD1' },
     conditions: [
@@ -32,6 +35,7 @@ export const SECRETS = [
   },
   {
     id: 'SEC-GOD-2',
+    kind: 'god',
     name: 'The lucky cat',
     reward: { god: 'GOD2' },
     conditions: [
@@ -47,6 +51,7 @@ export const SECRETS = [
   },
   {
     id: 'SEC-GOD-3',
+    kind: 'god',
     name: 'The golden blur',
     reward: { god: 'GOD3' },
     conditions: [
@@ -62,6 +67,7 @@ export const SECRETS = [
   },
   {
     id: 'SEC-GOD-4',
+    kind: 'god',
     name: 'The gold coins',
     reward: { god: 'GOD4' },
     conditions: [
@@ -77,6 +83,7 @@ export const SECRETS = [
   },
   {
     id: 'SEC-GOD-5',
+    kind: 'god',
     name: 'The purple sparks',
     reward: { god: 'GOD5' },
     needs: ['GOD1', 'GOD2', 'GOD3', 'GOD4'],
@@ -92,17 +99,8 @@ export const SECRETS = [
     arrival: { title: 'Something’s not right in the dressing room…', line: 'After the defeat, a small impish god with one horn and a wonky halo is juggling three crackling sparks on the physio’s table. “Bad day?” says Havoc. “I can make it… interesting.”' },
   },
 ];
-// (M21) The secret tournaments' triggers (bible §22, C09–C14): registered here so the Secret Engine (M28) finds them. No
-// clue stages; found → the cup opens (a one-tap pop-up reveals its name and art) and runs at once, then once a season.
-const cupSecret = (cupId, name, conditions) => ({ id: `SEC-CUP-${cupId}`, name, kind: 'tournament', reward: { cup: cupId }, conditions, clues: [] });
-SECRETS.push(
-  cupSecret('C09', 'Giant killers', [{ key: 'giantRun', need: 3, text: 'Beat 3 clubs from a higher tier in one cup run' }]),
-  cupSecret('C10', 'The youth', [{ key: 'academyWins', need: 6, text: 'Win 6 matches each starting 5 or more academy players' }]),
-  cupSecret('C11', 'Redemption', [{ key: 'redemption', need: 3, text: 'Lose a cup final, then win your next 3 matches' }]),
-  cupSecret('C12', 'Iron XI', [{ key: 'unbeatenRun', need: 10, text: '10 competitive matches unbeaten' }]),
-  cupSecret('C13', 'Clean sheets', [{ key: 'cleanSheets8', need: 6, text: '6 clean sheets in 8 matches' }]),
-  cupSecret('C14', 'Comebacks', [{ key: 'comebacks', need: 3, text: 'Win 3 matches after trailing by 2 or more' }]),
-);
+// (M21) The secret tournaments (C09–C14) were SEC-CUP-C09 … C14: since M28 they are the bible's SEC-CUP-01 … 06 in
+// data/secrets60.js (old saves are renamed: src/systems/secrets.js normaliseSecrets).
 // (M22) The rivalry secrets (bible §32 SEC-RIVAL-02 … 04) on the same checker, so the Secret Engine (M28) finds them.
 // SEC-RIVAL-01 (Ghost Eleven) is M28's. No clue stages. Prizes (src/systems/rivals.js secretPrize): 02 — that dynamic
 // rivalry becomes permanent; 03 — a rivalry atmosphere bonus (+2% to your XI at home in a rivalry match); 04 — a News chain.
@@ -112,13 +110,9 @@ SECRETS.push(
   rivalSecret('SEC-RIVAL-03', 'Derby Fever', 'atmosphere', [{ key: 'derbyRun', need: 5, text: 'Win 5 rivalry matches in a row' }], 'The whole town is buzzing: your ground roars louder for every rivalry match (+2% at home).'),
   rivalSecret('SEC-RIVAL-04', 'Poached Captain', 'newsChain', [{ key: 'poachedCaptain', need: 1, text: 'Sign a rival club’s captain after beating that rival 3 times' }], 'You took their captain. The papers will be full of it for weeks.'),
 );
-// (M23) The secret sponsors (bible §32 SEC-SPON-01 / 02): registered here so the Secret Engine (M28) finds them, with the
-// bible's exact requirements as their words. Their real triggers are M28's: until then the one measure, m28, is always 0, so
-// only ?debug=1 (Finances → Debug) can unlock SP09 Legacy Athletic / SP10 Zero Eleven. No clue stages.
-const sponsorSecret = (id, name, sponsor, text) => ({ id, name, kind: 'sponsor', reward: { sponsor }, conditions: [{ key: 'm28', need: 1, text }], clues: [] });
-SECRETS.push(
-  sponsorSecret('SEC-SPON-01', 'Legacy Athletic', 'SP09', 'Win C10; develop 2 academy players to Elite; Fan Trust 90+'),
-  sponsorSecret('SEC-SPON-02', 'Zero Eleven', 'SP10', 'NG+2; win C15; recruit 3 Secret players; Global Reputation max tier'),
-);
+// (M23) The secret sponsors (SEC-SPON-01 / 02) and (M28) every other bible secret: data/secrets60.js, with their real triggers.
+SECRETS.push(...BIBLE_SECRETS);
+// The bible's exactly-60 (the gods' five are extra series secrets on top)
+export const BIBLE_IDS = SECRETS.filter((x) => x.kind !== 'god').map((x) => x.id);
 export const secretById = (id) => SECRETS.find((s) => s.id === id) ?? null;
 export const secretForGod = (godId) => SECRETS.find((s) => s.reward.god === godId) ?? null;

@@ -248,7 +248,7 @@ function shieldSummary(cal, st, L) {
 }
 // What a cup's prize gives besides Credits (data/cups.js prize).
 // (M21) every cup's prize in words: its flags (CUP_FLAGS), a clue line, Prestige Tokens
-const prizeWords = (cup) => [cup.prize.history >= 400 ? 'major reputation' : 'reputation', ...(cup.prize.flags ?? []).map((x) => CUP_FLAGS[x]?.name.toLowerCase()).filter(Boolean), ...(cup.prize.rumour ? ['a clue in the Rumours list'] : []), ...(cup.prize.tokens ? [`${cup.prize.tokens} Prestige Token${cup.prize.tokens === 1 ? '' : 's'}`] : []), ...(cup.id === 'C04' ? ['a place in club history'] : [])].join(' + ');
+const prizeWords = (cup) => [cup.prize.history >= 400 ? 'major reputation' : 'reputation', ...(cup.prize.flags ?? []).map((x) => CUP_FLAGS[x]?.name.toLowerCase()).filter(Boolean), ...(cup.prize.rumour ? ['a clue in the Secrets Archive'] : []), ...(cup.prize.tokens ? [`${cup.prize.tokens} Prestige Token${cup.prize.tokens === 1 ? '' : 's'}`] : []), ...(cup.id === 'C04' ? ['a place in club history'] : [])].join(' + ');
 
 // (M17) The cup bracket sheet: each round's ties (scores, penalties, who went through), your next tie, past winners.
 // shieldSheet({ calendar, status: () => cup.js status, name(id), crest(id), onBack })

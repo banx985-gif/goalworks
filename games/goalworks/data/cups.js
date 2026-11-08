@@ -124,46 +124,46 @@ export const CUPS = {
     short: 'Prestige final four',
     blurb: 'you and the three strongest Crown Premier clubs',
   }),
-  // (M21) the secret tournaments: "???" until found (their triggers are secrets SEC-CUP-C09 … C14, data/secrets.js); then
+  // (M21) the secret tournaments: "???" until found (their triggers are secrets SEC-CUP-01 … 06 (M21's C09 … C14 ids until M28), data/secrets60.js); then
   // they run at once, and once a season after that. Opponents from your tier and the tier above.
   C09: cup({
     id: 'C09', name: 'Giant Killers Cup', art: 'tournament_c09', visibility: 'secret', level: 'Any', trigger: 'Beat 3 clubs from a higher tier in one cup run',
-    opens: { secret: 'SEC-CUP-C09' }, league: null, teams: { tierMix: true },
+    opens: { secret: 'SEC-CUP-01' }, league: null, teams: { tierMix: true },
     prize: { credits: 4000, history: 300, momentum: 60, flags: [], rumour: 'A Secret player was seen in the stands during your Giant Killers final. Nobody knows who invited them…' },
     roundWin: { credits: 600 },
     short: 'Secret cup', blurb: 'you and clubs drawn from your tier and the tier above',
   }),
   C10: cup({
     id: 'C10', name: 'Youth Masters', art: 'tournament_c10', visibility: 'secret', level: 'Any', trigger: 'Win 6 matches each starting 5+ academy players',
-    opens: { secret: 'SEC-CUP-C10' }, league: null, teams: { tierMix: true },
+    opens: { secret: 'SEC-CUP-02' }, league: null, teams: { tierMix: true },
     prize: { credits: 3000, history: 400, momentum: 60, flags: ['youthPrestige'] },
     roundWin: { credits: 500 },
     short: 'Secret cup', blurb: 'you and clubs drawn from your tier and the tier above',
   }),
   C11: cup({
     id: 'C11', name: 'Redemption Shield', art: 'tournament_c11', visibility: 'secret', level: 'Any', trigger: 'Lose a cup final, then win your next 3 matches',
-    opens: { secret: 'SEC-CUP-C11' }, league: null, teams: { tierMix: true },
+    opens: { secret: 'SEC-CUP-03' }, league: null, teams: { tierMix: true },
     prize: { credits: 3500, history: 300, momentum: 60, flags: ['evolutionBoost'] },
     roundWin: { credits: 500 },
     short: 'Secret cup', blurb: 'you and clubs drawn from your tier and the tier above',
   }),
   C12: cup({
     id: 'C12', name: 'Iron XI Invitational', art: 'tournament_c12', visibility: 'secret', level: 'Any', trigger: '10 competitive matches unbeaten',
-    opens: { secret: 'SEC-CUP-C12' }, league: null, teams: { tierMix: true },
+    opens: { secret: 'SEC-CUP-04' }, league: null, teams: { tierMix: true },
     prize: { credits: 4000, history: 300, momentum: 60, flags: ['eliteSponsor'] },
     roundWin: { credits: 600 },
     short: 'Secret cup', blurb: 'you and clubs drawn from your tier and the tier above',
   }),
   C13: cup({
     id: 'C13', name: 'Clean Sheet Classic', art: 'tournament_c13', visibility: 'secret', level: 'Any', trigger: '6 clean sheets in 8 matches',
-    opens: { secret: 'SEC-CUP-C13' }, league: null, teams: { tierMix: true },
+    opens: { secret: 'SEC-CUP-05' }, league: null, teams: { tierMix: true },
     prize: { credits: 3500, history: 300, momentum: 60, flags: [], rumour: 'An old keeper in a grey cap clapped every save in the Clean Sheet Classic. They say he was a Legend once.' },
     roundWin: { credits: 500 },
     short: 'Secret cup', blurb: 'you and clubs drawn from your tier and the tier above',
   }),
   C14: cup({
     id: 'C14', name: 'Comeback Cup', art: 'tournament_c14', visibility: 'secret', level: 'Any', trigger: 'Win 3 matches after trailing by 2 or more',
-    opens: { secret: 'SEC-CUP-C14' }, league: null, teams: { tierMix: true },
+    opens: { secret: 'SEC-CUP-06' }, league: null, teams: { tierMix: true },
     prize: { credits: 3500, history: 300, momentum: 60, flags: [], rumour: 'A Legendary striker sent a note after the Comeback Cup: "Never give up. I never did." No name, just a boot print.' },
     roundWin: { credits: 500 },
     short: 'Secret cup', blurb: 'you and clubs drawn from your tier and the tier above',
@@ -171,7 +171,7 @@ export const CUPS = {
   // (M21) secret prestige: data, art and brackets only — their real triggers (C08 + 35 secrets; C15 + top league + 50
   // secrets at NG+2) are M28 / NG+; ?debug=1 opens them
   C15: cup({
-    id: 'C15', name: 'Legends Invitational', art: 'tournament_c15', visibility: 'secretPrestige', level: 'Postgame', trigger: 'Win the Five Crowns and discover 35 secrets (M28)',
+    id: 'C15', name: 'Legends Invitational', art: 'tournament_c15', visibility: 'secretPrestige', level: 'Postgame', trigger: 'Win the Crown title and the Five Crowns, and discover 35 secrets',
     opens: { debug: true }, league: null, teams: { strongest: 7 },
     prize: { credits: 25000, history: 2000, momentum: 250, flags: ['prestigePlayers'] },
     roundWin: { credits: 3500 },

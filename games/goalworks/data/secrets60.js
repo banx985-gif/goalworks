@@ -106,3 +106,16 @@ export const SECRET_GROUPS = [
   { kind: 'ngplus', name: 'New Game+' },
   { kind: 'god', name: 'Works Gods (series bonus)' },
 ];
+// The run flags' effects (a found secret's reward, data.secrets.flags): read through src/systems/effects.js like a
+// facility or research bonus. Flags with no row are named unlocks for now (their effect needs the match engine: DECISIONS).
+export const FLAG_FX = {
+  deadBall: { 'xp:setpieces': 10 }, // SEC-ABL-02 Dead Ball Master training: set-piece sessions +10%
+  trainingCulture: { 'xp:all': 5 }, // SEC-FAC-07 Sports Science prestige boost: +5% all training
+  legacyMentor: { 'xp:all': 3 }, // SEC-HIS-04 legacy mentor: +3% training XP
+  perfectRecovery: { injuryRecoveryPct: 10 }, // SEC-FAC-05 Medical prestige upgrade: injuries heal 10% faster
+  academyDreams: { youthPotential: 1 }, // SEC-FAC-03 Academy of Dreams: a better intake (one research-sized step)
+  worldNetwork: { scoutingPct: 10 }, // SEC-FAC-06 Elite Scouting Network: +10% scouting knowledge
+};
+// (M21 → M28) The secret cups' clue prizes point at real clue chains: winning the cup moves that secret's clue on one stage
+// (at least its first clue) in the Secrets Archive.
+export const CUP_CLUES = { C09: 'SEC-PLY-S1', C13: 'SEC-PLY-L1', C14: 'SEC-PLY-L5' };

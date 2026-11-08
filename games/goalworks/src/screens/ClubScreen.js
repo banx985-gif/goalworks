@@ -78,7 +78,7 @@ const TOP_OVERHANG = 420; // room above the grid's back corner for a building's 
 const fmt = (n) => Math.round(n).toLocaleString('en-GB');
 const figureNo = (id) => [...String(id)].reduce((n, ch) => n + ch.charCodeAt(0), 0); // a steady body for a player without a shirt
 
-export function createClubScreen({ renderer, layout, assets, bus, sheet, club, onMenu, debug = null, calendar = () => null, onMatchSetup = () => {}, extraSections = () => [], onTeam = () => {}, onResearch = () => {}, onShop = () => {}, detailSheet = null, confirm = null, onLayoutChanged = () => {}, showMenu = () => false, onNavMenu = () => {}, menuIcon = null, hint = null, lowFx = () => false, staffSheet = null, onStadium = () => {}, walkerScene = () => null }) {
+export function createClubScreen({ renderer, layout, assets, bus, sheet, club, onMenu, debug = null, calendar = () => null, onMatchSetup = () => {}, extraSections = () => [], onTeam = () => {}, onResearch = () => {}, onShop = () => {}, detailSheet = null, confirm = null, onLayoutChanged = () => {}, showMenu = () => false, onNavMenu = () => {}, menuIcon = null, hint = null, lowFx = () => false, staffSheet = null, onStadium = () => {}, walkerScene = () => null, cosmetic = () => null }) {
   const W = renderer.width;
   const { cellSize: CELL, margin, fenceH } = COMPLEX;
   const { halfW: HW, halfH: HH } = COMPLEX.view;
@@ -837,7 +837,7 @@ export function createClubScreen({ renderer, layout, assets, bus, sheet, club, o
         return;
       }
       const cc = club()?.data.club;
-      const fence = cc ? `${cc.colours.primary}/${cc.colours.secondary}` : '';
+      const fence = cc ? `${cc.colours.primary}/${cc.colours.secondary}/${cosmetic('fence')?.id ?? ''}` : ''; // (M30) and the fence trim
       if (fence !== fenceFor) {
         fenceFor = fence;
         groundLayer.invalidate();
@@ -977,7 +977,7 @@ export function createClubScreen({ renderer, layout, assets, bus, sheet, club, o
     g.save();
     g.lineCap = 'round';
     const c = club()?.data.club;
-    const top = c ? colourById(c.colours.primary).hex : L.fenceRail;
+    const top = cosmetic('fence')?.colour ?? (c ? colourById(c.colours.primary).hex : L.fenceRail); // (M30) a fence rail trim (looks only)
     const cap = c ? colourById(c.colours.secondary).hex : L.fencePost;
     for (let t = a; t < b; t++) {
       if (t === skip) continue;
@@ -1483,8 +1483,8 @@ export function createClubScreen({ renderer, layout, assets, bus, sheet, club, o
     const prim = colourById(c.colours.primary);
     ctx.save();
     ctx.fillStyle = prim.hex;
-    ctx.strokeStyle = colourById(c.colours.secondary).hex;
-    ctx.lineWidth = 8;
+    ctx.strokeStyle = cosmetic('plate')?.colour ?? colourById(c.colours.secondary).hex; // (M30) a name plate trim (looks only)
+    ctx.lineWidth = cosmetic('plate') ? 10 : 8;
     ctx.beginPath();
     ctx.roundRect(r.x, r.y, r.w, r.h, 28);
     ctx.fill();

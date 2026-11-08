@@ -143,6 +143,7 @@ export function generatePlayer(rng, { id, position, tier = null, ageRange = GEN.
   const p = {
     id,
     name: generatedName(rng, area, usedNames),
+    area, // (M28) his home area (SEC-FAC-06 World Network)
     position,
     age,
     tier: t,

@@ -19,6 +19,7 @@
 //   fansWeight(data, clubId, day)                            (verdicts: the Fans voice weighs a rival result by band)
 //   rivalsList(data) → the Rivals screen's rows              ghostSide(data) → RV08's plan (data only)
 //   popups(data) / takePopup(data) — the queued one-tap pop-ups ("New rivalry!", the late twist)
+import { NG } from '../../data/ending.js'; // (M29) New Game+ scaling
 import { Rng } from '../../../../core/Rng.js';
 import { METER, BANDS, EFFECTS, STORY_RIVALS, storyById, storyForClub, LINES, POACH_CHAIN, TWIST, COUNTERS } from '../../data/rivals.js';
 import { clubById } from '../../data/fixtures.js';
@@ -67,7 +68,7 @@ export function normaliseRivals(data, day = data.league?.lastDay ?? 0) {
     const rec = data.league?.clubs?.[r.club];
     const extra = old && rec ? Math.min(20, 2 * (rec.w + rec.d + rec.l)) : 0;
     c.story = r.id;
-    c.meter = clamp(Math.max(c.meter, r.start + extra));
+    c.meter = clamp(Math.max(c.meter, r.start + extra + NG.rivalHeat[Math.min(NG.maxLevel, data.ng?.level ?? 0)])); // (M29) hotter in NG+
     c.since = day;
   }
   return R;
@@ -332,7 +333,7 @@ export function takePopup(data) {
 const BUILD_COUNTER = { possession: 'counter', counter: 'possession', direct: 'possession', balanced: 'direct' };
 export function ghostSide(data) {
   const m = mostUsed(data) ?? { f: data.tactics?.formation ?? '442', b: data.tactics?.instr?.build ?? 'balanced' };
-  return { formation: m.f, build: BUILD_COUNTER[m.b] ?? 'balanced' };
+  return { formation: m.f, build: BUILD_COUNTER[m.b] ?? 'balanced', lift: NG.ghostLift[Math.min(NG.maxLevel, data.ng?.level ?? 0)] }; // (M29) lift: +% to its players' stats (NG+2 on)
 }
 export function unlockGhost(data, day) {
   normaliseRivals(data, day).ghost ??= day;

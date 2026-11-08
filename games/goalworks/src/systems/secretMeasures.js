@@ -11,7 +11,7 @@ import { FACILITIES, RANK_ORDER } from '../../data/facilities.js';
 import { overall } from './players.js';
 import { strength } from './cup.js';
 import { rank as clubRank } from './league.js';
-import { distinctTrophies } from './achievements.js';
+import { distinctTrophies } from './records.js';
 import { STORY_RIVALS } from '../../data/rivals.js';
 
 const YEAR = 336;
@@ -77,7 +77,7 @@ export function afterMatchM28(data, { fixture, score, scorers = [], cup = null, 
     const id = byName.get(g.name);
     if (id) pl(M, id).goals++;
     if (g.sub) M.subGoals++;
-    if (g.setPiece === 'freeKick' && account) {
+    if (g.setPiece === 'direct' && account) {
       account.secretCounts ??= {};
       account.secretCounts.fkGoals = (account.secretCounts.fkGoals ?? 0) + 1;
     }
@@ -153,30 +153,11 @@ export function dayM28(data, account, day, T) {
   if (f) M.focusDays[f] = (M.focusDays[f] ?? 0) + 1;
   return M;
 }
-// A player signed (src/systems/transfers.js joinUs): this tier's signings; a scouted player signed
-export function noteSigning(data, p) {
-  const M = data.secrets?.track?.m28;
-  if (!M) return;
-  M.tierSignings++;
-  if (p.scoutedArea || p.area) M.signedScouted += M.scoutedAreas.includes(p.scoutedArea ?? p.area) ? 1 : 0;
-}
-// A scout report on a player (transfers / scouting): his home area counts
-export function noteScouted(data, area) {
-  const M = data.secrets?.track?.m28;
-  if (M && area && !M.scoutedAreas.includes(area)) M.scoutedAreas.push(area);
-}
-// Promoted out of a tier (league.js acceptOffer): with no signing while in it? Then the count starts again.
-export function notePromotion(data, fromTier) {
-  const M = data.secrets?.track?.m28;
-  if (!M) return;
-  if (M.tierSignings === 0) {
-    M.promotedNoSigning = 1;
-    if (fromTier === 'regional') M.regionalNoSigning = 1;
-  }
-  M.tierSignings = 0;
-}
+// (A signing, a scout report, a promotion: src/systems/secretNotes.js notes them.)
 
-const facLevel = (data, id) => Math.max(0, ...(data.facilities?.placement ?? []).filter((p) => p.id === id).map((p) => data.facilities.levels?.[p.uid]?.level ?? 1));
+// Developed at the club (SEC-ABL-07): a signing who came in under 90; an academy or starting-squad player (never signed)
+const developedHere = (p) => (p.joinOvr != null ? p.joinOvr < 90 : !p.joinedFrom);
+const facLevel = (data, id) => Math.max(0, ...(data.facilities?.placement ?? []).filter((p) => p.def === id).map((p) => data.facilities.levels?.[p.uid]?.level ?? 1));
 const M28 = (d) => d.secrets?.track?.m28 ?? normaliseM28((d.secrets ??= { track: {} }).track ??= {}, d);
 const maxPlayer = (d, k) => Math.max(0, ...Object.values(M28(d).players).map((x) => x[k] ?? 0));
 const cupWins = (d, id) => d.cups?.[id]?.wins ?? 0;
@@ -203,7 +184,7 @@ export const M28_MEASURES = {
   oneClubHeart: (d) => ((d.squad?.players ?? []).some((p) => !p.founder && (p.career?.apps ?? 0) >= M28_RULES.legendApps && yearOf(d.league?.lastDay ?? 1) - (p.joinedYear ?? yearOf(p.joinedDay ?? 1)) >= 12) ? 1 : 0),
   subGoals: (d) => M28(d).subGoals,
   lastDitchWins: (d) => M28(d).lastDitchWins,
-  goldenTouch: (d) => ((d.squad?.players ?? []).some((p) => p.tier === 'Standard' && !p.god && overall(p) >= 90) ? 1 : 0),
+  goldenTouch: (d) => ((d.squad?.players ?? []).some((p) => p.tier === 'Standard' && !p.god && overall(p) >= 90 && developedHere(p)) ? 1 : 0),
   captainStarts: (d) => maxPlayer(d, 'captainStarts'),
   cupsWon: (d) => Object.entries(d.cups ?? {}).filter(([id]) => ALL_CUPS[id] && !ALL_CUPS[id].friendly).reduce((n, [, C]) => n + (C?.wins ?? 0), 0),
   throughAssistsPlayer: (d) => maxPlayer(d, 'throughAssists'),
@@ -235,20 +216,24 @@ export const M28_MEASURES = {
   founderApps: (d) => (d.squad?.players ?? []).find((p) => p.founder)?.career?.apps ?? 0,
   sameIdentity: (d) => (M28(d).identity === identityOf(d) ? 1 : 0),
   goldenIntake: (d) => Math.max(0, ...Object.values(M28(d).goldenIntakes).map((x) => x.length)),
-  legendStaff: (d) => (d.staff?.legacy ?? []).length,
+  legendStaff: (d) => (d.careers?.legacyStaff ?? []).length, // (careers.js: a 150+ appearance legend retires into the staff)
   campaignYear: (d) => yearOf(d.league?.lastDay ?? 1),
   positiveCredits: (d) => ((d.league?.credits ?? 0) > 0 ? 1 : 0),
   topTrophy: (d) => (d.league?.crownTitle || cupWins(d, 'C06') || cupWins(d, 'C07') || cupWins(d, 'C08') ? 1 : 0),
   legacyPlayer: (d) => (d.ng?.legacyPlayer ? 1 : 0),
-  allFacilities: (d) => new Set((d.facilities?.placement ?? []).map((p) => p.id)).size,
-  legendXi: (d) => (d.ng?.legendXi ? 1 : 0),
+  allFacilities: (d) => new Set((d.facilities?.placement ?? []).map((p) => p.def)).size,
+  // (M29) Eleven Legends: the best eleven (by overall) average 90+, with 5+ of them home-grown (academy graduates)
+  legendXi: (d) => {
+    const xi = (d.squad?.players ?? []).filter((p) => !p.god).sort((a, b) => overall(b) - overall(a)).slice(0, 11);
+    return xi.length === 11 && xi.reduce((n, p) => n + overall(p), 0) / 11 >= 90 && xi.filter((p) => p.origin === 'academy').length >= 5 ? 1 : 0;
+  },
 };
 // cup:<id> (a cup won), facLevel:<id>, built:<id>, recruited:<featured id>, flag:<achievement> — read by name
 export function prefixed(key, d, acc) {
   const [k, arg] = key.split(':');
   if (k === 'cup') return cupWins(d, arg);
   if (k === 'facLevel') return facLevel(d, arg);
-  if (k === 'built') return (d.facilities?.placement ?? []).some((p) => p.id === arg) ? 1 : 0;
+  if (k === 'built') return (d.facilities?.placement ?? []).some((p) => p.def === arg) ? 1 : 0;
   if (k === 'recruited') return recruited(d, acc, arg);
   if (k === 'flag') return d.achievements?.[arg] || acc?.achievements?.[arg] ? 1 : 0;
   return null;
