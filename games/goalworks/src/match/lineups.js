@@ -60,13 +60,13 @@ function makeTeam(rng, side, used) {
 
 const colourByHex = (hex) => COLOURS.find((c) => c.hex.toLowerCase() === hex.toLowerCase()) ?? null;
 
-export function createMatchSetup({ seed, home, away }) {
+export function createMatchSetup({ seed, home, away, colourBlind = false }) {
   const rng = new Rng(`${seed}:lineups`);
   const used = new Set();
   const h = makeTeam(rng, home, used);
   const a = makeTeam(rng, away, used);
   if (h.colours && a.colours) {
-    const k = matchKits(h.colours, a.colours);
+    const k = matchKits(h.colours, a.colours, { colourBlind }); // (M32) Settings → Colour-blind kit check
     h.kit = k.home;
     a.kit = k.away;
     const ink = (hex) => colourByHex(hex)?.ink ?? '#FFFFFF';

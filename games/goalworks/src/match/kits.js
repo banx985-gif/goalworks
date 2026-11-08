@@ -33,7 +33,8 @@ function keeperFor(avoid) {
   return (KEEPER_COLOURS.find((k) => avoid.every((h) => !clashes(k.hex, h))) ?? KEEPER_COLOURS[0]).hex;
 }
 
-export function matchKits(home, away) {
+export function matchKits(home, away, { colourBlind = false } = {}) {
+  const clashes = clashFor(colourBlind); // (M32) Settings → Colour-blind kit check
   const hp = colourById(home.primary).hex;
   const hs = colourById(home.secondary).hex;
   const ap = colourById(away.primary).hex;
@@ -63,4 +64,38 @@ export function matchKits(home, away) {
 export function kitFromColour(hex, avoid = []) {
   const shorts = colourDistance(hex, '#F7F7F2') < CLASH_DE ? '#222222' : '#F7F7F2';
   return { shirt: hex, shorts, keeper: keeperFor([hex, ...avoid]), change: false };
+}
+
+// (M32) The colour-blind-safe check (bible §39): two shirts are also simulated as a red-blind (protanopia) and a
+// green-blind (deuteranopia) viewer sees them (Machado et al. 2009, full severity, in linear RGB; about 1 man in 12 has
+// one of these; the rare blue-blindness is in seenAs only) and compared there with CVD_SHARE of the clash distance (at the
+// full distance a third of the palette's pairs would count: 0.75 catches exactly the classic red / green confusions). With Settings → Colour-blind kit check on, a pair that looks alike to any of them counts as a
+// clash, so the away side changes kit (matchKits(…, { colourBlind: true })). Off: exactly the Milestone 6 check.
+//   seenAs(hex, kind) → hex      kind: 'protan' | 'deutan' | 'tritan'
+//   cvdClash(a, b) → the first kind for which they clash, or null       kitWarning(home, away, kits) → a plain line or null
+const CVD = {
+  protan: [0.152286, 1.052583, -0.204868, 0.114503, 0.786281, 0.099216, -0.003882, -0.048116, 1.051998],
+  deutan: [0.367322, 0.860646, -0.227968, 0.280085, 0.672501, 0.047413, -0.01182, 0.04294, 0.968881],
+  tritan: [1.255528, -0.076749, -0.178779, -0.078411, 0.930809, 0.147602, 0.004733, 0.691367, 0.3039],
+};
+const toLin = (v) => ((v /= 255) <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4);
+const toSrgb = (v) => Math.round(255 * Math.max(0, Math.min(1, v <= 0.0031308 ? v * 12.92 : 1.055 * v ** (1 / 2.4) - 0.055)));
+export function seenAs(hex, kind) {
+  const n = parseInt(hex.replace('#', ''), 16);
+  const [r, g, b] = [(n >> 16) & 255, (n >> 8) & 255, n & 255].map(toLin);
+  const m = CVD[kind];
+  const out = [m[0] * r + m[1] * g + m[2] * b, m[3] * r + m[4] * g + m[5] * b, m[6] * r + m[7] * g + m[8] * b].map(toSrgb);
+  return `#${out.map((v) => v.toString(16).padStart(2, '0')).join('')}`;
+}
+export const CVD_SHARE = 0.75;
+export const cvdClash = (a, b) => ['protan', 'deutan'].find((k) => colourDistance(seenAs(a, k), seenAs(b, k)) < CLASH_DE * CVD_SHARE) ?? null;
+const clashFor = (colourBlind) => (a, b) => clashes(a, b) || (colourBlind && !!cvdClash(a, b));
+const KIND_WORD = { protan: 'red-blind', deutan: 'green-blind' };
+// Match Setup's warning line: the away side changed kit, and why.
+export function kitWarning(home, away, kits) {
+  if (!kits?.away?.change) return null;
+  const hp = colourById(home.primary).hex;
+  const ap = colourById(away.primary).hex;
+  const kind = clashes(ap, hp) ? null : cvdClash(ap, hp);
+  return kind ? `Kit clash for ${KIND_WORD[kind]} viewers: they wear their away kit` : 'Kit clash: they wear their away kit';
 }

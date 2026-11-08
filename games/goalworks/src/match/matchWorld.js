@@ -594,7 +594,7 @@ export function createMatchWorld(setup, { play = null, start = play ? 'play' : '
     if (!valid(e)) return;
     if (e[1] === 'mode') {
       const m = e[2];
-      if (m === 'play' && !world.control) world.control = createControl(world, { team: world.team, log: world.inputs });
+      if (m === 'play' && !world.control) world.control = createControl(world, { team: world.team, log: world.inputs, assist: world.setup.assist ?? null });
       else if (m !== 'play' && world.control) {
         world.control.detach();
         world.control = null;
@@ -662,7 +662,7 @@ export function createMatchWorld(setup, { play = null, start = play ? 'play' : '
   initAbilities(world); // (M26)
 
   kickoff(0);
-  if (world.start === 'play') world.control = createControl(world, { team: world.team, log: world.inputs });
+  if (world.start === 'play') world.control = createControl(world, { team: world.team, log: world.inputs, assist: world.setup.assist ?? null });
   return world;
 }
 

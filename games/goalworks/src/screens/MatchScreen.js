@@ -70,7 +70,9 @@ const LINE = '#F4F8EE';
 const MINE = '#FFE14A'; // the ring under the player you control
 const CLOSE = 1.35; // the Close camera: this much nearer than Follow
 
-export function createMatchScreen({ renderer, layout, assets, bus = null, input = null, live, onMenu, onContinue, onReplay = null, onProgress = () => {}, onTactics = null, onChange = null, held = () => false, resultLines = () => null, leftHanded = () => false, lowFx = () => false }) {
+export function createMatchScreen({ renderer, layout, assets, bus = null, input = null, live, onMenu, onContinue, onReplay = null, onProgress = () => {}, onTactics = null, onChange = null, held = () => false, resultLines = () => null, leftHanded = () => false, lowFx = () => false, stickSize = () => 'normal', reducedMotion = () => false, shake = () => 'normal', highContrast = () => false }) {
+  // (M32) a short shake on a goal (Settings → Screen shake; none with Reduced motion)
+  const shk = { x: 0, y: 0, t: 0, amp: 0 };
   const W = renderer.width;
   let k = 10; // pixels per metre
   let ox = 0;
@@ -85,7 +87,7 @@ export function createMatchScreen({ renderer, layout, assets, bus = null, input 
   let scrollX = false;
   let shown = ''; // the mode + camera the layout was fitted for
   let offMove = null;
-  const controls = createMatchControls({ layout, input, leftHanded }); // (M12b) Settings → Left-hand controls
+  const controls = createMatchControls({ layout, input, leftHanded, stickSize }); // (M12b) Settings → Left-hand controls; (M32) Stick size
   const ui = createModeUi({ layout, renderer, onTactics, onChange }); // (M9: Manage's Tactics button; M26: Make a change, in the Mode menu)
   const playing = () => !!live()?.world?.control;
   const camera = () => (playing() ? 'follow' : live()?.director?.camera ?? 'full');
@@ -152,8 +154,8 @@ export function createMatchScreen({ renderer, layout, assets, bus = null, input 
     pitchLayer.setPixelScale(renderer.pixelScale);
     pitchLayer.invalidate();
   }
-  const sx = (x) => ox + (x + MX + CX) * k;
-  const sy = (y) => oy + (y + MY + cy) * k * KY;
+  const sx = (x) => ox + shk.x + (x + MX + CX) * k;
+  const sy = (y) => oy + shk.y + (y + MY + cy) * k * KY;
   // Layer coordinates (the cached pitch picture's own px) of pitch metres.
   const lx = (x) => (x + MX + CX) * k;
   const ly = (y) => (y + MY + cy) * k * KY;
@@ -366,10 +368,16 @@ export function createMatchScreen({ renderer, layout, assets, bus = null, input 
     const y = sy(p.y);
     if (p.manual) {
       ctx.save();
-      ctx.strokeStyle = MINE;
-      ctx.lineWidth = Math.max(5, 0.3 * k);
       ctx.beginPath();
       ctx.ellipse(x, y, 1.6 * k, 1.6 * k * 0.55, 0, 0, Math.PI * 2);
+      if (highContrast()) {
+        // (M32) High-contrast pitch: a black edge round a thicker ring
+        ctx.strokeStyle = '#000000';
+        ctx.lineWidth = Math.max(11, 0.62 * k);
+        ctx.stroke();
+      }
+      ctx.strokeStyle = MINE;
+      ctx.lineWidth = Math.max(5, (highContrast() ? 0.42 : 0.3) * k);
       ctx.stroke();
       ctx.restore();
     }
@@ -393,8 +401,13 @@ export function createMatchScreen({ renderer, layout, assets, bus = null, input 
     ctx.ellipse(x, y, 1.0 * k, 1.0 * k * 0.5, 0, 0, Math.PI * 2);
     ctx.fill();
     if (p === world.owner) {
+      if (highContrast()) {
+        ctx.strokeStyle = '#000000';
+        ctx.lineWidth = Math.max(8, 0.46 * k);
+        ctx.stroke();
+      }
       ctx.strokeStyle = '#FFFFFF';
-      ctx.lineWidth = Math.max(3, 0.2 * k);
+      ctx.lineWidth = Math.max(3, (highContrast() ? 0.3 : 0.2) * k);
       ctx.stroke();
     }
     const s = BODY_M * k;
@@ -684,7 +697,7 @@ export function createMatchScreen({ renderer, layout, assets, bus = null, input 
     const x = (W - w) / 2;
     const y = scroll ? (area.top + area.bottom) / 2 - h / 2 : oy + pitchH / 2 - h / 2;
     const t = banner.t;
-    const pop = banner.team != null ? (t < 0.14 ? 0.6 + (t / 0.14) * 0.5 : t < 0.26 ? 1.1 - ((t - 0.14) / 0.12) * 0.1 : 1) : 1;
+    const pop = banner.team != null && !reducedMotion() ? (t < 0.14 ? 0.6 + (t / 0.14) * 0.5 : t < 0.26 ? 1.1 - ((t - 0.14) / 0.12) * 0.1 : 1) : 1;
     ctx.save();
     ctx.globalAlpha = a;
     ctx.translate(W / 2, y + h / 2);
@@ -718,7 +731,7 @@ export function createMatchScreen({ renderer, layout, assets, bus = null, input 
   }
   // Confetti from both sides of the banner, 60 a side (120 at most on screen).
   function goalPop() {
-    if (lowFx()) return; // (M12b) Low graphics / Reduced flashes: no confetti
+    if (lowFx() || reducedMotion()) return; // (M12b) Low graphics / Reduced flashes: no confetti
     const y = scroll ? (area.top + area.bottom) / 2 : oy + pitchH / 2;
     vfx.confetti('screen', W * 0.2, y, { count: MAX_CONFETTI / 2, speed: 700, spreadX: 60 });
     vfx.confetti('screen', W * 0.8, y, { count: MAX_CONFETTI / 2, speed: 700, spreadX: 60 });
@@ -775,6 +788,8 @@ export function createMatchScreen({ renderer, layout, assets, bus = null, input 
         banner = { title: 'GOAL!', sub: `${e.by}${e.own ? ' (og)' : ''} ${e.minute + 1}' — ${team.name}`, t: 0, life: 2.2, color: '#FFD84A', team: e.team };
         crowd.cheer(e.team);
         goalPop();
+        const sh = reducedMotion() ? 'off' : shake();
+        if (sh !== 'off') Object.assign(shk, { t: 0.45, amp: sh === 'low' ? 5 : 11 });
         onProgress(world, 'match:goal');
       } else if (e.type === 'yellow') {
         banner = { title: 'Yellow card', sub: `${e.by} — ${(e.team === 0 ? world.setup.home : world.setup.away).name}`, t: 0, life: 1.6, color: '#F4D03F' };
@@ -877,6 +892,13 @@ export function createMatchScreen({ renderer, layout, assets, bus = null, input 
       fit();
     },
     update(dt) {
+      // (M32) the goal shake fades out over its time
+      if (shk.t > 0) {
+        shk.t = Math.max(0, shk.t - dt);
+        const a = shk.amp * (shk.t / 0.45);
+        shk.x = Math.round(Math.sin(shk.t * 90) * a);
+        shk.y = Math.round(Math.cos(shk.t * 70) * a * 0.6);
+      } else shk.x = shk.y = 0;
       const lv = live();
       if (!lv) return;
       const world = lv.world;
@@ -965,8 +987,8 @@ export function createMatchScreen({ renderer, layout, assets, bus = null, input 
         ctx.rect(0, area.top, W, area.bottom - area.top);
         ctx.clip();
       }
-      pitchLayer.render(ctx, ox, oy);
-      crowd.drawLive(ctx, ox, oy);
+      pitchLayer.render(ctx, ox + shk.x, oy + shk.y);
+      crowd.drawLive(ctx, ox + shk.x, oy + shk.y);
       drawFlags(ctx, 0);
       drawGoal(ctx, 0);
       const teams = [world.setup.home, world.setup.away];

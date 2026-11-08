@@ -7,7 +7,9 @@
 // Input is part of the seeded simulation: the screen (or a test's auto player) calls control.input(frame) before each
 // world.step(); every change of frame is logged against the step it applies to. The save holds that log, so a reload
 // replays the same match exactly (restoreMatchWorld), and nothing here reads real time.
-//   createControl(world, { team = 0, log = [] }) → control     (matchWorld does this whenever Play starts)
+//   createControl(world, { team = 0, log = [], assist }) → control     (matchWorld does this whenever Play starts)
+//     assist (M32, Settings, kept in world.setup.assist from kickoff): { aim: 0–3, switch: 'off'|'low'|'normal'|'high' }.
+//     Missing = aim 0, 'normal': exactly the Milestone 4 control.
 //     log: the match's input log (world.inputs), shared by every Play stint of the match (Milestone 5 mode switching):
 //     a stint reads and writes only the entries from the step it started at.
 //   control.input({ mx, my, btn })   mx, my: the stick, −1 … 1 in pitch directions (x right, y down the screen)
@@ -26,8 +28,11 @@ const DT = MATCH_TIME.step;
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
 
-export function createControl(world, { team = 0, log = [] } = {}) {
+const AIM_ASSIST = [0, 0.25, 0.5, 0.75]; // (M32) how far a pushed stick's aim leans to the open corner
+export function createControl(world, { team = 0, log = [], assist = null } = {}) {
   const T = world.T;
+  const aimAssist = AIM_ASSIST[assist?.aim ?? 0] ?? 0;
+  const autoSwitch = assist?.switch ?? 'normal';
   const C = T.control;
   // log: [[step, qx, qy, btn]] — each change, from the step it applies (shared with the world, never copied)
   const from = world.steps + 1; // this stint's first step
@@ -171,7 +176,8 @@ export function createControl(world, { team = 0, log = [] } = {}) {
     const ours = o && o.team === team;
     if (ours && o.role !== 'GK') p = o; // the ball carrier
     else if (world.pass && world.pass.team === team && world.pass.to && world.pass.to.role !== 'GK') p = world.pass.to; // our pass on its way
-    else if (o !== lastOwner && !ours) p = byBall()[0]; // they won it, or it came loose: the nearest to the ball
+    else if (o !== lastOwner && !ours && autoSwitch !== 'off' && (autoSwitch !== 'low' || !p || dist(p, world.ball) - dist(byBall()[0], world.ball) >= 6)) p = byBall()[0]; // they won it, or it came loose: the nearest to the ball ((M32) Auto-switch Low: only when he is clearly nearer; Off: never)
+    else if (autoSwitch === 'high' && !ours && world.steps % 30 === 0 && p && dist(p, world.ball) - dist(byBall()[0], world.ball) >= 3) p = byBall()[0]; // (M32) High: keeps handing you the nearest while you defend
     else if (pressed & BTN.switch && world.phase === 'play') {
       // the next best: the next one along from the current player, nearest the ball first
       const list = byBall();
@@ -242,7 +248,8 @@ export function createControl(world, { team = 0, log = [] } = {}) {
     const k = world.keeperOf(1 - team);
     const half = PITCH.goalW / 2 - 0.55;
     // the stick across picks the side; with no aim, the corner away from the keeper
-    const ax = Math.abs(mx) >= 0.25 ? Math.sign(mx) * Math.min(1, Math.abs(mx) / 0.7) : k.x > W / 2 ? -1 : 1;
+    const open = k.x > W / 2 ? -1 : 1; // the corner away from the keeper
+    const ax = Math.abs(mx) >= 0.25 ? Math.sign(mx) * Math.min(1, Math.abs(mx) / 0.7) * (1 - aimAssist) + open * aimAssist : open; // (M32) aim assist leans a pushed stick towards it
     shoot(world, p, pressureOn(world, p), { x: W / 2 + ax * half, h: C.shotH });
     ctl.last = { kind: 'shoot', ok: true, step: world.steps };
   }

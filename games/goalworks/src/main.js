@@ -136,6 +136,10 @@ import { drawButton, hitRect, setPressPoint, clearPress } from '../../../core/ui
 import { Settings } from '../../../core/Settings.js';
 import { FrameGovernor } from '../../../core/FrameGovernor.js';
 import { Haptics } from '../../../core/Haptics.js';
+import { AudioManager } from '../../../core/AudioManager.js'; // (M32) every sound made in code (data/audio.js)
+import { createSound } from './app/sound.js';
+import { SOUNDS } from '../data/audio.js';
+import { kitWarning } from './match/kits.js';
 import { setTextScale } from '../../../core/Theme.js';
 import { HintLine } from '../../../core/ui/HintLine.js';
 import { menuSheet, registerMenuIcon } from '../../../core/ui/MenuSheet.js';
@@ -304,6 +308,9 @@ const loop = new FixedStepLoop({
       open.data.playSec = (open.data.playSec ?? 0) + dt;
       if (open.calendar.atKickoff && !open.setupShown && !clubScreen.buildMode) openMatchSetup(); // kickoff day (also right after a reload)
     }
+    // (M32) the club's ambience on the club; the match's crowd and its sounds (from the match's own events and counters)
+    sound.screen(router.currentName);
+    if (router.currentName === 'match' && match?.world) sound.matchFrame(match.world, { attendance: matchCrowd(match.world) });
     autosave.tick(dt);
     if ((pruneT += dt) >= 5) {
       assets.sprites.prune(pruneT, 60); // (M12b) let go of copies not drawn for a minute
@@ -344,8 +351,13 @@ const governor = new FrameGovernor({ mode: govMode(), bus, capFps: true });
 loop.governor = governor;
 const lowFx = () => (governor.state === 'half' && settings.get('fpsMode') !== 'high') || settings.get('reducedFlashes') === true;
 const haptics = new Haptics({ enabled: () => settings.get('haptics') !== false });
+// Milestone 32: sounds (bible §40, all made in code until real files arrive) and touch feedback, by the shared Settings.
+const audio = new AudioManager({ bus, sounds: SOUNDS, basePath: 'assets/audio/' });
+audio.installUnlock(window);
+const sound = createSound({ audio, haptics, settings });
 function applySettings() {
   setTextScale(TEXT_SCALE[settings.get('textSize')] ?? 1);
+  sound.applySettings(); // (M32)
   if (governor.mode !== govMode()) governor.setMode(govMode());
 }
 applySettings();
@@ -821,6 +833,7 @@ const legendQueue = [];
 function pumpLegends() {
   if (!open || !legendQueue.length || dialog.active || awardsNight.active) return false;
   const fid = legendQueue.shift();
+  sound.stinger('legend'); // (M32) a legend at the gates
   const row = FEATURED_STARS[fid];
   const o = SE.playerOffers(open.data).find((x) => x.fid === fid);
   if (!row || !o) return pumpLegends();
@@ -1252,11 +1265,14 @@ async function toggleSpeedFlag(id) {
   debug.log(`account ${id}: ${f[id]}`);
   await campaigns.slots.saveAccount(account);
 }
-// Both kits for Match Setup (the same clash check the match runs).
+// Both kits for Match Setup (the same clash check the match runs); (M32) with the colour-blind check, and why they changed.
 function fixtureKits(club, opp) {
   const sides = fixtureSides(club, opp);
-  return { ...matchKits(sides.home.colours, sides.away.colours), sides };
+  const kits = matchKits(sides.home.colours, sides.away.colours, { colourBlind: settings.get('kitCheck') === true });
+  return { ...kits, sides, warning: kitWarning(sides.home.colours, sides.away.colours, kits) };
 }
+// (M32) The Play assists a match keeps from its kickoff (Settings → Aim assist, Auto-switch).
+const playAssist = () => ({ aim: Number(settings.get('aimAssist') ?? 0) || 0, switch: settings.get('autoSwitch') ?? 'normal' });
 function openMatchSetup() {
   if (!open?.calendar.atKickoff) return;
   open.setupShown = true;
@@ -1271,6 +1287,22 @@ function squadNoteOnSetup() {
   const name = (id) => d.squad.players.find((p) => p.id === id)?.name.split(' ').slice(-1)[0] ?? '—';
   const out = [...MED.injuryList(d).map((p) => `${p.name.split(' ').slice(-1)[0]} (injured)`), ...MED.banList(d).map((p) => `${p.name.split(' ').slice(-1)[0]} (banned)`)];
   return `Bench ${side.bench.length} · penalties ${name(side.takers.pen)}${out.length ? ` · out: ${out.slice(0, 3).join(', ')}${out.length > 3 ? '…' : ''}` : ''}`;
+}
+// (M32) The crowd a match's sound is chosen by: today's home crowd (M24), or the away end's share of theirs; a test match: small.
+let crowdSeen = { world: null, n: 0 };
+function matchCrowd(world) {
+  if (crowdSeen.world === world) return crowdSeen.n;
+  const f = match?.mode === 'fixture' ? open?.calendar.fixture : null;
+  let n = 300;
+  if (f && open) {
+    try {
+      n = STAD.attendance(open.data, { ...f, home: true }, open.calendar.today).crowd ?? 300;
+    } catch {
+      n = 300;
+    }
+  }
+  crowdSeen = { world, n };
+  return n;
 }
 // (M24) Match Setup's crowd: the home crowd expected today ("Crowd 8,412 / 10,000"), sold out or not.
 function crowdOnSetup() {
@@ -1426,7 +1458,8 @@ function kickOff(mode = 'watch') {
       open.data.rivals.twistSeen = open.calendar.today; // (the first countered match: a banner as well as the News line)
       researchBanner.show({ id: `twist:${f.id}`, title: 'They have worked you out…', line: `${f.opponent.name} set up to beat your ${formationById(rv.counter.target).name}`, gives: 'Change your shape now and then to keep them guessing', icon: 'ui_07', color: COL.bad });
     }
-    const setup = createMatchSetup({ seed: `${open.data.seed}:${f.id}`, home: { ...sides.home, players: xi.home, bench: xi.homeBench }, away: { ...sides.away, players: xi.away, bench: xi.awayBench } });
+    const setup = createMatchSetup({ seed: `${open.data.seed}:${f.id}`, home: { ...sides.home, players: xi.home, bench: xi.homeBench }, away: { ...sides.away, players: xi.away, bench: xi.awayBench }, colourBlind: settings.get('kitCheck') === true });
+    setup.assist = playAssist(); // (M32) Aim assist / Auto-switch, kept with the match
     if (rv.rival) setup.rivalry = { banner: rv.banner, band: rv.rival.band.id, roar: rv.roar, cardRisk: rv.cardRisk, intensity: rv.intensity }; // (the crowd roars; M25: the referee is stricter with cards)
     // (M9) both sides' formations, instructions, our roles and familiarity
     const ours = teamSide(open.data);
@@ -1459,7 +1492,8 @@ function resumeMatch() {
 function startTestMatch(seed = PARAMS.get('seed') ?? `test-${Date.now()}`, mode = MODES.includes(PARAMS.get('mode')) ? PARAMS.get('mode') : 'watch') {
   const [a, b] = [REGIONAL_CLUBS[0], REGIONAL_CLUBS[1]];
   const [hs, as] = (PARAMS.get('stats') ?? '').split(',').map((v) => (v ? Math.max(1, Math.min(99, Number(v) || 50)) : undefined));
-  const setup = createMatchSetup({ seed, home: { name: a.name, colours: a.colours, crest: a.crest, stat: hs }, away: { name: b.name, colours: b.colours, crest: b.crest, stat: as } });
+  const setup = createMatchSetup({ seed, home: { name: a.name, colours: a.colours, crest: a.crest, stat: hs }, away: { name: b.name, colours: b.colours, crest: b.crest, stat: as }, colourBlind: settings.get('kitCheck') === true });
+  setup.assist = playAssist(); // (M32)
   liveMatch(createMatchWorld(setup, { start: mode }), 'test');
   debug.log(`test match (${mode}), seed ${seed}`);
   router.go('match');
@@ -1649,6 +1683,10 @@ const matchScreen = createMatchScreen({
   held: () => sheet.active, // (the match waits while a sheet is open over it)
   leftHanded: () => settings.get('leftHanded') === true, // (M12b)
   lowFx,
+  stickSize: () => settings.get('stickSize') ?? 'normal', // (M32) Play controls and comfort
+  reducedMotion: () => settings.get('reducedMotion') === true,
+  shake: () => settings.get('screenShake') ?? 'normal',
+  highContrast: () => settings.get('highContrast') === true,
 });
 function playPlaceholder() {
   const r = open?.calendar.playResult();
@@ -1687,6 +1725,20 @@ function openTactics(from = 'club') {
 }
 const tacticsScreen = createTacticsScreen({ layout, assets, sheet, club: () => open, onBack: () => router.go(tacticsBack), onPlayer: (id) => squadScreen.openDetail(id) });
 const trainingScreen = createTrainingScreen({ layout, assets, sheet, club: () => open, onBack: () => router.go(trainingBack), onPlayer: (id) => squadScreen.openDetail(id) });
+// (M32) The big moments' stingers (the crowd ducks under them), the purchase chime, a click on taps in a sheet or dialog.
+{
+  const show = researchBanner.show.bind(researchBanner);
+  researchBanner.show = (b) => {
+    const id = String(b?.id ?? '');
+    if (id.startsWith('league:up:') || id.startsWith('crown:')) sound.stinger('promotion');
+    else if (id.startsWith('cuptie:') && / winners!$/.test(b.title ?? '')) sound.stinger('trophy');
+    else if (id.startsWith('secret:') || id.startsWith('legend')) sound.stinger('legend');
+    else if (id.startsWith('ach:')) sound.play('uiConfirm');
+    return show(b);
+  };
+}
+bus.on('commerce:purchased', (e) => e?.granted && sound.purchase());
+bus.on('input:up', () => (sheet.active || dialog.active) && sound.tap());
 const clubScreen = createClubScreen({
   renderer,
   layout,
@@ -1705,6 +1757,7 @@ const clubScreen = createClubScreen({
   detailSheet: (st, api) => detailSheet(st, api),
   confirm: (o) => dialog.confirm(o),
   onLayoutChanged: (why) => {
+    sound.build(); // (M32)
     debug.log(`${why}: ${open?.data.league.credits} Credits`);
     autosave.request(why);
   },
@@ -2260,7 +2313,7 @@ function addFeaturedStar(fid) {
 }
 // ?debug=1: a test hook for automated checks.
 if (debug.enabled) {
-  window.__gw = { copySlot, fallbackNote, matchProgress, leaveClub, mon, shopUi, get fakeStore() { return fakeStore; }, END, endingCeremony, ngUi, startNg, get pendingNg() { return pendingNg; }, forceEnding: () => { const d = open.data; const day = Math.max(open.calendar.today, END_DAY); const ev = END.endingDay(d, account, day); saveAccountNow('ending:debug'); pumpArrivals(); return ev; }, godsDay, forceSecret: (id) => { const ev = SE.forceSecret(open.data, id, open.calendar.today, account); for (const e of Array.isArray(ev) ? ev : []) { if (e.kind === 'playerArrival') legendQueue.push(e.fid); if (e.kind === 'secretFound') researchBanner.show({ id: 'secret:' + e.id, title: 'Secret found: ' + e.name + '!', line: secretLine(e.id), gives: 'Menu → Secrets Archive', icon: 'ui_28', color: COL.purple }); } saveAccountNow('secret:debug'); pumpArrivals(); return ev; }, signLegend, legendQueue, ACH, achievementsUi, achievementsDay, ABL, abilityEvent, grantAbility: (id, ab) => { const p = open?.data.squad.players.find((x) => x.id === id); return p ? ABL.grant(p, ab, { open: true }) : null; }, openMatchChange, MED, SPM, STAD, stadiumUi, walkerScene, setWalkerOverride: (o) => (walkerOverride = o), FIN, SP, FAN, BOARD, financeUi, pumpMoney, RIV, rivalsUi, pumpRivals, VD, awardsNight, debugAwardsNight, debugShowcase, pumpAwards, syncGreatTeams, tournamentsUi, pumpArrivals, godUi, GD, SE, signGod, releaseGod, renderer, layout, input, loop, router, assets, sheet, dialog, systemBack, textPrompt, splashScreen, menuScreen, slotsScreen, setupScreen, clubScreen, squadScreen, trainingScreen, openTraining, tacticsScreen, openTactics, openMatchTactics, playSlot, startClub, deleteSlot, openShop, setRank, facilityBonus, researchUi, researchBanner, get research() { return open?.research ?? null; }, newGame, openLeague, openCountyOffer, openPromotionOffer, openCrownChampions, addFeaturedStar, overall, openShield, commitCupTie, LG, CUP, acceptChallenge, issueChallenge, transfers: transfersUi, TR, openMatchSetup, playPlaceholder, kickOff, startTestMatch, matchScreen, restoreMatchWorld, get match() { return match; }, toggleSpeedFlag, autosave, saveRun, canvasLost, canvasLossCount, itemsUi, staffUi, normaliseStaff, academyUi, AC, openStaffRole, hofUi, CA, syncHallOfFame, facilityLevel: (id) => (open ? facilityLevel(open.data, id) : 0), get items() { return open?.items ?? null; }, settings, governor, lowFx, haptics, hintLine, openNavMenu, MENU_OPEN, menuState, openSettings, get account() { return account; }, taps: [], get campaigns() { return campaigns; }, get open() { return open; } };
+  window.__gw = { sound, audio, playAssist, copySlot, fallbackNote, matchProgress, leaveClub, mon, shopUi, get fakeStore() { return fakeStore; }, END, endingCeremony, ngUi, startNg, get pendingNg() { return pendingNg; }, forceEnding: () => { const d = open.data; const day = Math.max(open.calendar.today, END_DAY); const ev = END.endingDay(d, account, day); saveAccountNow('ending:debug'); pumpArrivals(); return ev; }, godsDay, forceSecret: (id) => { const ev = SE.forceSecret(open.data, id, open.calendar.today, account); for (const e of Array.isArray(ev) ? ev : []) { if (e.kind === 'playerArrival') legendQueue.push(e.fid); if (e.kind === 'secretFound') researchBanner.show({ id: 'secret:' + e.id, title: 'Secret found: ' + e.name + '!', line: secretLine(e.id), gives: 'Menu → Secrets Archive', icon: 'ui_28', color: COL.purple }); } saveAccountNow('secret:debug'); pumpArrivals(); return ev; }, signLegend, legendQueue, ACH, achievementsUi, achievementsDay, ABL, abilityEvent, grantAbility: (id, ab) => { const p = open?.data.squad.players.find((x) => x.id === id); return p ? ABL.grant(p, ab, { open: true }) : null; }, openMatchChange, MED, SPM, STAD, stadiumUi, walkerScene, setWalkerOverride: (o) => (walkerOverride = o), FIN, SP, FAN, BOARD, financeUi, pumpMoney, RIV, rivalsUi, pumpRivals, VD, awardsNight, debugAwardsNight, debugShowcase, pumpAwards, syncGreatTeams, tournamentsUi, pumpArrivals, godUi, GD, SE, signGod, releaseGod, renderer, layout, input, loop, router, assets, sheet, dialog, systemBack, textPrompt, splashScreen, menuScreen, slotsScreen, setupScreen, clubScreen, squadScreen, trainingScreen, openTraining, tacticsScreen, openTactics, openMatchTactics, playSlot, startClub, deleteSlot, openShop, setRank, facilityBonus, researchUi, researchBanner, get research() { return open?.research ?? null; }, newGame, openLeague, openCountyOffer, openPromotionOffer, openCrownChampions, addFeaturedStar, overall, openShield, commitCupTie, LG, CUP, acceptChallenge, issueChallenge, transfers: transfersUi, TR, openMatchSetup, playPlaceholder, kickOff, startTestMatch, matchScreen, restoreMatchWorld, get match() { return match; }, toggleSpeedFlag, autosave, saveRun, canvasLost, canvasLossCount, itemsUi, staffUi, normaliseStaff, academyUi, AC, openStaffRole, hofUi, CA, syncHallOfFame, facilityLevel: (id) => (open ? facilityLevel(open.data, id) : 0), get items() { return open?.items ?? null; }, settings, governor, lowFx, haptics, hintLine, openNavMenu, MENU_OPEN, menuState, openSettings, get account() { return account; }, taps: [], get campaigns() { return campaigns; }, get open() { return open; } };
 }
 
 router.go('boot');

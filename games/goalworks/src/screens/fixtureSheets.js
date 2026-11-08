@@ -365,7 +365,11 @@ export function matchSetupSheet({ calendar, clubName, kits = () => null, onKickO
 
 // Both kits on one line: [shirt] Red / Navy  v  [shirt] Pitch Green / Gold (change). The glyph draws the whole line (the
 // second shirt sits mid-line), so the sheet's own text is a blank.
+// (M32) and under it, when the away side changed kit, why (a clash, or one only a colour-blind viewer would see)
 function kitLine(k) {
+  return k ? [...kitLine0(k), ...(k.warning ? [`⚠ ${k.warning}`] : [])] : [];
+}
+function kitLine0(k) {
   if (!k) return [];
   const a = `${colourName(k.home.shirt)} / ${colourName(k.home.shorts)}`;
   const b = `${colourName(k.away.shirt)} / ${colourName(k.away.shorts)}${k.away.change ? ' (change kit)' : ''}`;

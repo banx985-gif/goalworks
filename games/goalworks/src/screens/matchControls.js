@@ -23,8 +23,9 @@ const C = THEME.color;
 const S = THEME.size;
 export const BAND_H = 560; // the controls band (logical px)
 const INFO_H = 78; // its top row: who is controlled, stamina
-const STICK_R = 130; // pad radius; a full push is this far from the centre
-const KNOB_R = 58;
+const STICK_R0 = 130; // pad radius at Normal; a full push is this far from the centre
+const KNOB_R0 = 58;
+export const STICK_SCALE = { small: 0.8, normal: 1, large: 1.25 }; // (M32) Settings → Stick size
 const BUTTONS = [
   // offsets from the band's bottom-right corner
   { id: 'action', dx: -150, dy: -160, r: 112 },
@@ -36,7 +37,8 @@ const BIT = { pass: BTN.pass, action: BTN.action, sprint: BTN.sprint, switch: BT
 const KEYS = { j: 'pass', k: 'action', shift: 'sprint', l: 'switch' };
 const KEY_LABEL = { pass: 'J', action: 'K', sprint: 'Shift', switch: 'L' };
 
-export function createMatchControls({ layout, input = null, leftHanded = () => false }) {
+export function createMatchControls({ layout, input = null, leftHanded = () => false, stickSize = () => 'normal' }) {
+  const STICK_R_OF = () => STICK_R0 * (STICK_SCALE[stickSize()] ?? 1);
   const fingers = new Map(); // pointer id → { kind: 'stick' } | { kind: 'button', id }
   let stick = null; // { id, cx, cy, x, y } — the pad and where the finger is now
   let latched = 0; // buttons pressed since the last step (a very short tap still counts once)
@@ -53,7 +55,7 @@ export function createMatchControls({ layout, input = null, leftHanded = () => f
   };
   const stickHome = () => {
     const z = stickZone();
-    return { x: leftHanded() ? z.x + z.w - 40 - STICK_R : z.x + 40 + STICK_R, y: z.y + z.h / 2 + 10 };
+    return { x: leftHanded() ? z.x + z.w - 40 - STICK_R_OF() : z.x + 40 + STICK_R_OF(), y: z.y + z.h / 2 + 10 };
   };
   const buttons = () => {
     const b = band();
@@ -128,8 +130,8 @@ export function createMatchControls({ layout, input = null, leftHanded = () => f
       if (!stick && inside(p, stickZone())) {
         // the pad appears under the thumb (kept whole inside the band)
         const z = stickZone();
-        const cx = Math.max(z.x + STICK_R + 8, Math.min(z.x + z.w - STICK_R, p.x));
-        const cy = Math.max(z.y + STICK_R, Math.min(z.y + z.h - STICK_R - 8, p.y));
+        const cx = Math.max(z.x + STICK_R_OF() + 8, Math.min(z.x + z.w - STICK_R_OF(), p.x));
+        const cy = Math.max(z.y + STICK_R_OF(), Math.min(z.y + z.h - STICK_R_OF() - 8, p.y));
         stick = { id: p.id, cx, cy, x: p.x, y: p.y };
         fingers.set(p.id, { kind: 'stick' });
         return true;
@@ -171,8 +173,8 @@ export function createMatchControls({ layout, input = null, leftHanded = () => f
       let mx = 0;
       let my = 0;
       if (stick) {
-        mx = (stick.x - stick.cx) / STICK_R;
-        my = (stick.y - stick.cy) / STICK_R;
+        mx = (stick.x - stick.cx) / STICK_R_OF();
+        my = (stick.y - stick.cy) / STICK_R_OF();
       } else {
         mx = (keys.has('ArrowRight') || keys.has('d') ? 1 : 0) - (keys.has('ArrowLeft') || keys.has('a') ? 1 : 0);
         my = (keys.has('ArrowDown') || keys.has('s') ? 1 : 0) - (keys.has('ArrowUp') || keys.has('w') ? 1 : 0);
@@ -242,7 +244,7 @@ export function createMatchControls({ layout, input = null, leftHanded = () => f
       ctx.strokeStyle = 'rgba(255,255,255,0.75)';
       ctx.lineWidth = 5;
       ctx.beginPath();
-      ctx.arc(cx, cy, STICK_R, 0, Math.PI * 2);
+      ctx.arc(cx, cy, STICK_R_OF(), 0, Math.PI * 2);
       ctx.fill();
       ctx.stroke();
       let kx = cx;
@@ -251,7 +253,7 @@ export function createMatchControls({ layout, input = null, leftHanded = () => f
         const dx = stick.x - cx;
         const dy = stick.y - cy;
         const d = Math.hypot(dx, dy);
-        const k = d > STICK_R ? STICK_R / d : 1;
+        const k = d > STICK_R_OF() ? STICK_R_OF() / d : 1;
         kx = cx + dx * k;
         ky = cy + dy * k;
       }
@@ -259,11 +261,11 @@ export function createMatchControls({ layout, input = null, leftHanded = () => f
       ctx.strokeStyle = C.outline;
       ctx.lineWidth = 4;
       ctx.beginPath();
-      ctx.arc(kx, ky, KNOB_R, 0, Math.PI * 2);
+      ctx.arc(kx, ky, (KNOB_R0 * (STICK_SCALE[stickSize()] ?? 1)), 0, Math.PI * 2);
       ctx.fill();
       ctx.stroke();
       ctx.restore();
-      if (!stick) text(ctx, touchSeen ? 'Move' : 'Move · WASD', cx, cy + STICK_R + 26, { size: S.small, bold: true, color: C.textOnDark, align: 'center', baseline: 'middle' });
+      if (!stick) text(ctx, touchSeen ? 'Move' : 'Move · WASD', cx, cy + STICK_R_OF() + 26, { size: S.small, bold: true, color: C.textOnDark, align: 'center', baseline: 'middle' });
 
       // the buttons
       const ours = world.owner ? world.owner.team === ctl.team : false;

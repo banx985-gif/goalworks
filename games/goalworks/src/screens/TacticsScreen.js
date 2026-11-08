@@ -8,7 +8,7 @@
 // squad, the game's suggestion first: the best by the stats; an injured or banned taker is covered by the next best on
 // the day) and the routine for corners and wide free kicks (Near Post, Far Post, Edge, Short, Mixed).
 //   createTacticsScreen({ layout, assets, sheet, club, onBack, onPlayer })   club() → the open campaign or null
-import { THEME, font } from '../../../../core/Theme.js';
+import { THEME, font, textScale } from '../../../../core/Theme.js';
 import { ScrollPanel } from '../../../../core/ui/ScrollPanel.js';
 import { drawButton, hitRect } from '../../../../core/ui/Button.js';
 import { card, text } from '../../../../core/ui/Kit.js';
@@ -101,7 +101,7 @@ export function createTacticsScreen({ layout, assets, sheet, club, onBack, onPla
       ctx.restore();
       text(ctx, fam < FAMILIARITY.comfortable ? 'Not settled yet: positions drift and mistakes grow. Training and matches in it help.' : 'Settled: no penalty.', PAD, by + 52, { size: S.small, color: C.textMuted, maxWidth: cw });
     }
-    y += 110;
+    y += Math.max(110, 52 + Math.ceil(S.small * textScale() * 1.3) + 21); // (M32: room for the line under the bar at Larger text)
     // --- the pitch ---
     const ph = Math.round(cw * 1.05);
     const pr = { x: PAD, y, w: cw, h: ph };
