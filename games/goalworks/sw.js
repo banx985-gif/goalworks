@@ -10,7 +10,7 @@
 // This game imports the shared series engine from ../../core/, which sits
 // outside this folder. Requests from the game page still pass through this
 // worker, so the engine files are cached too.
-const VERSION = '20261109-140730';
+const VERSION = '20261114-183305';
 const CACHE = 'goalworks-' + VERSION;
 
 // The page itself + manifest + icons, so the app opens offline straight away.
@@ -54,5 +54,23 @@ self.addEventListener('fetch', (event) => {
       })
       .catch(() => caches.match(req, { ignoreSearch: true })
         .then((hit) => hit || (req.mode === 'navigate' ? caches.match('./index.html') : Response.error())))
+  );
+});
+
+// (13 Nov, Aaron's rule 2) a tapped notification: hand it to the open game (it loads the club's slot and opens the
+// screen), or open the game on it. Phone browsers show notifications only through the service worker.
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  const data = event.notification.data || {};
+  event.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((all) => {
+      const page = all[0];
+      if (page) {
+        page.postMessage({ type: 'notify:open', data });
+        return page.focus();
+      }
+      const open = data.open && data.open.screen ? '?open=' + encodeURIComponent(data.open.screen) + '&slot=' + (data.open.slot | 0) : '';
+      return self.clients.openWindow('./index.html' + open);
+    })
   );
 });
