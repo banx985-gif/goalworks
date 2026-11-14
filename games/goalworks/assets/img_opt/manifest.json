@@ -4009,44 +4009,24 @@
   "original": 1313517,
   "lanczos": true
  },
- "god_havoc_sheet": {
-  "folder": "cast/sprites",
-  "recipe": "0e8769682c163e3b9bd0f42e34ff1c1d35c313db|1024x1024|q0.85",
-  "w": 1024,
-  "h": 1024,
-  "webp": 255990,
-  "png": 680358,
-  "original": 1732505,
+ "staff_legend_aaron": {
+  "folder": "staff",
+  "recipe": "bf6bcbc1dfa22d0835fd4b469068f0e7a93c4042|512x512|q0.85",
+  "w": 512,
+  "h": 512,
+  "webp": 31178,
+  "png": 198506,
+  "original": 198506,
   "lanczos": true
  },
- "god_jinx_sheet": {
+ "chibi_71_aaron_banx_games_founder_sheet": {
   "folder": "cast/sprites",
-  "recipe": "b15bd9f519c7f735667342af38db2e0bafb5d779|1024x1024|q0.85",
+  "recipe": "0d530243dc31da277bf6e087fd6c20c6afcc384b|1024x1024|q0.85",
   "w": 1024,
   "h": 1024,
-  "webp": 228090,
-  "png": 657569,
-  "original": 1704908,
-  "lanczos": true
- },
- "god_kaching_sheet": {
-  "folder": "cast/sprites",
-  "recipe": "5030beaa09ff66a321b39efa4c864a0a9a30bd8d|1024x1024|q0.85",
-  "w": 1024,
-  "h": 1024,
-  "webp": 196880,
-  "png": 538010,
-  "original": 1428859,
-  "lanczos": true
- },
- "god_zip_sheet": {
-  "folder": "cast/sprites",
-  "recipe": "346fbd73a4ecd7cc348fa47e8aba5adefec22051|1024x1024|q0.85",
-  "w": 1024,
-  "h": 1024,
-  "webp": 214096,
-  "png": 572276,
-  "original": 1444883,
+  "webp": 184054,
+  "png": 493679,
+  "original": 1333209,
   "lanczos": true
  }
 }
